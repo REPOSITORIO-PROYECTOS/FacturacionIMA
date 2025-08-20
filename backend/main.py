@@ -2,6 +2,6 @@ from fastapi import FastAPI
 
 app = FastAPI()
 
-@app.get("/")
+@app.get("/saludo")
 def read_root():
-    return {"message": "¡El Backend de la API está funcionando!"}
+    return {"message": "Hola, este es un saludo desde el back"}
