@@ -1,0 +1,85 @@
+name: Deploy IMA Production
+
+on:
+  push:
+    branches: [ "main" ]
+
+jobs:
+  # ------------------------------------------------------------------
+  # PASO 1: Detectar qué carpetas han cambiado
+  # ------------------------------------------------------------------
+  changes:
+    runs-on: ubuntu-latest
+    # Define las "salidas" que este trabajo producirá para que otros puedan usarlas.
+    # La advertencia del linter aparece aquí, pero es seguro ignorarla.
+    outputs:
+      backend: ${{ steps.filter.outputs.backend }}
+      frontend: ${{ steps.filter.outputs.frontend }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v2
+        id: filter
+        with:
+          filters: |
+            backend:
+              - 'backend/**'
+            frontend:
+              - 'frontend/**'
+
+  # ------------------------------------------------------------------
+  # PASO 2: Desplegar el BACKEND (si es necesario)
+  # ------------------------------------------------------------------
+  deploy-backend:
+    name: Deploy Backend (Python)
+    needs: changes # Debe esperar a que el trabajo 'changes' termine
+    if: needs.changes.outputs.backend == 'true' # Condición para ejecutarse
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy Backend via SSH
+        uses: appleboy/ssh-action@master
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_KEY }}
+          script: |
+            export NVM_DIR="$HOME/.nvm"
+            [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
+            cd ${{ secrets.PROJECT_PATH }}
+            git fetch --all
+            git reset --hard origin/main
+            echo "🚀 Desplegando Backend..."
+            cd backend
+            source venv/bin/activate
+            pip install -r requirements.txt
+            deactivate
+            $HOME/.nvm/versions/node/$(nvm version)/bin/pm2 reload ${{ secrets.PROJECT_PATH }}/ecosystem.config.js --only IMA-api
+            echo "✅ Backend Desplegado!"
+
+  # ------------------------------------------------------------------
+  # PASO 3: Desplegar el FRONTEND (si es necesario)
+  # ------------------------------------------------------------------
+  deploy-frontend:
+    name: Deploy Frontend (Next.js)
+    needs: changes # Debe esperar a que el trabajo 'changes' termine
+    if: needs.changes.outputs.frontend == 'true' # Condición para ejecutarse
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy Frontend via SSH
+        uses: appleboy/ssh-action@master
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_KEY }}
+          script: |
+            export NVM_DIR="$HOME/.nvm"
+            [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
+            cd ${{ secrets.PROJECT_PATH }}
+            git fetch --all
+            git reset --hard origin/main
+            echo "🚀 Desplegando Frontend..."
+            cd frontend
+            rm -rf .next/
+            npm install
+            npm run build
+            $HOME/.nvm/versions/node/$(nvm version)/bin/pm2 reload ${{ secrets.PROJECT_PATH }}/ecosystem.config.js --only IMA-frontend
+            echo "✅ Frontend Desplegado!"
