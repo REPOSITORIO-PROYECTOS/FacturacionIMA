@@ -2,7 +2,7 @@ from fastapi import APIRouter, HTTPException
 
 from typing import Any, Dict, List
 
-from backend.utils.tablasHandler import TablasHandler
+from utils.tablasHandler import TablasHandler
 
 router = APIRouter(
     prefix="/boletas"
