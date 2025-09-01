@@ -19,7 +19,7 @@ origins = [
     "https://www.facturador-ima.sistemataup.online",
 ]
 
-app.include_router(boletas)
+app.include_router(boletas.router)
 
 app.add_middleware(
     CORSMiddleware,
