@@ -7,7 +7,7 @@ print("--- Cargando config.py (Versión Explícita) ---")
 
 # Definimos la ruta absoluta al archivo .env
 # Esto elimina cualquier ambigüedad sobre dónde buscarlo.
-dotenv_path = "/home/sgi_user/proyectos/facturacionIMA/.env"
+dotenv_path = "/home/sgi_user/proyectos/FacturacionIMA/.env"
 
 # Cargamos las variables desde esa ruta específica
 load_dotenv(dotenv_path=dotenv_path)
@@ -66,4 +66,5 @@ if not CREDENTIALS_FILE_PATH.exists():
 # ===== FIN DE LA MODIFICACIÓN =====
 
 print(f"DEBUG_CFG: Configuración cargada. Usando GOOGLE_SERVICE_ACCOUNT_FILE='{GOOGLE_SERVICE_ACCOUNT_FILE}'")
-# ...
+for key in ["DB_HOST", "DB_USER", "DB_PASSWORD", "DB_NAME"]:
+    print(f"{key} = {os.getenv(key)}")
