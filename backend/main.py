@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from backend import config # (y otros que necesites)
 from backend.utils.mysql_handler import get_db_connection
-
+from backend.app.blueprints import boletas
 
 app = FastAPI(
     title="API Facturacion IMA",
@@ -18,6 +18,8 @@ origins = [
     "https://www.facturador-ima.sistemataup.online/",
     "https://www.facturador-ima.sistemataup.online",
 ]
+
+app.include_router(boletas)
 
 app.add_middleware(
     CORSMiddleware,
