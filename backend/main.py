@@ -1,9 +1,9 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from backend import config # (y otros que necesites)
-from backend.utils.mysql_handler import get_db_connection
-from backend.app.blueprints import boletas
+from . import config # (y otros que necesites)
+from .utils.mysql_handler import get_db_connection
+from .app.blueprints import boletas
 
 app = FastAPI(
     title="API Facturacion IMA",
