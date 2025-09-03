@@ -1,104 +1,115 @@
-import Image from "next/image";
 
-export default function Home() {
+"use client";
+type ErrorResponse = {
+  detail: string;
+};
+
+
+import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
+
+type Boleta = {
+  id: number;
+  tabla: string;
+  [key: string]: string | number | boolean | null;
+};
+
+type Tabla = {
+  id: number | string;
+  nombre: string;
+};
+
+export default function HomePage() {
+  const [boletas, setBoletas] = useState<Boleta[]>([]);
+  const [tablas, setTablas] = useState<Tabla[]>([]);
+  const [error, setError] = useState("");
+  const [tablaSeleccionada, setTablaSeleccionada] = useState("");
+  const [busqueda, setBusqueda] = useState("");
+  const router = useRouter();
+
+  useEffect(() => {
+    const token = localStorage.getItem("token");
+    if (!token) {
+      router.push("/login");
+      return;
+    }
+    // Traer boletas
+    fetch("/api/boletas", {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+      .then(res => res.json())
+      .then((data: Boleta[]) => {
+  if (Array.isArray(data)) setBoletas(data);
+  else if (typeof data === 'object' && data !== null && 'detail' in data) setError((data as ErrorResponse).detail || "Error al cargar boletas");
+  else setError("Error al cargar boletas");
+      })
+  .catch(() => setError("Error de conexión"));
+    // Traer tablas
+    fetch("/api/tablas", {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+      .then(res => res.json())
+      .then((data: Tabla[]) => {
+        if (Array.isArray(data)) setTablas(data);
+      })
+  .catch(() => setError("Error al cargar tablas"));
+  }, [router]);
+
+
+  // Filtrar boletas por tabla y búsqueda
+  const boletasFiltradas = boletas.filter(b => {
+    const coincideTabla = tablaSeleccionada ? b.tabla === tablaSeleccionada : true;
+    const coincideBusqueda = busqueda
+      ? Object.values(b).some(v =>
+          v && v.toString().toLowerCase().includes(busqueda.toLowerCase())
+        )
+      : true;
+    return coincideTabla && coincideBusqueda;
+  });
+
   return (
-    <div className="font-sans grid grid-rows-[20px_1fr_20px] items-center justify-items-center min-h-screen p-8 pb-20 gap-16 sm:p-20">
-      <h1>Hola, esta es una prueba </h1>
-      <main className="flex flex-col gap-[32px] row-start-2 items-center sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={180}
-          height={38}
-          priority
+    <div>
+      <h2>Facturación - Boletas</h2>
+      {error && <p className="error-message">{error}</p>}
+      <div className="filtros-facturacion">
+        <label htmlFor="tabla-select">Filtrar por tabla: </label>
+        <select
+          id="tabla-select"
+          title="Seleccionar tabla"
+          value={tablaSeleccionada}
+          onChange={e => setTablaSeleccionada(e.target.value)}
+        >
+          <option value="">Todas</option>
+          {tablas.map((t) => (
+            <option key={t.id} value={t.nombre}>{t.nombre}</option>
+          ))}
+        </select>
+        <input
+          type="text"
+          className="busqueda-facturacion"
+          placeholder="Buscar por campo, fecha, etc."
+          value={busqueda}
+          onChange={e => setBusqueda(e.target.value)}
         />
-        <ol className="font-mono list-inside list-decimal text-sm/6 text-center sm:text-left">
-          <li className="mb-2 tracking-[-.01em]">
-            Get started by editing{" "}
-            <code className="bg-black/[.05] dark:bg-white/[.06] font-mono font-semibold px-1 py-0.5 rounded">
-              src/app/page.tsx
-            </code>
-            .
-          </li>
-          <li className="tracking-[-.01em]">
-            Save and see your changes instantly.
-          </li>
-        </ol>
-
-        <div className="flex gap-4 items-center flex-col sm:flex-row">
-          <a
-            className="rounded-full border border-solid border-transparent transition-colors flex items-center justify-center bg-foreground text-background gap-2 hover:bg-[#383838] dark:hover:bg-[#ccc] font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 sm:w-auto"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={20}
-              height={20}
-            />
-            Deploy now
-          </a>
-          <a
-            className="rounded-full border border-solid border-black/[.08] dark:border-white/[.145] transition-colors flex items-center justify-center hover:bg-[#f2f2f2] dark:hover:bg-[#1a1a1a] hover:border-transparent font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 w-full sm:w-auto md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Read our docs
-          </a>
-        </div>
-      </main>
-      <footer className="row-start-3 flex gap-[24px] flex-wrap items-center justify-center">
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/file.svg"
-            alt="File icon"
-            width={16}
-            height={16}
-          />
-          Learn
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/window.svg"
-            alt="Window icon"
-            width={16}
-            height={16}
-          />
-          Examples
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/globe.svg"
-            alt="Globe icon"
-            width={16}
-            height={16}
-          />
-          Go to nextjs.org →
-        </a>
-      </footer>
+      </div>
+      <table className="tabla-facturacion">
+        <thead>
+          <tr>
+            {boletasFiltradas.length > 0 && Object.keys(boletasFiltradas[0]).map((key) => (
+              <th key={key}>{key}</th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {boletasFiltradas.map((b) => (
+            <tr key={b.id}>
+              {Object.keys(b).map((k) => (
+                <td key={k}>{String(b[k])}</td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   );
 }
