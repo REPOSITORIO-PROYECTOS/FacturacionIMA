@@ -47,7 +47,8 @@ if not GOOGLE_SERVICE_ACCOUNT_FILE:
 AFIP_CUIT: str = os.getenv("AFIP_CUIT")
 AFIP_CERT: str = os.getenv("AFIP_CERT")
 AFIP_KEY: str = os.getenv("AFIP_KEY")
-
+AFIP_COND_EMISOR : str = os.getenv("AFIP_COND_EMISOR")
+AFIP_PUNTO_VENTA : str = os.getenv("AFIP_PUNTO_VENTA")
     # URL del microservicio de facturación
 FACTURACION_API_URL: str = os.getenv("FACTURACION_API_URL", "http://localhost:8002/afipws/facturador")
 

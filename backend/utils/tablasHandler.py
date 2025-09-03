@@ -19,7 +19,6 @@ class TablasHandler:
         self.google_sheet_id = GOOGLE_SHEET_ID
         self.client = self._init_client()
 
-
     def _init_client(self) -> Optional[gspread.Client]:
         global gspread_client
         if gspread_client is None:
@@ -44,8 +43,41 @@ class TablasHandler:
             except gspread.exceptions.WorksheetNotFound:
                 print("❌ ERROR: La hoja de cálculo no tiene una pestaña llamada 'INGRESOS'.")
             except Exception as e:
-                # ¡IMPRIME EL ERROR REAL!
                 print(f"❌ Error detallado al cargar datos de INGRESOS: {type(e).__name__} - {e}")
         else:
             print("Cliente de Google Sheets no disponible.")
-        return [] # Devuelve lista vacía en caso de cualquier error
+        return [] 
+
+
+
+    def marcar_boleta_facturada(self, id_ingreso: str): 
+        if not self.client:
+            print("Cliente de Google Sheets no disponible.")
+            return None
+
+        try:
+            sheet = self.client.open_by_key(self.google_sheet_id)
+            worksheet = sheet.worksheet("INGRESOS")
+
+            # Traer todas las filas como listas (incluye encabezados)
+            all_values = worksheet.get_all_values()
+            headers = all_values[0]
+
+            # Buscar índices de columnas relevantes
+            id_col_index = headers.index("ID Ingresos")
+            fact_col_index = headers.index("facturacion")
+
+            # Buscar la fila por ID
+            for row_idx, row in enumerate(all_values[1:], start=2):  # start=2 porque empieza después del header
+                if row[id_col_index] == id_ingreso:
+                    # Actualizar celda de facturación
+                    worksheet.update_cell(row_idx, fact_col_index + 1, "facturado")
+                    print(f"✅ Boleta {id_ingreso} marcada como facturada")
+                    return True
+
+            print(f"⚠️ No se encontró boleta con ID {id_ingreso}")
+            return False
+
+        except Exception as e:
+            print(f"❌ Error al actualizar boleta: {type(e).__name__} - {e}")
+            return False
