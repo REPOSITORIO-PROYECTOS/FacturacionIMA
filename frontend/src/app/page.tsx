@@ -100,7 +100,7 @@ export default function HomePage() {
         />
       </div>
       {loading ? (
-        <div style={{ textAlign: "center", padding: "2rem" }}>
+        <div className="facturacion-loader">
           <span className="loader" />
           <p>Cargando boletas...</p>
         </div>
