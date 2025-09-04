@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 
 export default function LoginPage() {
@@ -7,6 +7,16 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const router = useRouter();
+
+  // Aplicar tema guardado al cargar
+  useEffect(() => {
+    const tema = localStorage.getItem("tema");
+    if (tema === "oscuro") {
+      document.body.classList.add("dark-theme");
+    } else {
+      document.body.classList.remove("dark-theme");
+    }
+  }, []);
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -33,24 +43,34 @@ export default function LoginPage() {
   }
 
   return (
-    <div>
-      <h2>Login</h2>
-      <form onSubmit={handleSubmit}>
-        <input
-          type="text"
-          placeholder="Usuario"
-          value={username}
-          onChange={e => setUsername(e.target.value)}
-        />
-        <input
-          type="password"
-          placeholder="Contraseña"
-          value={password}
-          onChange={e => setPassword(e.target.value)}
-        />
-        <button type="submit">Entrar</button>
-      </form>
-      {error && <p className="error-message">{error}</p>}
+    <div className="login-bg">
+      <div className="login-container">
+        <h2 className="login-title">Iniciar sesión</h2>
+        <form className="login-form" onSubmit={handleSubmit}>
+          <input
+            type="text"
+            placeholder="Usuario"
+            value={username}
+            onChange={e => setUsername(e.target.value)}
+            className="login-input"
+            aria-label="Usuario"
+          />
+          <input
+            type="password"
+            placeholder="Contraseña"
+            value={password}
+            onChange={e => setPassword(e.target.value)}
+            className="login-input"
+            aria-label="Contraseña"
+          />
+          <button type="submit" className="login-btn">Entrar</button>
+        </form>
+        <button className="login-theme-btn" onClick={() => {
+          const esOscuro = document.body.classList.toggle("dark-theme");
+          localStorage.setItem("tema", esOscuro ? "oscuro" : "claro");
+        }}>Cambiar tema</button>
+        {error && <p className="error-message">{error}</p>}
+      </div>
     </div>
   );
 }
