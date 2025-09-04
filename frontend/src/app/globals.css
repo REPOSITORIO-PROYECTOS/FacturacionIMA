@@ -1,3 +1,115 @@
+/* Loader y paginación */
+.loader {
+  display: inline-block;
+  width: 32px;
+  height: 32px;
+  border: 4px solid #1976d2;
+  border-top: 4px solid #bbdefb;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+  margin-bottom: 1rem;
+}
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+.paginacion-facturacion {
+  display: flex;
+  gap: 1rem;
+  align-items: center;
+  justify-content: center;
+  margin: 2rem 0;
+}
+.paginacion-facturacion button {
+  background: #1976d2;
+  color: #fff;
+  border: none;
+  border-radius: 4px;
+  padding: 6px 16px;
+  font-weight: bold;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+.paginacion-facturacion button:disabled {
+  background: #ccc;
+  color: #888;
+  cursor: not-allowed;
+}
+/* FORMULARIOS FACTURACION */
+.form-facturacion {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-width: 320px;
+}
+.enlace-registrar-usuario {
+  display: inline-block;
+  margin-bottom: 16px;
+  color: #1976d2;
+  font-weight: bold;
+  text-decoration: none;
+  font-size: 1rem;
+}
+.enlace-registrar-usuario:hover {
+  text-decoration: underline;
+  color: #0d47a1;
+}
+/* NAVBAR */
+.navbar-facturacion {
+  background: #1976d2;
+  padding: 0.5rem 1.5rem;
+  margin-bottom: 2rem;
+}
+.navbar-facturacion ul {
+  display: flex;
+  gap: 2rem;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.navbar-facturacion a {
+  color: #fff;
+  text-decoration: none;
+  font-weight: bold;
+  font-size: 1.1rem;
+  transition: color 0.2s;
+}
+.navbar-facturacion a:hover {
+  color: #bbdefb;
+}
+/* CONTENEDOR Y CONTEXTO DE FACTURACION */
+.facturacion-contenedor {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 2rem 1rem;
+}
+.facturacion-titulo {
+  margin-bottom: 8px;
+}
+.facturacion-contexto {
+  margin-bottom: 16px;
+  color: #555;
+}
+.filtros-facturacion-mb {
+  margin-bottom: 24px;
+}
+.tabla-facturacion-wrap {
+  overflow-x: auto;
+  background: #fff;
+  border-radius: 8px;
+  box-shadow: 0 2px 8px #eee;
+  padding: 16px;
+}
+.tabla-facturacion-min {
+  min-width: 700px;
+}
+.tabla-facturacion-caption {
+  caption-side: top;
+  text-align: left;
+  font-weight: bold;
+  margin-bottom: 8px;
+  color: #333;
+}
 /* Estilos globales para facturación */
 .tabla-facturacion {
   width: 100%;
@@ -11,10 +123,17 @@
   text-align: left;
 }
 .tabla-facturacion th {
-  background: #f5f5f5;
+  background: #1976d2;
+  color: #fff;
 }
 .tabla-facturacion tr:nth-child(even) {
-  background: #fafafa;
+  background: #e3f2fd;
+}
+.tabla-facturacion tr:hover {
+  background: #bbdefb;
+}
+.tabla-facturacion td {
+  transition: background 0.2s;
 }
 .filtros-facturacion {
   display: flex;
