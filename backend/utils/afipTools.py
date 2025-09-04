@@ -30,11 +30,10 @@ if not (FACTURACION_API_URL):
 
 @dataclass 
 class ReceptorData():
-    nombre_razon_social: Optional[str] = None 
     cuit_o_dni: str
-    domicilio: Optional[str] = None
     condicion_iva: str
-
+    nombre_razon_social: Optional[str] = None
+    domicilio: Optional[str] = None
 
 class CondicionIVA(Enum):
     RESPONSABLE_INSCRIPTO = 1
