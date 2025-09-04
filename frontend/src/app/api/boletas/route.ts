@@ -15,7 +15,7 @@ export async function GET(request: Request): Promise<Response> {
   const limit = url.searchParams.get("limit") || "50";
   // Puedes agregar más parámetros si lo necesitas
   try {
-    const response = await fetch(`${baseURL}/boletas/obtener-todas?skip=${skip}&limit=${limit}`, {
+    const response = await fetch(`${baseURL}/boletas/obtener-no-facturadas?skip=${skip}&limit=${limit}`, {
       headers: { Authorization: `Bearer ${token}` },
     });
     const data = await response.json();

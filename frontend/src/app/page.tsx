@@ -1,4 +1,3 @@
-
 "use client";
 type ErrorResponse = {
   detail: string;
@@ -131,6 +130,40 @@ export default function HomePage() {
                     {Object.keys(b).map((k) => (
                       <td key={k}>{String(b[k])}</td>
                     ))}
+                    <td>
+                      <button
+                        className="btn-facturar"
+                        onClick={async () => {
+                          const token = localStorage.getItem("token");
+                          if (!token) return alert("No hay token");
+                          // Ejemplo de payload, adaptar según backend
+                          const payload = {
+                            id: b.id,
+                            total: b.total || 0,
+                            cliente_data: {
+                              cuit_o_dni: b.cuit || b.dni || "",
+                              nombre_razon_social: b.cliente || b.nombre || "",
+                              domicilio: b.domicilio || "",
+                              condicion_iva: b.condicion_iva || ""
+                            }
+                          };
+                          const res = await fetch("/api/facturar", {
+                            method: "POST",
+                            headers: {
+                              "Content-Type": "application/json",
+                              Authorization: `Bearer ${token}`
+                            },
+                            body: JSON.stringify(payload)
+                          });
+                          const data = await res.json();
+                          if (res.ok) {
+                            alert("Facturación exitosa");
+                          } else {
+                            alert(data.detail || "Error al facturar");
+                          }
+                        }}
+                      >Facturar</button>
+                    </td>
                   </tr>
                 ))}
               </tbody>
