@@ -26,6 +26,7 @@ export default function HomePage() {
   const [busqueda, setBusqueda] = useState("");
   const [loading, setLoading] = useState(true);
   const [pagina, setPagina] = useState(1);
+  const [seleccionadas, setSeleccionadas] = useState<string[]>([]);
   const porPagina = 20;
   const router = useRouter();
 
@@ -119,6 +120,7 @@ export default function HomePage() {
               </caption>
               <thead>
                 <tr>
+                  <th>Seleccionar</th>
                   {boletasPagina.length > 0 && Object.keys(boletasPagina[0]).map((key) => (
                     <th key={key}>{key}</th>
                   ))}
@@ -127,6 +129,20 @@ export default function HomePage() {
               <tbody>
                 {boletasPagina.map((b) => (
                   <tr key={b.id}>
+                    <td>
+                      <input
+                        type="checkbox"
+                        checked={seleccionadas.includes(b.id.toString())}
+                        title={`Seleccionar boleta ${b.id}`}
+                        onChange={e => {
+                          setSeleccionadas(sel =>
+                            e.target.checked
+                              ? [...sel, b.id.toString()]
+                              : sel.filter(id => id !== b.id.toString())
+                          );
+                        }}
+                      />
+                    </td>
                     {Object.keys(b).map((k) => (
                       <td key={k}>{String(b[k])}</td>
                     ))}
@@ -136,7 +152,6 @@ export default function HomePage() {
                         onClick={async () => {
                           const token = localStorage.getItem("token");
                           if (!token) return alert("No hay token");
-                          // Ejemplo de payload, adaptar según backend
                           const payload = {
                             id: b.id,
                             total: b.total || 0,
@@ -169,6 +184,41 @@ export default function HomePage() {
               </tbody>
             </table>
           </div>
+          {/* Botón para facturar seleccionadas */}
+          {seleccionadas.length > 0 && (
+            <button
+              className="btn-facturar-lote"
+              onClick={async () => {
+                const token = localStorage.getItem("token");
+                if (!token) return alert("No hay token");
+                const payloads = boletasPagina.filter(b => seleccionadas.includes(b.id.toString())).map(b => ({
+                  id: b.id,
+                  total: b.total || 0,
+                  cliente_data: {
+                    cuit_o_dni: b.cuit || b.dni || "",
+                    nombre_razon_social: b.cliente || b.nombre || "",
+                    domicilio: b.domicilio || "",
+                    condicion_iva: b.condicion_iva || ""
+                  }
+                }));
+                const res = await fetch("/api/facturar", {
+                  method: "POST",
+                  headers: {
+                    "Content-Type": "application/json",
+                    Authorization: `Bearer ${token}`
+                  },
+                  body: JSON.stringify({ boletas: payloads })
+                });
+                const data = await res.json();
+                if (res.ok) {
+                  alert("Facturación en lote exitosa");
+                  setSeleccionadas([]);
+                } else {
+                  alert(data.detail || "Error al facturar en lote");
+                }
+              }}
+            >Facturar seleccionadas</button>
+          )}
           {/* Paginación */}
           {totalPaginas > 1 && (
             <div className="paginacion-facturacion">
