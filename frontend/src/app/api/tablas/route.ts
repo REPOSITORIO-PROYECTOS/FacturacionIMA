@@ -1,5 +1,7 @@
-// Proxy para boletas protegidas
-export async function GET(request) {
+// Proxy para endpoint de tablas protegidas
+const baseURL = process.env.BACKEND_URL || "http://localhost:8000";
+
+export async function GET(request: Request): Promise<Response> {
   const token = request.headers.get("authorization")?.split(" ")[1];
   if (!token) {
     return new Response(JSON.stringify({ detail: "Token requerido" }), {
@@ -8,7 +10,7 @@ export async function GET(request) {
     });
   }
   try {
-    const response = await fetch("http://localhost:8000/boletas", {
+    const response = await fetch(`${baseURL}/tablas`, {
       headers: { Authorization: `Bearer ${token}` },
     });
     const data = await response.json();

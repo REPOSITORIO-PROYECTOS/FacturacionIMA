@@ -37,23 +37,29 @@ export default function HomePage() {
       router.push("/login");
       return;
     }
-    Promise.all([
-      fetch("/api/boletas", {
-        headers: { Authorization: `Bearer ${token}` },
-      }).then(res => res.json()),
-      fetch("/api/tablas", {
-        headers: { Authorization: `Bearer ${token}` },
-      }).then(res => res.json()),
-    ])
-      .then(([boletasData, tablasData]) => {
+    // Endpoint paginado
+    const skip = (pagina - 1) * porPagina;
+    const limit = porPagina;
+    fetch(`/api/boletas?skip=${skip}&limit=${limit}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+      .then(res => res.json())
+      .then((boletasData: Boleta[]) => {
         if (Array.isArray(boletasData)) setBoletas(boletasData);
         else if (typeof boletasData === 'object' && boletasData !== null && 'detail' in boletasData) setError((boletasData as ErrorResponse).detail || "Error al cargar boletas");
         else setError("Error al cargar boletas");
+      })
+      .catch(() => setError("Error de conexión"));
+    fetch(`/api/tablas`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+      .then(res => res.json())
+      .then((tablasData: Tabla[]) => {
         if (Array.isArray(tablasData)) setTablas(tablasData);
       })
-      .catch(() => setError("Error de conexión"))
+      .catch(() => setError("Error al cargar tablas"))
       .finally(() => setLoading(false));
-  }, [router]);
+  }, [router, pagina]);
 
   // Filtrar boletas por tabla y búsqueda
   const boletasFiltradas = boletas.filter(b => {
@@ -66,9 +72,10 @@ export default function HomePage() {
     return coincideTabla && coincideBusqueda;
   });
 
-  // Paginación
-  const totalPaginas = Math.ceil(boletasFiltradas.length / porPagina);
-  const boletasPagina = boletasFiltradas.slice((pagina - 1) * porPagina, pagina * porPagina);
+  // Paginación (solo para frontend, el backend ya devuelve paginado)
+  const totalBoletas = 1000; // Si el backend devuelve el total, usar ese valor
+  const totalPaginas = Math.ceil(totalBoletas / porPagina);
+  const boletasPagina = boletasFiltradas;
 
   return (
     <div className="facturacion-contenedor">

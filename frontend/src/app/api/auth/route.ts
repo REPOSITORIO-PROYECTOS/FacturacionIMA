@@ -1,9 +1,11 @@
-// Este archivo actúa como proxy para el backend
-export async function POST(request) {
+// Proxy para login
+const baseURL = process.env.BACKEND_URL || "http://localhost:8000";
+
+export async function POST(request: Request): Promise<Response> {
   const body = await request.json();
   const { username, password } = body;
   try {
-    const response = await fetch("http://localhost:8000/auth/token", {
+    const response = await fetch(`${baseURL}/auth/token`, {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
       body: new URLSearchParams({ username, password }),
