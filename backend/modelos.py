@@ -1,9 +1,10 @@
 #/facturadorIMA/backend/modelos.py
 
 from datetime import datetime, date
-from typing import Dict, List, Optional
+from decimal import Decimal
+from typing import Any, Dict, List, Optional
 from sqlmodel import Field, Relationship, SQLModel, JSON, Column
-from sqlalchemy import UniqueConstraint
+from sqlalchemy import DECIMAL, TIMESTAMP, BigInteger, Date, UniqueConstraint, func
 from sqlmodel import Column  # Importante
 from sqlalchemy import String,JSON   # Importante
 # ===================================================================
@@ -389,3 +390,41 @@ class ArticuloProveedor(SQLModel, table=True):
     # Relaciones para poder navegar desde este objeto
     articulo: Articulo = Relationship(back_populates="proveedores")
     proveedor: Tercero = Relationship(back_populates="articulos_asociados")
+
+
+class FacturaElectronica(SQLModel, table=True):
+    __tablename__ = "facturas_electronicas"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    # --- CAMBIO AQUÍ: El índice se define de forma estándar en el Field ---
+    ingreso_id: str = Field(index=True, description="El 'ID Ingresos' que vincula esta factura a la venta original.")
+
+    cae: str = Field(max_length=14, unique=True, description="Código de Autorización Electrónico.")
+    numero_comprobante: int = Field(sa_column=Column(BigInteger), description="Número de la factura (ej. 1234).")
+    punto_venta: int = Field(description="Punto de venta (ej. 1, 2).")
+    tipo_comprobante: int = Field(description="Código del tipo de comprobante (1=A, 6=B, 11=C).")
+    
+    # --- CAMBIO AQUÍ: El índice se mueve DENTRO del Column ---
+    fecha_comprobante: date = Field(sa_column=Column(Date, index=True), description="Fecha de emisión del comprobante.")
+    
+    vencimiento_cae: date = Field(sa_column=Column(Date), description="Fecha de vencimiento del CAE.")
+    resultado_afip: Optional[str] = Field(default=None, max_length=1, description="'A' (Aprobado), 'R' (Rechazado).")
+    cuit_emisor: str = Field(max_length=11)
+    tipo_doc_receptor: int = Field(description="Código del tipo de documento del receptor (80=CUIT, 96=DNI).")
+    
+    # --- CAMBIO AQUÍ: El índice se define de forma estándar en el Field (si no usas sa_column) ---
+    nro_doc_receptor: str = Field(max_length=11, index=True)
+    
+    importe_total: Decimal = Field(sa_column=Column(DECIMAL(15, 2)))
+    importe_neto: Decimal = Field(sa_column=Column(DECIMAL(15, 2)))
+    importe_iva: Decimal = Field(sa_column=Column(DECIMAL(15, 2)))
+    raw_response: Optional[Dict[str, Any]] = Field(default=None, sa_column=Column(JSON))
+    
+    created_at: Optional[datetime] = Field(
+        default_factory=datetime.utcnow,
+        sa_column=Column(TIMESTAMP, server_default=func.now())
+    )
+    updated_at: Optional[datetime] = Field(
+        default_factory=datetime.utcnow,
+        sa_column=Column(TIMESTAMP, server_default=func.now(), onupdate=func.now())
+    )

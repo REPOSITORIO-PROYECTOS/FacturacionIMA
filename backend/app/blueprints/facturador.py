@@ -23,6 +23,7 @@ class InvoiceItemPayload(BaseModel):
     total: float = Field(..., gt=0, description="Monto total de la factura.")
     cliente_data: ClienteDataPayload = Field(..., description="Datos del cliente receptor.")
 
+
 @router.post("/facturar-por-cantidad",
           response_model=List[Dict[str, Any]], # La respuesta será una lista de diccionarios
           status_code=status.HTTP_200_OK,
