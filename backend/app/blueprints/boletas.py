@@ -30,7 +30,7 @@ def traer_boletas():
     
 
 
-@router.get("/obtener-facturadas", response_model=List[Dict[str, Any]])
+@router.get("/obtener-facturadas", response_model=List[Dict[str, Any]]) #tengo que cambiarlo a esto, integrarlo a la bdd
 def traer_boletas():
     handler = TablasHandler()
     try:

@@ -14,6 +14,7 @@ app = FastAPI(
 origins = [
     "http://localhost",
     "http://localhost:3000",
+    "http://localhost:3000/"
     "https://facturador-ima.sistemataup.online/",
     "https://www.facturador-ima.sistemataup.online/",
     "https://www.facturador-ima.sistemataup.online",
