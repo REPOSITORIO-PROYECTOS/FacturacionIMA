@@ -13,7 +13,6 @@ type Boleta = {
   nombre?: string;
   domicilio?: string;
   condicion_iva?: string;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   [key: string]: any;
 };
 
@@ -22,18 +21,26 @@ type Tabla = {
   nombre: string;
 };
 
+const COLUMNAS_VISIBLES = [
+  { key: 'id', header: 'ID Ingreso' },
+  { key: 'fecha', header: 'Fecha' },
+  { key: 'ingresos', header: 'Ingresos' },
+  { key: 'id_cliente', header: 'ID Cliente' },
+  { key: 'cliente', header: 'Cliente' },
+  { key: 'cuit', header: 'CUIT' },
+  { key: 'razon_social', header: 'Razón Social' },
+  { key: 'facturacion', header: 'Estado' },
+];
+
 export default function HomePage() {
   const [boletas, setBoletas] = useState<Boleta[]>([]);
   const [tablas, setTablas] = useState<Tabla[]>([]);
   const [seleccionadas, setSeleccionadas] = useState<Set<number>>(new Set());
-
   const [tablaSeleccionada, setTablaSeleccionada] = useState("");
   const [busqueda, setBusqueda] = useState("");
   const [pagina, setPagina] = useState(1);
-
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-
   const router = useRouter();
   const porPagina = 20;
 
@@ -51,15 +58,13 @@ export default function HomePage() {
         const skip = (pagina - 1) * porPagina;
         const authHeaders = { Authorization: `Bearer ${token}` };
 
-        const [boletasRes] = await Promise.all([
-          fetch(`https://facturador-ima.sistemataup.online/api/boletas/obtener-todas?skip=${skip}&limit=${porPagina}`, { headers: authHeaders }),
-        ]);
-
-        if (!boletasRes.ok) throw new Error('Error al cargar boletas');
-        const boletasData = await boletasRes.json();
+        // He quitado la llamada a /api/tablas que no estabas usando
+        const res = await fetch(`https://facturador-ima.sistemataup.online/api/boletas/obtener-todas?skip=${skip}&limit=${porPagina}`, { headers: authHeaders });
+        
+        if (!res.ok) throw new Error('Error al cargar boletas');
+        const boletasData = await res.json();
         setBoletas(Array.isArray(boletasData) ? boletasData : []);
 
-      
       } catch (err) {
         setError(err instanceof Error ? err.message : "Error de conexión");
       } finally {
@@ -104,7 +109,7 @@ export default function HomePage() {
         condicion_iva: boleta.condicion_iva || ""
       }
     };
-    const res = await fetch("https://facturador-ima.sistemataup.online/api/facturar", {
+    const res = await fetch("https://facturador-ima.sistemataup.online/api/facturar-por-cantidad", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -133,7 +138,7 @@ export default function HomePage() {
         condicion_iva: b.condicion_iva || ""
       }
     }));
-    const res = await fetch("https://facturador-ima.sistemataup.online/api/facturar", {
+    const res = await fetch("https://facturador-ima.sistemataup.online/api/facturar-por-cantidad", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -172,7 +177,6 @@ export default function HomePage() {
 
   const totalBoletas = 1000;
   const totalPaginas = Math.ceil(totalBoletas / porPagina);
-  const tableHeaders = boletasFiltradas.length > 0 ? Object.keys(boletasFiltradas[0]) : [];
 
   return (
     <div className="facturacion-contenedor">
@@ -197,26 +201,34 @@ export default function HomePage() {
       </div>
 
       <div className="tabla-facturacion-wrap">
-        <table className="tabla-facturacion tabla-facturacion-min">
+        <table className="tabla-facturacion">
           <thead>
             <tr>
-              <th><input type="checkbox" title="Seleccionar todo" disabled /></th>
-              {tableHeaders.map(key => <th key={key}>{key}</th>)}
-              <th>Acciones</th>
+              <th className="col-checkbox">
+                <input type="checkbox" title="Seleccionar todo" disabled />
+              </th>
+              {COLUMNAS_VISIBLES.map((col) => (
+                <th key={col.key}>{col.header}</th>
+              ))}
+              <th className="col-acciones">Acciones</th>
             </tr>
           </thead>
           <tbody>
             {boletasFiltradas.map((boleta) => (
               <tr key={boleta.id}>
-                <td>
+                <td className="col-checkbox">
                   <input
                     type="checkbox"
                     checked={seleccionadas.has(boleta.id)}
                     onChange={() => handleSeleccionChange(boleta.id)}
                   />
                 </td>
-                {tableHeaders.map(key => <td key={key}>{String(boleta[key])}</td>)}
-                <td>
+                {COLUMNAS_VISIBLES.map((col) => (
+                  <td key={col.key}>
+                    {String(boleta[col.key] ?? 'N/A')}
+                  </td>
+                ))}
+                <td className="col-acciones">
                   <button className="btn-facturar" onClick={() => handleFacturar(boleta)}>
                     Facturar
                   </button>

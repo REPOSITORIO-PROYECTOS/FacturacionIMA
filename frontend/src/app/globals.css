@@ -301,3 +301,73 @@ body {
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
 }
+/* Contenedor para la tabla, permite el desplazamiento horizontal en pantallas pequeñas */
+.tabla-facturacion-wrap {
+  overflow-x: auto;
+  border-radius: 8px;
+  border: 1px solid #e2e8f0;
+  margin-bottom: 1rem;
+}
+
+/* Estilos base para la tabla */
+.tabla-facturacion {
+  width: 100%;
+  border-collapse: collapse; /* Une los bordes de las celdas */
+  font-size: 14px; /* Un tamaño de fuente más pequeño y legible */
+  text-align: left;
+  white-space: nowrap; /* Evita que el texto se parta en varias líneas */
+}
+
+/* Estilo para las cabeceras (th) */
+.tabla-facturacion th {
+  background-color: #007bff; /* Un azul profesional */
+  color: white;
+  padding: 12px 15px;
+  font-weight: 600;
+  text-transform: capitalize; /* Pone en mayúscula la primera letra */
+}
+
+/* Estilo para las celdas (td) */
+.tabla-facturacion td {
+  padding: 10px 15px;
+  border-bottom: 1px solid #e2e8f0; /* Línea separadora sutil */
+}
+
+/* "Zebra Striping": Colores alternos para las filas para mejorar la legibilidad */
+.tabla-facturacion tbody tr:nth-child(even) {
+  background-color: #f8f9fa;
+}
+
+/* Efecto hover: resalta la fila sobre la que está el cursor */
+.tabla-facturacion tbody tr:hover {
+  background-color: #e9ecef;
+}
+
+/* --- Clases para controlar el ancho de columnas específicas --- */
+.col-id, .col-checkbox {
+  width: 5%; /* Columnas pequeñas para IDs y checkboxes */
+}
+.col-monto {
+  width: 15%;
+  text-align: right; /* Alinea los números a la derecha */
+}
+.col-acciones {
+  width: 10%;
+  text-align: center; /* Centra el botón de acciones */
+}
+
+/* Estilo para el botón de facturar dentro de la tabla */
+.btn-facturar {
+  padding: 6px 12px;
+  font-size: 12px;
+  background-color: #28a745; /* Verde para acción positiva */
+  color: white;
+  border: none;
+  border-radius: 5px;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.btn-facturar:hover {
+  background-color: #218838;
+}
