@@ -371,3 +371,44 @@ body {
 .btn-facturar:hover {
   background-color: #218838;
 }
+
+/* --- Estilos para el Botón de Facturación en Lote --- */
+
+.btn-facturar-lote {
+  /* --- Apariencia y Color (Sin cambios) --- */
+  background-color: #007bff;
+  color: white;
+  border: none;
+  border-radius: 8px;
+  
+  /* --- Espaciado y Tamaño (Sin cambios) --- */
+  padding: 12px 24px;
+  font-size: 16px;
+  font-weight: 600;
+  
+  /* --- POSICIONAMIENTO Y CENTRADO (¡AQUÍ ESTÁN LOS CAMBIOS!) --- */
+  display: block; /* Sigue siendo un bloque para poder centrarlo */
+  width: 40%; /* Un ancho considerable, pero no el 100%. Ajústalo a tu gusto (ej. 300px, 50%, etc.) */
+  min-width: 18x; /* Un ancho mínimo para que no se vea mal en pantallas muy pequeñas */
+  margin: 20px auto 0 auto; /* TRUCO DE CENTRADO: margen superior, auto a los lados, 0 abajo */
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+  
+  /* --- Interacción (Sin cambios) --- */
+  cursor: pointer;
+  transition: all 0.2s ease-in-out;
+}
+
+
+/* Efecto al pasar el cursor por encima */
+.btn-facturar-lote:hover {
+  background-color: #0056b3; /* Un azul un poco más oscuro */
+  box-shadow: 0 6px 8px rgba(0, 0, 0, 0.15); /* La sombra se hace un poco más grande */
+  transform: translateY(-2px); /* El botón se "levanta" un poquito */
+}
+
+/* Efecto al hacer clic */
+.btn-facturar-lote:active {
+  transform: translateY(0); /* Vuelve a su posición original */
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1); /* La sombra se reduce */
+}
+

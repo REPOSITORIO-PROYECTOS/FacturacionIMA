@@ -2,6 +2,7 @@ from fastapi import APIRouter, HTTPException
 
 from typing import Any, Dict, List
 
+from backend.utils.mysql_handler import get_db_connection
 from backend.utils.tablasHandler import TablasHandler
 
 router = APIRouter(
@@ -53,22 +54,35 @@ def traer_boletas_no_facturadas(skip: int = 0, limit: int = 20):
 
 # --- Endpoint 3: Boletas SÍ facturadas (PAGINADO) ---
 @router.get("/obtener-facturadas", response_model=List[Dict[str, Any]])
-def traer_boletas_facturadas(skip: int = 0, limit: int = 20):
+def traer_boletas_facturadas_desde_db(skip: int = 0, limit: int = 20):
     """
-    Filtra las boletas ya facturadas y devuelve una porción (página).
+    Obtiene una página de boletas ya facturadas directamente desde la
+    base de datos MySQL de la tabla 'facturas_electronicas'.
     """
+    conn = None
     try:
-        # 1. Carga la lista completa de boletas.
-        todas_las_boletas = handler.cargar_ingresos()
-        
-        # 2. Filtra la lista para obtener solo las "facturadas".
-        boletas_filtradas = [
-            boleta for boleta in todas_las_boletas
-            if boleta.get("facturacion") == "facturado"
-        ]
-        
-        # 3. Devuelve la "rebanada" de la lista YA FILTRADA.
-        return boletas_filtradas[skip : skip + limit]
+ 
+        conn = get_db_connection()
+        if not conn:
+
+            raise HTTPException(status_code=503, detail="No se pudo establecer conexión con la base de datos.")
+        cursor = conn.cursor(dictionary=True)
+
+        query = """
+            SELECT * 
+            FROM facturas_electronicas 
+            ORDER BY id DESC 
+            LIMIT %s OFFSET %s
+        """
+
+        cursor.execute(query, (limit, skip))
+        facturas_guardadas = cursor.fetchall()
+        return facturas_guardadas
 
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Ocurrió un error inesperado al cargar boletas facturadas: {e}")
+        raise HTTPException(status_code=500, detail=f"Ocurrió un error inesperado al consultar la base de datos: {e}")
+
+    finally:
+        if conn and conn.is_connected():
+            cursor.close()
+            conn.close()

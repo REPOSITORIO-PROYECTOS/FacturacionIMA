@@ -3,16 +3,19 @@
 import { useEffect, useState, useMemo } from "react";
 import { useRouter } from "next/navigation";
 
+// --- TIPOS DE DATOS ---
+
 type Boleta = {
-  id: number;
-  tabla: string;
-  total?: number;
-  cuit?: string;
-  dni?: string;
-  cliente?: string;
-  nombre?: string;
-  domicilio?: string;
-  condicion_iva?: string;
+  "ID Ingresos": string;
+  "Fecha": string;
+  "INGRESOS": string;
+  "ID Cliente": number;
+  "Cliente": string;
+  "CUIT": number;
+  "Razon Social": string;
+  "facturacion": string;
+  "condicion-iva"?: string;
+  "Domicilio"?: string;
   [key: string]: any;
 };
 
@@ -21,26 +24,44 @@ type Tabla = {
   nombre: string;
 };
 
+type ClienteDataPayload = {
+  cuit_o_dni: string;
+  nombre_razon_social: string;
+  domicilio: string;
+  condicion_iva: string;
+};
+
+type InvoiceItemPayload = {
+  id: string;
+  total: number;
+  cliente_data: ClienteDataPayload;
+};
+
+// --- CONFIGURACIÓN DE LA TABLA ---
+
 const COLUMNAS_VISIBLES = [
-  { key: 'id', header: 'ID Ingreso' },
-  { key: 'fecha', header: 'Fecha' },
-  { key: 'ingresos', header: 'Ingresos' },
-  { key: 'id_cliente', header: 'ID Cliente' },
-  { key: 'cliente', header: 'Cliente' },
-  { key: 'cuit', header: 'CUIT' },
-  { key: 'razon_social', header: 'Razón Social' },
+  { key: 'ID Ingresos', header: 'ID Ingreso' },
+  { key: 'Fecha', header: 'Fecha' },
+  { key: 'INGRESOS', header: 'Ingresos' },
+  { key: 'ID Cliente', header: 'ID Cliente' },
+  { key: 'Cliente', header: 'Cliente' },
+  { key: 'CUIT', header: 'CUIT' },
+  { key: 'Razon Social', header: 'Razón Social' },
   { key: 'facturacion', header: 'Estado' },
 ];
+
+// --- COMPONENTE PRINCIPAL ---
 
 export default function HomePage() {
   const [boletas, setBoletas] = useState<Boleta[]>([]);
   const [tablas, setTablas] = useState<Tabla[]>([]);
-  const [seleccionadas, setSeleccionadas] = useState<Set<number>>(new Set());
+  const [seleccionadas, setSeleccionadas] = useState<Set<string>>(new Set());
   const [tablaSeleccionada, setTablaSeleccionada] = useState("");
   const [busqueda, setBusqueda] = useState("");
   const [pagina, setPagina] = useState(1);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [loteLoading, setLoteLoading] = useState(false);
   const router = useRouter();
   const porPagina = 20;
 
@@ -58,7 +79,6 @@ export default function HomePage() {
         const skip = (pagina - 1) * porPagina;
         const authHeaders = { Authorization: `Bearer ${token}` };
 
-        // He quitado la llamada a /api/tablas que no estabas usando
         const res = await fetch(`https://facturador-ima.sistemataup.online/api/boletas/obtener-todas?skip=${skip}&limit=${porPagina}`, { headers: authHeaders });
         
         if (!res.ok) throw new Error('Error al cargar boletas');
@@ -84,7 +104,7 @@ export default function HomePage() {
     });
   }, [boletas, tablaSeleccionada, busqueda]);
 
-  const handleSeleccionChange = (boletaId: number) => {
+  const handleSeleccionChange = (boletaId: string) => {
     setSeleccionadas(prev => {
       const nuevasSeleccionadas = new Set(prev);
       if (nuevasSeleccionadas.has(boletaId)) {
@@ -96,62 +116,84 @@ export default function HomePage() {
     });
   };
 
+  const parseMonto = (monto: string): number => {
+    if (!monto || typeof monto !== 'string') return 0;
+    const numeroLimpio = monto.replace(/\$|\s/g, '').replace(/\./g, '').replace(',', '.');
+    return parseFloat(numeroLimpio) || 0;
+  };
+
   const handleFacturar = async (boleta: Boleta) => {
     const token = localStorage.getItem("token");
     if (!token) return alert("No hay token");
-    const payload = {
-      id: boleta.id,
-      total: boleta.total || 0,
+    
+    const payload: InvoiceItemPayload = {
+      id: boleta["ID Ingresos"],
+      total: parseMonto(boleta["INGRESOS"]),
       cliente_data: {
-        cuit_o_dni: boleta.cuit || boleta.dni || "",
-        nombre_razon_social: boleta.cliente || boleta.nombre || "",
-        domicilio: boleta.domicilio || "",
-        condicion_iva: boleta.condicion_iva || ""
+        cuit_o_dni: String(boleta["CUIT"] || ""),
+        nombre_razon_social: boleta["Razon Social"] || boleta["Cliente"],
+        domicilio: boleta["Domicilio"] || "",
+        condicion_iva: boleta["condicion-iva"] || "CONSUMIDOR_FINAL"
       }
     };
-    const res = await fetch("https://facturador-ima.sistemataup.online/api/facturar-por-cantidad", {
+
+    const res = await fetch("https://facturador-ima.sistemataup.online/api/facturador/facturar-por-cantidad", {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`
-      },
-      body: JSON.stringify(payload)
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify([payload])
     });
+    
     const data = await res.json();
     if (res.ok) {
       alert("Facturación exitosa");
     } else {
-      alert(data.detail || "Error al facturar");
+      console.error("Error de validación desde la API:", data);
+      alert("Error de validación. Revisa la consola del navegador para más detalles (presiona F12).");
     }
   };
   
   const handleFacturarLote = async () => {
     const token = localStorage.getItem("token");
     if (!token) return alert("No hay token");
-    const payloads = boletas.filter(b => seleccionadas.has(b.id)).map(b => ({
-      id: b.id,
-      total: b.total || 0,
-      cliente_data: {
-        cuit_o_dni: b.cuit || b.dni || "",
-        nombre_razon_social: b.cliente || b.nombre || "",
-        domicilio: b.domicilio || "",
-        condicion_iva: b.condicion_iva || ""
+    
+    const payloads: InvoiceItemPayload[] = boletas
+      .filter(b => seleccionadas.has(b["ID Ingresos"]))
+      .map(b => ({
+        id: b["ID Ingresos"],
+        total: parseMonto(b["INGRESOS"]),
+        cliente_data: {
+          cuit_o_dni: String(b["CUIT"] || ""),
+          nombre_razon_social: b["Razon Social"] || b["Cliente"],
+          domicilio: b["Domicilio"] || "",
+          condicion_iva: b["condicion-iva"] || "CONSUMIDOR_FINAL"
+        }
+      }));
+
+    if (payloads.length === 0) {
+      alert("No hay boletas seleccionadas para facturar.");
+      return;
+    }
+
+    setLoteLoading(true);
+    try {
+      const res = await fetch("https://facturador-ima.sistemataup.online/api/facturador/facturar-por-cantidad", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify(payloads)
+      });
+      
+      const data = await res.json();
+      if (res.ok) {
+        alert("Facturación en lote procesada.");
+        setSeleccionadas(new Set());
+      } else {
+        console.error("Error de validación desde la API:", data);
+        alert("Error de validación. Revisa la consola del navegador para más detalles (presiona F12).");
       }
-    }));
-    const res = await fetch("https://facturador-ima.sistemataup.online/api/facturar-por-cantidad", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`
-      },
-      body: JSON.stringify({ boletas: payloads })
-    });
-    const data = await res.json();
-    if (res.ok) {
-      alert("Facturación en lote exitosa");
-      setSeleccionadas(new Set());
-    } else {
-      alert(data.detail || "Error al facturar en lote");
+    } catch (error) {
+      alert("Error de conexión al facturar en lote.");
+    } finally {
+      setLoteLoading(false);
     }
   };
   
@@ -215,12 +257,12 @@ export default function HomePage() {
           </thead>
           <tbody>
             {boletasFiltradas.map((boleta) => (
-              <tr key={boleta.id}>
+              <tr key={boleta["ID Ingresos"]}>
                 <td className="col-checkbox">
                   <input
                     type="checkbox"
-                    checked={seleccionadas.has(boleta.id)}
-                    onChange={() => handleSeleccionChange(boleta.id)}
+                    checked={seleccionadas.has(boleta["ID Ingresos"])}
+                    onChange={() => handleSeleccionChange(boleta["ID Ingresos"])}
                   />
                 </td>
                 {COLUMNAS_VISIBLES.map((col) => (
@@ -239,11 +281,18 @@ export default function HomePage() {
         </table>
       </div>
 
-      {seleccionadas.size > 0 && (
-        <button className="btn-facturar-lote" onClick={handleFacturarLote}>
-          Facturar {seleccionadas.size} seleccionadas
-        </button>
-      )}
+  {seleccionadas.size > 0 && (
+    <button 
+      className="btn-facturar-lote" 
+      onClick={handleFacturarLote}
+      disabled={loteLoading}
+    >
+      {loteLoading 
+        ? 'Procesando...' 
+        : `Facturar ${seleccionadas.size} ${seleccionadas.size === 1 ? 'seleccionada' : 'seleccionadas'}`
+      }
+      </button>
+  )}
 
       {totalPaginas > 1 && (
         <div className="paginacion-facturacion">
