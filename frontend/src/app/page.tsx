@@ -52,7 +52,7 @@ export default function HomePage() {
         const authHeaders = { Authorization: `Bearer ${token}` };
 
         const [boletasRes] = await Promise.all([
-          fetch(`http://facturador-ima.sistemataup.online/api/boletas/obtener-todas?skip=${skip}&limit=${porPagina}`, { headers: authHeaders }),
+          fetch(`http://facturador-ima.sistemataup.online/api/boletas/obtener-todas`, { headers: authHeaders }),
         ]);
 
         if (!boletasRes.ok) throw new Error('Error al cargar boletas');
