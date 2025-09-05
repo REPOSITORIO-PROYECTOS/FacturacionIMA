@@ -52,7 +52,7 @@ export default function HomePage() {
         const authHeaders = { Authorization: `Bearer ${token}` };
 
         const [boletasRes] = await Promise.all([
-          fetch(`http://facturador-ima.sistemataup.online/api/boletas/obtener-todas?skip=${skip}&limit=${porPagina}`, { headers: authHeaders }),
+          fetch(`https://facturador-ima.sistemataup.online/api/boletas/obtener-todas?skip=${skip}&limit=${porPagina}`, { headers: authHeaders }),
         ]);
 
         if (!boletasRes.ok) throw new Error('Error al cargar boletas');
@@ -104,7 +104,7 @@ export default function HomePage() {
         condicion_iva: boleta.condicion_iva || ""
       }
     };
-    const res = await fetch("http://facturador-ima.sistemataup.online/api/facturar", {
+    const res = await fetch("https://facturador-ima.sistemataup.online/api/facturar", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -133,7 +133,7 @@ export default function HomePage() {
         condicion_iva: b.condicion_iva || ""
       }
     }));
-    const res = await fetch("http://facturador-ima.sistemataup.online/api/facturar", {
+    const res = await fetch("https://facturador-ima.sistemataup.online/api/facturar", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
