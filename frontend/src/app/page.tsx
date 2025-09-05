@@ -16,6 +16,7 @@ type Boleta = {
   "facturacion": string;
   "condicion-iva"?: string;
   "Domicilio"?: string;
+  // eslint-disable-next-line
   [key: string]: any;
 };
 
