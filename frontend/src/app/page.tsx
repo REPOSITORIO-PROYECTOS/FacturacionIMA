@@ -1,16 +1,23 @@
 "use client";
-type ErrorResponse = {
-  detail: string;
-};
 
-
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { useRouter } from "next/navigation";
 
+// --- TIPOS DE DATOS ---
+
 type Boleta = {
-  id: number;
-  tabla: string;
-  [key: string]: string | number | boolean | null;
+  "ID Ingresos": string;
+  "Fecha": string;
+  "INGRESOS": string;
+  "ID Cliente": number;
+  "Cliente": string;
+  "CUIT": number;
+  "Razon Social": string;
+  "facturacion": string;
+  "condicion-iva"?: string;
+  "Domicilio"?: string;
+  // eslint-disable-next-line
+  [key: string]: any;
 };
 
 type Tabla = {
@@ -18,20 +25,48 @@ type Tabla = {
   nombre: string;
 };
 
+type ClienteDataPayload = {
+  cuit_o_dni: string;
+  nombre_razon_social: string;
+  domicilio: string;
+  condicion_iva: string;
+};
+
+type InvoiceItemPayload = {
+  id: string;
+  total: number;
+  cliente_data: ClienteDataPayload;
+};
+
+// --- CONFIGURACIÓN DE LA TABLA ---
+
+const COLUMNAS_VISIBLES = [
+  { key: 'ID Ingresos', header: 'ID Ingreso' },
+  { key: 'Fecha', header: 'Fecha' },
+  { key: 'INGRESOS', header: 'Ingresos' },
+  { key: 'ID Cliente', header: 'ID Cliente' },
+  { key: 'Cliente', header: 'Cliente' },
+  { key: 'CUIT', header: 'CUIT' },
+  { key: 'Razon Social', header: 'Razón Social' },
+  { key: 'facturacion', header: 'Estado' },
+];
+
+// --- COMPONENTE PRINCIPAL ---
+
 export default function HomePage() {
   const [boletas, setBoletas] = useState<Boleta[]>([]);
   const [tablas, setTablas] = useState<Tabla[]>([]);
-  const [error, setError] = useState("");
+  const [seleccionadas, setSeleccionadas] = useState<Set<string>>(new Set());
   const [tablaSeleccionada, setTablaSeleccionada] = useState("");
   const [busqueda, setBusqueda] = useState("");
-  const [loading, setLoading] = useState(true);
   const [pagina, setPagina] = useState(1);
-  const [seleccionadas, setSeleccionadas] = useState<string[]>([]);
-  const porPagina = 20;
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [loteLoading, setLoteLoading] = useState(false);
   const router = useRouter();
+  const porPagina = 20;
 
   useEffect(() => {
-    setLoading(true);
     const token = localStorage.getItem("token");
     if (!token) {
       router.push("/login");
@@ -61,30 +96,139 @@ export default function HomePage() {
       .finally(() => setLoading(false));
   }, [router, pagina]);
 
-  // Filtrar boletas por tabla y búsqueda
-  const boletasFiltradas = boletas.filter(b => {
-    const coincideTabla = tablaSeleccionada ? b.tabla === tablaSeleccionada : true;
-    const coincideBusqueda = busqueda
-      ? Object.values(b).some(v =>
-          v && v.toString().toLowerCase().includes(busqueda.toLowerCase())
-        )
-      : true;
-    return coincideTabla && coincideBusqueda;
-  });
+  const boletasFiltradas = useMemo(() => {
+    return boletas.filter(b => {
+      const coincideTabla = !tablaSeleccionada || b.tabla === tablaSeleccionada;
+      const coincideBusqueda = !busqueda ||
+        Object.values(b).some(v => v?.toString().toLowerCase().includes(busqueda.toLowerCase()));
+      return coincideTabla && coincideBusqueda;
+    });
+  }, [boletas, tablaSeleccionada, busqueda]);
 
-  // Paginación (solo para frontend, el backend ya devuelve paginado)
-  const totalBoletas = 1000; // Si el backend devuelve el total, usar ese valor
+  const handleSeleccionChange = (boletaId: string) => {
+    setSeleccionadas(prev => {
+      const nuevasSeleccionadas = new Set(prev);
+      if (nuevasSeleccionadas.has(boletaId)) {
+        nuevasSeleccionadas.delete(boletaId);
+      } else {
+        nuevasSeleccionadas.add(boletaId);
+      }
+      return nuevasSeleccionadas;
+    });
+  };
+
+  const parseMonto = (monto: string): number => {
+    if (!monto || typeof monto !== 'string') return 0;
+    const numeroLimpio = monto.replace(/\$|\s/g, '').replace(/\./g, '').replace(',', '.');
+    return parseFloat(numeroLimpio) || 0;
+  };
+
+  const handleFacturar = async (boleta: Boleta) => {
+    const token = localStorage.getItem("token");
+    if (!token) return alert("No hay token");
+    
+    const payload: InvoiceItemPayload = {
+      id: boleta["ID Ingresos"],
+      total: parseMonto(boleta["INGRESOS"]),
+      cliente_data: {
+        cuit_o_dni: String(boleta["CUIT"] || ""),
+        nombre_razon_social: boleta["Razon Social"] || boleta["Cliente"],
+        domicilio: boleta["Domicilio"] || "",
+        condicion_iva: boleta["condicion-iva"] || "CONSUMIDOR_FINAL"
+      }
+    };
+
+    const res = await fetch("https://facturador-ima.sistemataup.online/api/facturador/facturar-por-cantidad", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify([payload])
+    });
+    
+    const data = await res.json();
+    if (res.ok) {
+      alert("Facturación exitosa");
+    } else {
+      console.error("Error de validación desde la API:", data);
+      alert("Error de validación. Revisa la consola del navegador para más detalles (presiona F12).");
+    }
+  };
+  
+  const handleFacturarLote = async () => {
+    const token = localStorage.getItem("token");
+    if (!token) return alert("No hay token");
+    
+    const payloads: InvoiceItemPayload[] = boletas
+      .filter(b => seleccionadas.has(b["ID Ingresos"]))
+      .map(b => ({
+        id: b["ID Ingresos"],
+        total: parseMonto(b["INGRESOS"]),
+        cliente_data: {
+          cuit_o_dni: String(b["CUIT"] || ""),
+          nombre_razon_social: b["Razon Social"] || b["Cliente"],
+          domicilio: b["Domicilio"] || "",
+          condicion_iva: b["condicion-iva"] || "CONSUMIDOR_FINAL"
+        }
+      }));
+
+    if (payloads.length === 0) {
+      alert("No hay boletas seleccionadas para facturar.");
+      return;
+    }
+
+    setLoteLoading(true);
+    try {
+      const res = await fetch("https://facturador-ima.sistemataup.online/api/facturador/facturar-por-cantidad", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify(payloads)
+      });
+      
+      const data = await res.json();
+      if (res.ok) {
+        alert("Facturación en lote procesada.");
+        setSeleccionadas(new Set());
+      } else {
+        console.error("Error de validación desde la API:", data);
+        alert("Error de validación. Revisa la consola del navegador para más detalles (presiona F12).");
+      }
+    } catch (error) {
+      alert("Error de conexión al facturar en lote.");
+    } finally {
+      setLoteLoading(false);
+    }
+  };
+  
+  if (loading) {
+    return (
+      <div className="facturacion-contenedor">
+        <div className="facturacion-loader">
+          <span className="loader" />
+          <p>Cargando boletas...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="facturacion-contenedor">
+        <h2 className="facturacion-titulo">Facturación - Boletas</h2>
+        <p className="error-message">{error}</p>
+      </div>
+    );
+  }
+
+  const totalBoletas = 1000;
   const totalPaginas = Math.ceil(totalBoletas / porPagina);
-  const boletasPagina = boletasFiltradas;
 
   return (
     <div className="facturacion-contenedor">
       <h2 className="facturacion-titulo">Facturación - Boletas</h2>
       <p className="facturacion-contexto">
-        Aquí puedes visualizar, filtrar y buscar las boletas disponibles para facturación. Utiliza los filtros para encontrar boletas por tabla o por cualquier campo relevante (ejemplo: fecha, monto, cliente, etc).<br />
-        <b>Total boletas mostradas:</b> {boletasFiltradas.length}
+        Aquí puedes visualizar, filtrar y buscar las boletas disponibles para facturación. 
+        <b> Total boletas mostradas:</b> {boletasFiltradas.length}
       </p>
-      {error && <p className="error-message">{error}</p>}
+
       <div className="filtros-facturacion filtros-facturacion-mb">
         <label htmlFor="tabla-select">Filtrar por tabla: </label>
         <select
