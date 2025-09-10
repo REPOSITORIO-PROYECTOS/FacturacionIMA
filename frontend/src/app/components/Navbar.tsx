@@ -23,18 +23,23 @@ export default function Navbar() {
 
   return (
     <nav className="navbar-facturacion">
-      <ul>
-        <li><Link href="/">Inicio</Link></li>
-        <li><Link href="/login">Login</Link></li>
-        <li><Link href="/usuarios">Usuarios</Link></li>
-        <li><Link href="/perfil">Perfil</Link></li>
-        <li>
+      <div className="navbar-inner">
+        <ul className="navbar-nav">
+          <li><Link href="/">Inicio</Link></li>
+          <li><Link href="/usuarios">Usuarios</Link></li>
+          <li><Link href="/perfil">Perfil</Link></li>
+        </ul>
+        <div className="navbar-actions">
+          {typeof process !== 'undefined' && process.env.NEXT_PUBLIC_BACKEND_URL && (
+            <span className="env-badge">{process.env.NEXT_PUBLIC_BACKEND_URL}</span>
+          )}
+          <Link href="/login">Login</Link>
           <button
             className="navbar-theme-btn navbar-theme-btn-margin"
             onClick={cambiarTema}
           >Cambiar tema</button>
-        </li>
-      </ul>
+        </div>
+      </div>
     </nav>
   );
 }

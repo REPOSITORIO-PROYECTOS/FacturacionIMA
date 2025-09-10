@@ -37,6 +37,10 @@ def crear_access_token(data: dict, expires_delta: Optional[timedelta] = None) ->
     to_encode.update({"exp": expire})
     return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
 
+def crear_token_para_usuario_minimo(username: str) -> str:
+    """Crea un token JWT mínimo para usuarios no persistidos (ej: admin estático)."""
+    return crear_access_token({"sub": username})
+
 # ===================================================================
 # === DEPENDENCIAS DE SEGURIDAD (NÚCLEO DEL SISTEMA) ===
 # ===================================================================

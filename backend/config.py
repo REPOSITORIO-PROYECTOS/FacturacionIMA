@@ -3,16 +3,31 @@ from dotenv import load_dotenv, find_dotenv
 from pathlib import Path  #
 
 # --- Carga de .env ---
-print("--- Cargando config.py (Versión Explícita) ---")
+# Prefer robust .env loading so the app works on Windows, Linux or CI.
+print("--- Cargando config.py (Versión Robusta) ---")
 
-# Definimos la ruta absoluta al archivo .env
-# Esto elimina cualquier ambigüedad sobre dónde buscarlo.
-dotenv_path = "/home/sgi_user/proyectos/FacturacionIMA/.env"
-
-# Cargamos las variables desde esa ruta específica
-load_dotenv(dotenv_path=dotenv_path)
-
-print(f"DEBUG_CFG: Intentando cargar .env desde: '{dotenv_path}'")
+# 1) Si el usuario exportó DOTENV_PATH lo usamos
+dotenv_path = os.getenv('DOTENV_PATH')
+if dotenv_path and Path(dotenv_path).exists():
+    load_dotenv(dotenv_path=dotenv_path)
+    print(f"DEBUG_CFG: Cargando .env desde DOTENV_PATH: '{dotenv_path}'")
+else:
+    # 2) Intentar localizar automáticamente con find_dotenv()
+    found = find_dotenv()
+    if found:
+        load_dotenv(found)
+        dotenv_path = found
+        print(f"DEBUG_CFG: find_dotenv() encontró: '{dotenv_path}'")
+    else:
+        # 3) Intentar un .env relativo al repo (dos niveles arriba del archivo config.py)
+        candidate = Path(__file__).resolve().parents[1] / '.env'
+        if candidate.exists():
+            load_dotenv(dotenv_path=str(candidate))
+            dotenv_path = str(candidate)
+            print(f"DEBUG_CFG: Cargando .env desde candidato relativo: '{dotenv_path}'")
+        else:
+            dotenv_path = None
+            print("DEBUG_CFG: No se encontró archivo .env automáticamente.")
 # --- Fin Carga .env ---
 
 # --- SEGURIDAD-----
@@ -36,6 +51,10 @@ USUARIOS_SHEET = os.getenv('SHEET_NAME_USUARIOS', 'Usuarios')
 
 
 ADMIN_TOKEN_DURATION_SECONDS = int(os.getenv('ADMIN_TOKEN_DURATION_SECONDS', 8 * 60 * 60))
+
+# Usuario administrador estático (solo para desarrollo / fallback)
+STATIC_ADMIN_USER = os.getenv('STATIC_ADMIN_USER', 'admin')
+STATIC_ADMIN_PASS = os.getenv('STATIC_ADMIN_PASS', 'admin123')
 
 # --- Verificaciones Críticas ---
 

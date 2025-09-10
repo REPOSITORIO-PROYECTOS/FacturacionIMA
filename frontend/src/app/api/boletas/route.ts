@@ -1,5 +1,6 @@
 // Proxy para boletas protegidas
-const baseURL = process.env.BACKEND_URL || "http://localhost:8000";
+const envBackend = process.env.NEXT_PUBLIC_BACKEND_URL || process.env.BACKEND_URL || "http://localhost:8000";
+const baseURL = String(envBackend).replace(/\/+$/, "");
 
 export async function GET(request: Request): Promise<Response> {
   const token = request.headers.get("authorization")?.split(" ")[1];
@@ -15,7 +16,7 @@ export async function GET(request: Request): Promise<Response> {
   const limit = url.searchParams.get("limit") || "50";
   // Puedes agregar más parámetros si lo necesitas
   try {
-    const response = await fetch(`${baseURL}/boletas/obtener-no-facturadas?skip=${skip}&limit=${limit}`, {
+  const response = await fetch(`${baseURL}/boletas/obtener-no-facturadas?skip=${skip}&limit=${limit}`, {
       headers: { Authorization: `Bearer ${token}` },
     });
     const data = await response.json();

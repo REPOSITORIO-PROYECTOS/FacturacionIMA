@@ -2,6 +2,8 @@ from sqlmodel import Session, select
 from backend.modelos import Usuario
 # Importamos la función de seguridad para verificar contraseñas
 from backend.security import verificar_password
+from backend import config
+from typing import Optional
 
 def autenticar_usuario(db: Session, username: str, password: str) -> Usuario | None:
     """
@@ -15,6 +17,17 @@ def autenticar_usuario(db: Session, username: str, password: str) -> Usuario | N
 
     # 2. Verificar que el usuario existe Y que la contraseña es correcta
     if not usuario or not verificar_password(password, usuario.password_hash):
+        # Si no hay usuario en la DB, permitir login con usuario estático de configuración (dev)
+        if username == config.STATIC_ADMIN_USER and password == config.STATIC_ADMIN_PASS:
+            # Construir un usuario mínimo en memoria con rol 'Admin'
+            usuario_falso = Usuario(
+                id=-1,
+                nombre_usuario=username,
+                password_hash="",
+                activo=True,
+                id_rol=0
+            )
+            return usuario_falso
         return None  # Usuario no encontrado o contraseña incorrecta
 
     # 3. VERIFICACIÓN DE SEGURIDAD CRÍTICA: Asegurarse de que el usuario está activo y tiene rol

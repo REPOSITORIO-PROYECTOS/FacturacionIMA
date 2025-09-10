@@ -1,11 +1,12 @@
 // Proxy para login
-const baseURL = process.env.BACKEND_URL || "http://localhost:8000";
+const envBackend = process.env.NEXT_PUBLIC_BACKEND_URL || process.env.BACKEND_URL || "http://localhost:8000";
+const baseURL = String(envBackend).replace(/\/+$/, "");
 
 export async function POST(request: Request): Promise<Response> {
   const body = await request.json();
   const { username, password } = body;
   try {
-    const response = await fetch(`${baseURL}/auth/token`, {
+  const response = await fetch(`${baseURL}/auth/token`, {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
       body: new URLSearchParams({ username, password }),

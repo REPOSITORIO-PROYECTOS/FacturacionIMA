@@ -1,5 +1,6 @@
 // Proxy para endpoint de tablas protegidas
-const baseURL = process.env.BACKEND_URL || "http://localhost:8000";
+const envBackend = process.env.NEXT_PUBLIC_BACKEND_URL || process.env.BACKEND_URL || "http://localhost:8000";
+const baseURL = String(envBackend).replace(/\/+$/, "");
 
 export async function GET(request: Request): Promise<Response> {
   const token = request.headers.get("authorization")?.split(" ")[1];
@@ -10,7 +11,7 @@ export async function GET(request: Request): Promise<Response> {
     });
   }
   try {
-    const response = await fetch(`${baseURL}/tablas`, {
+  const response = await fetch(`${baseURL}/tablas`, {
       headers: { Authorization: `Bearer ${token}` },
     });
     const data = await response.json();

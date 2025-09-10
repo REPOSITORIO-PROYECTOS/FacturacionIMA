@@ -98,13 +98,17 @@ export default function HomePage() {
             <option key={t.id} value={t.nombre}>{t.nombre}</option>
           ))}
         </select>
-        <input
-          type="text"
-          className="busqueda-facturacion"
-          placeholder="Buscar por campo, fecha, etc."
-          value={busqueda}
-          onChange={e => { setBusqueda(e.target.value); setPagina(1); }}
-        />
+    <div className="search-wrap">
+            <input
+              type="text"
+              className="busqueda-facturacion"
+              placeholder="Buscar por campo, fecha, etc."
+              value={busqueda}
+              onChange={e => { setBusqueda(e.target.value); setPagina(1); }}
+              aria-label="Buscar boletas"
+            />
+            <button type="button" className="btn-clear-search" onClick={() => { setBusqueda(''); setPagina(1); }}>Limpiar</button>
+          </div>
       </div>
       {loading ? (
         <div className="facturacion-loader">

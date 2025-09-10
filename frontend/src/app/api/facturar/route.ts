@@ -1,6 +1,7 @@
 // Proxy para facturación de boleta
 import type { FacturarPayload, FacturarResponse } from "../../types/facturar";
-const baseURL = process.env.BACKEND_URL || "http://localhost:8000";
+const envBackend = process.env.NEXT_PUBLIC_BACKEND_URL || process.env.BACKEND_URL || "http://localhost:8000";
+const baseURL = String(envBackend).replace(/\/+$/, "");
 
 export async function POST(request: Request): Promise<Response> {
   const token = request.headers.get("authorization")?.split(" ")[1];

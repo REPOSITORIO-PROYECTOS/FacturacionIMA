@@ -22,13 +22,10 @@ export default function LoginPage() {
     e.preventDefault();
     setError("");
     try {
-      const formData = new URLSearchParams();
-      formData.append("username", username);
-      formData.append("password", password);
-      const res = await fetch("/api/auth/token", {
+      const res = await fetch("/api/auth", {
         method: "POST",
-        headers: { "Content-Type": "application/x-www-form-urlencoded" },
-        body: formData.toString(),
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username, password }),
       });
       const data = await res.json();
       if (res.ok && data.access_token) {

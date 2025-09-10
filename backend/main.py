@@ -1,3 +1,4 @@
+import os
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -46,8 +47,12 @@ def startup_event():
         print("✅ Conexión a la base de datos MySQL verificada exitosamente.")
         conn.close()
     else:
-        print("❌ ERROR CRÍTICO: No se pudo conectar a la base de datos MySQL.")
-        # En un entorno real, podrías decidir si la app debe detenerse aquí.
+        dev_mode = os.getenv('DEV_MODE', '0') == '1'
+        if dev_mode:
+            print("⚠️  ADVERTENCIA: No se pudo conectar a MySQL, pero arrancando en modo DEV (DEV_MODE=1).")
+        else:
+            print("❌ ERROR CRÍTICO: No se pudo conectar a la base de datos MySQL.")
+            # En producción podrías decidir cerrar la app; aquí solo lo registramos.
     
     if config.GOOGLE_SHEET_ID:
         print(f"ℹ️  Google Sheets configurado para reportes (ID: {config.GOOGLE_SHEET_ID[:10]}...).")
