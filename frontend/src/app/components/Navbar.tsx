@@ -39,6 +39,7 @@ export default function Navbar() {
       <div className="navbar-inner">
         <ul className="navbar-nav">
           <li><Link href="/">Inicio</Link></li>
+          <li><Link href="/dashboard">Dashboard</Link></li>
           <li><Link href="/usuarios">Usuarios</Link></li>
           <li><Link href="/perfil">Perfil</Link></li>
         </ul>
