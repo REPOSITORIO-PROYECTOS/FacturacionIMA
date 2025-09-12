@@ -13,7 +13,7 @@ export async function POST(request: Request): Promise<Response> {
   }
   const body: FacturarPayload = await request.json();
   try {
-    const response = await fetch(`${baseURL}/facturador/facturar-por-cantidad`, {
+  const response = await fetch(`${baseURL}/api/facturador/facturar-por-cantidad`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",

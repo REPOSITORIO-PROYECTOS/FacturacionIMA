@@ -235,6 +235,21 @@
   font-size: 0.85rem;
   font-weight: 700;
 }
+/* Tema fijo cuando la app apunta a un backend remoto */
+.fixed-theme {
+  --celeste: #1976d2;
+  --celeste-claro: #bbdefb;
+  --negro: #0a0a0a;
+  --blanco: #ffffff;
+  background: var(--blanco) !important;
+  color: var(--negro) !important;
+}
+.fixed-theme .navbar-facturacion {
+  background: var(--celeste) !important;
+}
+.fixed-theme .navbar-theme-btn {
+  display: none !important; /* ocultar toggle de tema cuando es remoto */
+}
 /* CONTENEDOR Y CONTEXTO DE FACTURACION */
 .facturacion-contenedor {
   max-width: 1200px;

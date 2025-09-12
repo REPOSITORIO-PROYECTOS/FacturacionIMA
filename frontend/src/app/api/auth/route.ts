@@ -6,7 +6,7 @@ export async function POST(request: Request): Promise<Response> {
   const body = await request.json();
   const { username, password } = body;
   try {
-  const response = await fetch(`${baseURL}/auth/token`, {
+  const response = await fetch(`${baseURL}/api/auth/token`, {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
       body: new URLSearchParams({ username, password }),

@@ -25,6 +25,8 @@ type Tabla = {
   nombre: string;
 };
 
+type ErrorResponse = { detail?: string } | Record<string, unknown>;
+
 type ClienteDataPayload = {
   cuit_o_dni: string;
   nombre_razon_social: string;
@@ -32,24 +34,10 @@ type ClienteDataPayload = {
   condicion_iva: string;
 };
 
-type InvoiceItemPayload = {
-  id: string;
-  total: number;
-  cliente_data: ClienteDataPayload;
-};
 
 // --- CONFIGURACIÓN DE LA TABLA ---
 
-const COLUMNAS_VISIBLES = [
-  { key: 'ID Ingresos', header: 'ID Ingreso' },
-  { key: 'Fecha', header: 'Fecha' },
-  { key: 'INGRESOS', header: 'Ingresos' },
-  { key: 'ID Cliente', header: 'ID Cliente' },
-  { key: 'Cliente', header: 'Cliente' },
-  { key: 'CUIT', header: 'CUIT' },
-  { key: 'Razon Social', header: 'Razón Social' },
-  { key: 'facturacion', header: 'Estado' },
-];
+// (removed unused COLUMNAS_VISIBLES)
 
 // --- COMPONENTE PRINCIPAL ---
 
@@ -62,7 +50,6 @@ export default function HomePage() {
   const [pagina, setPagina] = useState(1);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [loteLoading, setLoteLoading] = useState(false);
   const router = useRouter();
   const porPagina = 20;
 
@@ -81,8 +68,10 @@ export default function HomePage() {
       .then(res => res.json())
       .then((boletasData: Boleta[]) => {
         if (Array.isArray(boletasData)) setBoletas(boletasData);
-        else if (typeof boletasData === 'object' && boletasData !== null && 'detail' in boletasData) setError((boletasData as ErrorResponse).detail || "Error al cargar boletas");
-        else setError("Error al cargar boletas");
+        else if (typeof boletasData === 'object' && boletasData !== null && 'detail' in boletasData) {
+          const detail = String((boletasData as ErrorResponse).detail || "Error al cargar boletas");
+          setError(detail);
+        } else setError("Error al cargar boletas");
       })
       .catch(() => setError("Error de conexión"));
     fetch(`/api/tablas`, {
@@ -105,97 +94,10 @@ export default function HomePage() {
     });
   }, [boletas, tablaSeleccionada, busqueda]);
 
-  const handleSeleccionChange = (boletaId: string) => {
-    setSeleccionadas(prev => {
-      const nuevasSeleccionadas = new Set(prev);
-      if (nuevasSeleccionadas.has(boletaId)) {
-        nuevasSeleccionadas.delete(boletaId);
-      } else {
-        nuevasSeleccionadas.add(boletaId);
-      }
-      return nuevasSeleccionadas;
-    });
-  };
-
   const parseMonto = (monto: string): number => {
     if (!monto || typeof monto !== 'string') return 0;
     const numeroLimpio = monto.replace(/\$|\s/g, '').replace(/\./g, '').replace(',', '.');
     return parseFloat(numeroLimpio) || 0;
-  };
-
-  const handleFacturar = async (boleta: Boleta) => {
-    const token = localStorage.getItem("token");
-    if (!token) return alert("No hay token");
-    
-    const payload: InvoiceItemPayload = {
-      id: boleta["ID Ingresos"],
-      total: parseMonto(boleta["INGRESOS"]),
-      cliente_data: {
-        cuit_o_dni: String(boleta["CUIT"] || ""),
-        nombre_razon_social: boleta["Razon Social"] || boleta["Cliente"],
-        domicilio: boleta["Domicilio"] || "",
-        condicion_iva: boleta["condicion-iva"] || "CONSUMIDOR_FINAL"
-      }
-    };
-
-    const res = await fetch("https://facturador-ima.sistemataup.online/api/facturador/facturar-por-cantidad", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-      body: JSON.stringify([payload])
-    });
-    
-    const data = await res.json();
-    if (res.ok) {
-      alert("Facturación exitosa");
-    } else {
-      console.error("Error de validación desde la API:", data);
-      alert("Error de validación. Revisa la consola del navegador para más detalles (presiona F12).");
-    }
-  };
-  
-  const handleFacturarLote = async () => {
-    const token = localStorage.getItem("token");
-    if (!token) return alert("No hay token");
-    
-    const payloads: InvoiceItemPayload[] = boletas
-      .filter(b => seleccionadas.has(b["ID Ingresos"]))
-      .map(b => ({
-        id: b["ID Ingresos"],
-        total: parseMonto(b["INGRESOS"]),
-        cliente_data: {
-          cuit_o_dni: String(b["CUIT"] || ""),
-          nombre_razon_social: b["Razon Social"] || b["Cliente"],
-          domicilio: b["Domicilio"] || "",
-          condicion_iva: b["condicion-iva"] || "CONSUMIDOR_FINAL"
-        }
-      }));
-
-    if (payloads.length === 0) {
-      alert("No hay boletas seleccionadas para facturar.");
-      return;
-    }
-
-    setLoteLoading(true);
-    try {
-      const res = await fetch("https://facturador-ima.sistemataup.online/api/facturador/facturar-por-cantidad", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify(payloads)
-      });
-      
-      const data = await res.json();
-      if (res.ok) {
-        alert("Facturación en lote procesada.");
-        setSeleccionadas(new Set());
-      } else {
-        console.error("Error de validación desde la API:", data);
-        alert("Error de validación. Revisa la consola del navegador para más detalles (presiona F12).");
-      }
-    } catch (error) {
-      alert("Error de conexión al facturar en lote.");
-    } finally {
-      setLoteLoading(false);
-    }
   };
   
   if (loading) {
@@ -220,6 +122,18 @@ export default function HomePage() {
 
   const totalBoletas = 1000;
   const totalPaginas = Math.ceil(totalBoletas / porPagina);
+
+  // Página actual de boletas (slice de los boletas filtradas)
+  const boletasPagina = boletasFiltradas.slice((pagina - 1) * porPagina, pagina * porPagina);
+
+  // Helper para extraer un id estable de la boleta (soporta varias formas)
+  const getId = (b: unknown) => {
+    if (b && typeof b === 'object') {
+      const obj = b as Record<string, unknown>;
+      return String(obj['id'] ?? obj['ID Ingresos'] ?? obj['ID Ingreso'] ?? obj['ID'] ?? '');
+    }
+    return '';
+  };
 
   return (
     <div className="facturacion-contenedor">
@@ -276,21 +190,22 @@ export default function HomePage() {
               </thead>
               <tbody>
                 {boletasPagina.map((b) => (
-                  <tr key={b.id}>
-                    <td>
-                      <input
-                        type="checkbox"
-                        checked={seleccionadas.includes(b.id.toString())}
-                        title={`Seleccionar boleta ${b.id}`}
-                        onChange={e => {
-                          setSeleccionadas(sel =>
-                            e.target.checked
-                              ? [...sel, b.id.toString()]
-                              : sel.filter(id => id !== b.id.toString())
-                          );
-                        }}
-                      />
-                    </td>
+                  <tr key={getId(b)}>
+                        <td>
+                          <input
+                            type="checkbox"
+                            checked={seleccionadas.has(getId(b))}
+                            title={`Seleccionar boleta ${getId(b)}`}
+                            onChange={e => {
+                              const id = getId(b);
+                              setSeleccionadas(prev => {
+                                const next = new Set(prev);
+                                if (e.target.checked) next.add(id); else next.delete(id);
+                                return next;
+                              });
+                            }}
+                          />
+                        </td>
                     {Object.keys(b).map((k) => (
                       <td key={k}>{String(b[k])}</td>
                     ))}
@@ -301,13 +216,13 @@ export default function HomePage() {
                           const token = localStorage.getItem("token");
                           if (!token) return alert("No hay token");
                           const payload = {
-                            id: b.id,
-                            total: b.total || 0,
+                            id: getId(b),
+                            total: b.total || parseMonto(String(b.INGRESOS || b.total || 0)),
                             cliente_data: {
-                              cuit_o_dni: b.cuit || b.dni || "",
-                              nombre_razon_social: b.cliente || b.nombre || "",
-                              domicilio: b.domicilio || "",
-                              condicion_iva: b.condicion_iva || ""
+                              cuit_o_dni: b.cuit || b.dni || String(b.CUIT || ""),
+                              nombre_razon_social: b.cliente || b.nombre || b["Razon Social"] || "",
+                              domicilio: b.domicilio || b["Domicilio"] || "",
+                              condicion_iva: b.condicion_iva || b["condicion-iva"] || ""
                             }
                           };
                           const res = await fetch("/api/facturar", {
@@ -333,20 +248,20 @@ export default function HomePage() {
             </table>
           </div>
           {/* Botón para facturar seleccionadas */}
-          {seleccionadas.length > 0 && (
+          {seleccionadas.size > 0 && (
             <button
               className="btn-facturar-lote"
               onClick={async () => {
                 const token = localStorage.getItem("token");
                 if (!token) return alert("No hay token");
-                const payloads = boletasPagina.filter(b => seleccionadas.includes(b.id.toString())).map(b => ({
-                  id: b.id,
-                  total: b.total || 0,
+                const payloads = boletasPagina.filter(b => seleccionadas.has(getId(b))).map(b => ({
+                  id: getId(b),
+                  total: b.total || parseMonto(String(b.INGRESOS || b.total || 0)),
                   cliente_data: {
-                    cuit_o_dni: b.cuit || b.dni || "",
-                    nombre_razon_social: b.cliente || b.nombre || "",
-                    domicilio: b.domicilio || "",
-                    condicion_iva: b.condicion_iva || ""
+                    cuit_o_dni: b.cuit || b.dni || String(b.CUIT || ""),
+                    nombre_razon_social: b.cliente || b.nombre || b["Razon Social"] || "",
+                    domicilio: b.domicilio || b["Domicilio"] || "",
+                    condicion_iva: b.condicion_iva || b["condicion-iva"] || ""
                   }
                 }));
                 const res = await fetch("/api/facturar", {
@@ -360,7 +275,7 @@ export default function HomePage() {
                 const data = await res.json();
                 if (res.ok) {
                   alert("Facturación en lote exitosa");
-                  setSeleccionadas([]);
+                  setSeleccionadas(new Set());
                 } else {
                   alert(data.detail || "Error al facturar en lote");
                 }

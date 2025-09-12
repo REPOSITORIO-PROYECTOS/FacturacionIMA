@@ -11,7 +11,7 @@ export async function GET(request: Request): Promise<Response> {
     });
   }
   try {
-  const response = await fetch(`${baseURL}/tablas`, {
+  const response = await fetch(`${baseURL}/api/tablas`, {
       headers: { Authorization: `Bearer ${token}` },
     });
     const data = await response.json();
