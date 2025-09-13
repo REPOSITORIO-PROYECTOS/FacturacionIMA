@@ -22,10 +22,10 @@ origins = [
     "https://www.facturador-ima.sistemataup.online",
 ]
 
-app.include_router(boletas.router, prefix="/api/boletas")
-app.include_router(auth_router.router, prefix="/api/auth")
-app.include_router(facturador.router, prefix="/api/facturador")
-# tablas.router internally already uses prefix '/api' so include directly
+app.include_router(boletas.router, prefix="/api")
+app.include_router(auth_router.router, prefix="/api")
+app.include_router(facturador.router, prefix="/api")
+# tablas.router already uses prefix '/api' internally; include it directly
 app.include_router(tablas.router)
 
 app.add_middleware(
