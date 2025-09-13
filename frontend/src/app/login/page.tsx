@@ -24,13 +24,26 @@ export default function LoginPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ username: email, password }),
       });
-      const data = await res.json();
-      if (res.ok && data.access_token) {
+      let data: any = null;
+      try {
+        data = await res.json();
+      } catch (e) {
+        // no-op: allow fallback to text
+      }
+
+      if (!res.ok) {
+        // Prefer structured message, fallback to plain text or generic
+        const text = data?.detail || (typeof data === 'string' ? data : null) || (await res.text().catch(() => null));
+        setError(String(text || "Credenciales incorrectas"));
+        return;
+      }
+
+      if (data && data.access_token) {
         localStorage.setItem("token", data.access_token);
         if (remember) localStorage.setItem("remember_user", email);
         router.push("/");
       } else {
-        setError(data.detail || "Credenciales incorrectas");
+        setError("Respuesta inválida del servidor");
       }
     } catch (err) {
       setError("Error de conexión");

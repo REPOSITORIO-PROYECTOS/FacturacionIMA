@@ -1,6 +1,5 @@
-// Proxy para boletas protegidas
-const envBackend = process.env.NEXT_PUBLIC_BACKEND_URL || process.env.BACKEND_URL || "http://localhost:8000";
-const baseURL = String(envBackend).replace(/\/+$/, "");
+// Proxy para boletas protegidas (conexión directa al backend remoto)
+const baseURL = "https://facturador-ima.sistemataup.online";
 
 export async function GET(request: Request): Promise<Response> {
   const token = request.headers.get("authorization")?.split(" ")[1];

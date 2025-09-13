@@ -1,6 +1,5 @@
-// Proxy para login
-const envBackend = process.env.NEXT_PUBLIC_BACKEND_URL || process.env.BACKEND_URL || "http://localhost:8000";
-const baseURL = String(envBackend).replace(/\/+$/, "");
+// Proxy para login (conexión directa al backend remoto)
+const baseURL = "https://facturador-ima.sistemataup.online";
 
 export async function POST(request: Request): Promise<Response> {
   const body = await request.json();

@@ -54,35 +54,55 @@ export default function HomePage() {
   const porPagina = 20;
 
   useEffect(() => {
-    const token = localStorage.getItem("token");
-    if (!token) {
-      router.push("/login");
-      return;
+    let mounted = true;
+    async function load() {
+      setLoading(true);
+      setError("");
+      const token = localStorage.getItem("token");
+      if (!token) {
+        router.push("/login");
+        return;
+      }
+
+      // Endpoint paginado
+      const skip = (pagina - 1) * porPagina;
+      const limit = porPagina;
+      try {
+        const resBoletas = await fetch(`/api/boletas?skip=${skip}&limit=${limit}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (!resBoletas.ok) {
+          let err: any = null;
+          try { err = await resBoletas.json(); } catch { err = await resBoletas.text().catch(() => null); }
+          setError(String(err?.detail || err || "Error al cargar boletas"));
+        } else {
+          const boletasData = await resBoletas.json();
+          if (mounted && Array.isArray(boletasData)) setBoletas(boletasData);
+        }
+      } catch (e) {
+        setError("Error de conexión al cargar boletas");
+      }
+
+      try {
+        const resTablas = await fetch(`/api/tablas`, { headers: { Authorization: `Bearer ${token}` } });
+        if (!resTablas.ok) {
+          // ignore tablas failure, but set error so user sees it
+          let err: any = null;
+          try { err = await resTablas.json(); } catch { err = await resTablas.text().catch(() => null); }
+          setError(String(err?.detail || err || "Error al cargar tablas"));
+        } else {
+          const tablasData = await resTablas.json();
+          if (mounted && Array.isArray(tablasData)) setTablas(tablasData);
+        }
+      } catch (e) {
+        setError("Error de conexión al cargar tablas");
+      } finally {
+        if (mounted) setLoading(false);
+      }
     }
-    // Endpoint paginado
-    const skip = (pagina - 1) * porPagina;
-    const limit = porPagina;
-    fetch(`/api/boletas?skip=${skip}&limit=${limit}`, {
-      headers: { Authorization: `Bearer ${token}` },
-    })
-      .then(res => res.json())
-      .then((boletasData: Boleta[]) => {
-        if (Array.isArray(boletasData)) setBoletas(boletasData);
-        else if (typeof boletasData === 'object' && boletasData !== null && 'detail' in boletasData) {
-          const detail = String((boletasData as ErrorResponse).detail || "Error al cargar boletas");
-          setError(detail);
-        } else setError("Error al cargar boletas");
-      })
-      .catch(() => setError("Error de conexión"));
-    fetch(`/api/tablas`, {
-      headers: { Authorization: `Bearer ${token}` },
-    })
-      .then(res => res.json())
-      .then((tablasData: Tabla[]) => {
-        if (Array.isArray(tablasData)) setTablas(tablasData);
-      })
-      .catch(() => setError("Error al cargar tablas"))
-      .finally(() => setLoading(false));
+
+    load();
+    return () => { mounted = false; };
   }, [router, pagina]);
 
   const boletasFiltradas = useMemo(() => {
@@ -209,7 +229,7 @@ export default function HomePage() {
                     {Object.keys(b).map((k) => (
                       <td key={k}>{String(b[k])}</td>
                     ))}
-                    <td>
+                      <td>
                       <button
                         className="btn-facturar"
                         onClick={async () => {
@@ -225,19 +245,24 @@ export default function HomePage() {
                               condicion_iva: b.condicion_iva || b["condicion-iva"] || ""
                             }
                           };
-                          const res = await fetch("/api/facturar", {
-                            method: "POST",
-                            headers: {
-                              "Content-Type": "application/json",
-                              Authorization: `Bearer ${token}`
-                            },
-                            body: JSON.stringify(payload)
-                          });
-                          const data = await res.json();
-                          if (res.ok) {
-                            alert("Facturación exitosa");
-                          } else {
-                            alert(data.detail || "Error al facturar");
+                          try {
+                            const res = await fetch("/api/facturar", {
+                              method: "POST",
+                              headers: {
+                                "Content-Type": "application/json",
+                                Authorization: `Bearer ${token}`
+                              },
+                              body: JSON.stringify(payload)
+                            });
+                            let data: any = null;
+                            try { data = await res.json(); } catch { /* ignore */ }
+                            if (res.ok) {
+                              alert("Facturación exitosa");
+                            } else {
+                              alert(String(data?.detail || data || "Error al facturar"));
+                            }
+                          } catch (e) {
+                            alert("Error de conexión al facturar");
                           }
                         }}
                       >Facturar</button>
@@ -249,7 +274,7 @@ export default function HomePage() {
           </div>
           {/* Botón para facturar seleccionadas */}
           {seleccionadas.size > 0 && (
-            <button
+                <button
               className="btn-facturar-lote"
               onClick={async () => {
                 const token = localStorage.getItem("token");
@@ -264,20 +289,25 @@ export default function HomePage() {
                     condicion_iva: b.condicion_iva || b["condicion-iva"] || ""
                   }
                 }));
-                const res = await fetch("/api/facturar", {
-                  method: "POST",
-                  headers: {
-                    "Content-Type": "application/json",
-                    Authorization: `Bearer ${token}`
-                  },
-                  body: JSON.stringify({ boletas: payloads })
-                });
-                const data = await res.json();
-                if (res.ok) {
-                  alert("Facturación en lote exitosa");
-                  setSeleccionadas(new Set());
-                } else {
-                  alert(data.detail || "Error al facturar en lote");
+                try {
+                  const res = await fetch("/api/facturar", {
+                    method: "POST",
+                    headers: {
+                      "Content-Type": "application/json",
+                      Authorization: `Bearer ${token}`
+                    },
+                    body: JSON.stringify({ boletas: payloads })
+                  });
+                  let data: any = null;
+                  try { data = await res.json(); } catch { /* ignore */ }
+                  if (res.ok) {
+                    alert("Facturación en lote exitosa");
+                    setSeleccionadas(new Set());
+                  } else {
+                    alert(String(data?.detail || data || "Error al facturar en lote"));
+                  }
+                } catch (e) {
+                  alert("Error de conexión al facturar en lote");
                 }
               }}
             >Facturar seleccionadas</button>
