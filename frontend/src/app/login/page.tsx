@@ -24,7 +24,7 @@ export default function LoginPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ username: email, password }),
       });
-      let data: any = null;
+      let data: {access_token?: string; token_type?: string; detail?: string} | null = null;
       try {
         data = await res.json();
       } catch (e) {

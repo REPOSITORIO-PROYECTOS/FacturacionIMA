@@ -1,5 +1,8 @@
-// Proxy para login (conexión directa al backend remoto)
-const baseURL = "https://facturador-ima.sistemataup.online";
+// Proxy para login: usa NEXT_PUBLIC_BACKEND_URL (obligatoria en prod)
+const baseURL = process.env.NEXT_PUBLIC_BACKEND_URL ?? '';
+if (!baseURL) {
+  console.warn('[api/auth] NEXT_PUBLIC_BACKEND_URL no configurada. Configure .env.local en desarrollo o variables en prod.');
+}
 
 export async function POST(request: Request): Promise<Response> {
   const body = await request.json();

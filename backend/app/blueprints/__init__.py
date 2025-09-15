@@ -6,4 +6,10 @@ try:
 except Exception:
 	tablas = None
 
-__all__ = ["auth_router", "boletas", "facturador", "tablas"]
+# Export afip if present
+try:
+	from . import afip
+except Exception:
+	afip = None
+
+__all__ = ["auth_router", "boletas", "facturador", "tablas", "afip"]
