@@ -27,8 +27,10 @@ export default function RootLayout({ children }: RootLayoutProps) {
           "antialiased"
         )}
       >
-        <Navbar />
-        <main>{children}</main> {/* Opcional: envolver en <main> */}
+        <div className="flex min-h-screen">
+          <Navbar />
+          <main className="flex-1 bg-gray-50">{children}</main>
+        </div>
       </body>
     </html>
   );
