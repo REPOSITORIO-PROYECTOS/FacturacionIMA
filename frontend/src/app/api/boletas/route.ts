@@ -12,13 +12,17 @@ export async function GET(request: Request): Promise<Response> {
       headers: { "Content-Type": "application/json" },
     });
   }
-  // Pasar parámetros de paginación y query
+  // Pasar parámetros de paginación y tipo
   const url = new URL(request.url);
   const skip = url.searchParams.get("skip") || "0";
   const limit = url.searchParams.get("limit") || "50";
-  // Puedes agregar más parámetros si lo necesitas
+  const tipo = url.searchParams.get("tipo") || "no-facturadas";
+  let endpoint = '';
+  if (tipo === "no-facturadas") endpoint = `${baseURL}/boletas/obtener-no-facturadas?skip=${skip}&limit=${limit}`;
+  else if (tipo === "facturadas") endpoint = `${baseURL}/boletas/obtener-facturadas?skip=${skip}&limit=${limit}`;
+  else endpoint = `${baseURL}/boletas/obtener-todas?skip=${skip}&limit=${limit}`;
   try {
-  const response = await fetch(`${baseURL}/api/boletas/obtener-no-facturadas?skip=${skip}&limit=${limit}`, {
+    const response = await fetch(endpoint, {
       headers: { Authorization: `Bearer ${token}` },
     });
     const data = await response.json();

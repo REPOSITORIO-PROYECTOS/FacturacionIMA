@@ -29,6 +29,7 @@ export default function DashboardPage() {
   const [seleccionadas, setSeleccionadas] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [tipoBoleta, setTipoBoleta] = useState<'todas' | 'no-facturadas' | 'facturadas'>('no-facturadas');
 
   const parseMonto = (monto: string | number | undefined): number => {
     if (typeof monto === "number") return monto;
@@ -71,7 +72,10 @@ export default function DashboardPage() {
       }
 
       try {
-        const resBoletas = await fetch(`/api/boletas?skip=0&limit=200`, { headers: { Authorization: `Bearer ${token}` } });
+        let endpoint = '/api/boletas?skip=0&limit=200';
+        if (tipoBoleta === 'no-facturadas') endpoint = '/api/boletas?tipo=no-facturadas&skip=0&limit=200';
+        else if (tipoBoleta === 'facturadas') endpoint = '/api/boletas?tipo=facturadas&skip=0&limit=200';
+        const resBoletas = await fetch(endpoint, { headers: { Authorization: `Bearer ${token}` } });
         if (!resBoletas.ok) {
           const err = await resBoletas.json().catch(() => ({}));
           setError(String(err?.detail || "Error al cargar boletas"));
@@ -201,6 +205,20 @@ export default function DashboardPage() {
               <input type="checkbox" checked={soloFacturables} onChange={(e) => setSoloFacturables(e.target.checked)} />
               <span>Solo facturables</span>
             </label>
+            <div>
+              <label className="block text-sm text-gray-600">Ver:</label>
+              <select
+                aria-label="Tipo de boleta"
+                title="Seleccionar tipo de boleta"
+                className="w-full border rounded px-3 py-2"
+                value={tipoBoleta}
+                onChange={(e) => setTipoBoleta(e.target.value as 'todas' | 'no-facturadas' | 'facturadas')}
+              >
+                <option value="no-facturadas">No facturadas</option>
+                <option value="facturadas">Facturadas</option>
+                <option value="todas">Todas</option>
+              </select>
+            </div>
           </div>
 
           {/* Panel de Tablas */}

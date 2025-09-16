@@ -4,6 +4,7 @@ if (!baseURL) {
   console.warn('[api/tablas] NEXT_PUBLIC_BACKEND_URL no configurada. Configure .env.local en desarrollo o variables en prod.');
 }
 
+// Adaptación: ahora el endpoint devuelve las "tablas" únicas extraídas de las boletas
 export async function GET(request: Request): Promise<Response> {
   const token = request.headers.get("authorization")?.split(" ")[1];
   if (!token) {
@@ -13,11 +14,27 @@ export async function GET(request: Request): Promise<Response> {
     });
   }
   try {
-  const response = await fetch(`${baseURL}/api/tablas`, {
+    // Pedimos todas las boletas y extraemos las tablas únicas
+    const response = await fetch(`${baseURL}/boletas/obtener-todas?skip=0&limit=1000`, {
       headers: { Authorization: `Bearer ${token}` },
     });
-    const data = await response.json();
-    return new Response(JSON.stringify(data), {
+    const boletas = await response.json();
+    // Extraer tablas únicas
+  const nombres: string[] = [];
+    if (Array.isArray(boletas)) {
+      for (const r of boletas) {
+        let val = null;
+        for (const key of ["tabla", "TABLA", "Tabla"]) {
+          if (r[key] && r[key] !== "") {
+            val = String(r[key]).trim();
+            break;
+          }
+        }
+        if (val && !nombres.includes(val)) nombres.push(val);
+      }
+    }
+    const resultado = nombres.map((nombre, idx) => ({ id: idx + 1, nombre }));
+    return new Response(JSON.stringify(resultado), {
       status: response.status,
       headers: { "Content-Type": "application/json" },
     });
