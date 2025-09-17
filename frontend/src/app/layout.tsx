@@ -2,7 +2,7 @@
 import type { Metadata } from "next";
 import { clsx } from "clsx"; // Utilidad para clases
 import { geistMono, geistSans } from "./lib/fonts"; // Centralizamos las fuentes
-import Navbar from "./components/Navbar";
+import NavbarVisible from "./components/NavbarVisible";
 import "./globals.css";
 
 // 2. Metadatos significativos y específicos del proyecto
@@ -28,7 +28,7 @@ export default function RootLayout({ children }: RootLayoutProps) {
         )}
       >
         <div className="flex min-h-screen">
-          <Navbar />
+          <NavbarVisible />
           <main className="flex-1 bg-gray-50">{children}</main>
         </div>
       </body>

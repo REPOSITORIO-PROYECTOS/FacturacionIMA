@@ -1,10 +1,11 @@
 "use client";
-import { useState, useEffect } from "react";
-import { useRouter } from "next/navigation";
+import { useState, useEffect, Suspense } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 
-export default function LoginPage() {
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
+function LoginPageInner() {
+  const searchParams = useSearchParams();
+  const [email, setEmail] = useState(() => searchParams.get("username") || "");
+  const [password, setPassword] = useState(() => searchParams.get("password") || "");
   const [remember, setRemember] = useState(false);
   const [error, setError] = useState("");
   const router = useRouter();
@@ -14,6 +15,15 @@ export default function LoginPage() {
     if (tema === "oscuro") document.body.classList.add("dark-theme");
     else document.body.classList.remove("dark-theme");
   }, []);
+
+  // Si aterriza con query params (ej: ?username=admin&password=123), los mantenemos sincronizados sólo en primer render.
+  useEffect(() => {
+    const qUser = searchParams.get("username");
+    const qPass = searchParams.get("password");
+    if (qUser && !email) setEmail(qUser);
+    if (qPass && !password) setPassword(qPass);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams]);
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -132,5 +142,13 @@ export default function LoginPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense fallback={<div className="p-8 text-center">Cargando...</div>}>
+      <LoginPageInner />
+    </Suspense>
   );
 }
