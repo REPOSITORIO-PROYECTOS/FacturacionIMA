@@ -38,11 +38,17 @@ export default function DashboardPage() {
     return parseFloat(numeroLimpio) || 0;
   };
 
+  const formatSinCentavos = (monto: string | number | undefined): string => {
+    const n = parseMonto(monto);
+    const entero = Math.round(n); // quitar centavos
+    return entero.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ".");
+  };
+
   const getId = (b: Boleta) => String(b["id"] ?? b["ID Ingresos"] ?? b["ID Ingreso"] ?? b["ID"] ?? "");
 
   const isFacturable = (b: Boleta) => {
     const total = parseMonto(b.total ?? b["INGRESOS"] ?? 0);
-    const nombre = b.cliente || b.nombre || b["Razon Social"]; 
+    const nombre = b.cliente || b.nombre || b["Razon Social"];
     const ident = b.cuit || b.CUIT || b.dni;
     return total > 0 && Boolean(nombre) && Boolean(ident);
   };
@@ -227,11 +233,10 @@ export default function DashboardPage() {
                   {tablas.map((t) => (
                     <button
                       key={String(t.id)}
-                      className={`px-4 py-2 rounded-lg border transition-colors ${
-                        tablaSeleccionada === t.nombre 
-                          ? "bg-purple-600 text-white border-purple-600 shadow-md" 
+                      className={`px-4 py-2 rounded-lg border transition-colors ${tablaSeleccionada === t.nombre
+                          ? "bg-purple-600 text-white border-purple-600 shadow-md"
                           : "bg-white hover:bg-purple-50 border-gray-300"
-                      }`}
+                        }`}
                       onClick={() => setTablaSeleccionada((prev) => (prev === t.nombre ? "" : t.nombre))}
                     >
                       {t.nombre}
@@ -250,8 +255,8 @@ export default function DashboardPage() {
                 <span className="ml-2 text-sm text-gray-500">({boletasFiltradas.length} resultados)</span>
               </div>
               {seleccionadas.size > 0 && (
-                <button 
-                  className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg shadow transition-colors" 
+                <button
+                  className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg shadow transition-colors"
                   onClick={facturarSeleccionadas}
                 >
                   Facturar {seleccionadas.size} seleccionadas
@@ -280,9 +285,16 @@ export default function DashboardPage() {
                 <thead className="bg-purple-50">
                   <tr>
                     <th className="p-2">Sel</th>
-                    {boletasFiltradas.length > 0 && Object.keys(boletasFiltradas[0]).map((k) => (
-                      <th key={k} className="p-2">{k}</th>
-                    ))}
+                    {boletasFiltradas.length > 0 && (() => {
+                      // Queremos asegurar columnas explícitas y mantener el resto tal cual
+                      const keys = Object.keys(boletasFiltradas[0]);
+                      // Asegurar que 'Repartidor' y 'Nro Comprobante' estén visibles y en orden razonable
+                      const ensure = ["Repartidor", "Nro Comprobante"];
+                      const combined = Array.from(new Set([...keys, ...ensure]));
+                      return combined.map((k) => (
+                        <th key={k} className="p-2">{k}</th>
+                      ));
+                    })()}
                     <th className="p-2">Estado</th>
                     <th className="p-2">Acción</th>
                   </tr>
@@ -309,24 +321,32 @@ export default function DashboardPage() {
                             }}
                           />
                         </td>
-                        {Object.keys(b).map((k) => (
-                          <td key={k} className="p-2">{String(b[k])}</td>
-                        ))}
+                        {Object.keys(b).map((k) => {
+                          // Formatear montos conocidos sin centavos
+                          const lower = String(k).toLowerCase();
+                          if (["ingresos", "efectivo", "tarjetas", "mercado pago", "bancos", "total a pagar"].includes(lower)) {
+                            const val = b[k] as string | number | undefined;
+                            return <td key={k} className="p-2">{formatSinCentavos(val)}</td>;
+                          }
+                          // Mostrar resto tal cual
+                          return <td key={k} className="p-2">{String(b[k] ?? "")}</td>;
+                        })}
+                        {/* Si la fila no contiene 'Repartidor' o 'Nro Comprobante', agregarlos vacíos */}
+                        {!("Repartidor" in b) && <td className="p-2">{""}</td>}
+                        {!("Nro Comprobante" in b) && <td className="p-2">{""}</td>}
                         <td className="p-2">
-                          <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-                            fact ? "bg-green-100 text-green-800" : "bg-red-100 text-red-800"
-                          }`}>
+                          <span className={`px-2 py-1 rounded-full text-xs font-medium ${fact ? "bg-green-100 text-green-800" : "bg-red-100 text-red-800"
+                            }`}>
                             {fact ? "✓ Facturable" : "✗ No facturable"}
                           </span>
                         </td>
                         <td className="p-2">
-                          <button 
-                            className={`px-3 py-1 rounded-lg text-sm transition-colors ${
-                              fact 
-                                ? "bg-blue-600 hover:bg-blue-700 text-white" 
+                          <button
+                            className={`px-3 py-1 rounded-lg text-sm transition-colors ${fact
+                                ? "bg-blue-600 hover:bg-blue-700 text-white"
                                 : "bg-gray-300 text-gray-600 cursor-not-allowed"
-                            }`} 
-                            disabled={!fact} 
+                              }`}
+                            disabled={!fact}
                             onClick={() => facturarBoleta(b)}
                           >
                             Facturar
