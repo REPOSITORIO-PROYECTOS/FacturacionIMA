@@ -110,7 +110,7 @@ export default function DashboardPage() {
       },
     };
     try {
-      const res = await fetch("/api/facturador/facturar-por-cantidad", {
+      const res = await fetch("/facturador/facturar-por-cantidad", {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
         body: JSON.stringify(payload),
@@ -139,7 +139,7 @@ export default function DashboardPage() {
       },
     }));
     try {
-      const res = await fetch("/api/facturador/facturar-por-cantidad", {
+      const res = await fetch("/facturador/facturar-por-cantidad", {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
         body: JSON.stringify(payloads),
