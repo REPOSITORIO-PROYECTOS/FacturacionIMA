@@ -73,8 +73,8 @@ export default function DashboardPage() {
 
       try {
         let endpoint = '/api/boletas/obtener-todas?skip=0&limit=200';
-        if (tipoBoleta === 'no-facturadas') endpoint = '/obtener-no-facturadas?skip=0&limit=200';
-        else if (tipoBoleta === 'facturadas') endpoint = '/obtener-facturadas?skip=0&limit=200';
+        if (tipoBoleta === 'no-facturadas') endpoint = '/api/boletas/obtener-no-facturadas?skip=0&limit=200';
+        else if (tipoBoleta === 'facturadas') endpoint = '/api/boletas/obtener-facturadas?skip=0&limit=200';
         const resBoletas = await fetch(endpoint, { headers: { Authorization: `Bearer ${token}` } });
         if (!resBoletas.ok) {
           const err = await resBoletas.json().catch(() => ({}));
