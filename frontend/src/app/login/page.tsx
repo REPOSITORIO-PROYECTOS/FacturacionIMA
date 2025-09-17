@@ -24,7 +24,7 @@ export default function LoginPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ username: email, password }),
       });
-      let data: {access_token?: string; token_type?: string; detail?: string} | null = null;
+      let data: { access_token?: string; token_type?: string; detail?: string } | null = null;
       try {
         data = await res.json();
       } catch (e) {
@@ -121,10 +121,13 @@ export default function LoginPage() {
             Iniciar Sesión
           </button>
         </form>
-        
+
         <div className="mt-6 text-center">
           <p className="text-xs text-gray-500">
             Usuario por defecto: admin / admin123
+          </p>
+          <p className="text-xs text-gray-500 mt-2">
+            ¿Olvidó su contraseña? Contacte con el administrador o soporte.
           </p>
         </div>
       </div>
