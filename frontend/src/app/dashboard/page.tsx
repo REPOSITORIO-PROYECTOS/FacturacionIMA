@@ -233,8 +233,8 @@ export default function DashboardPage() {
                     <button
                       key={String(t.id)}
                       className={`px-4 py-2 rounded-lg border transition-colors ${tablaSeleccionada === t.nombre
-                          ? "bg-purple-600 text-white border-purple-600 shadow-md"
-                          : "bg-white hover:bg-purple-50 border-gray-300"
+                        ? "bg-purple-600 text-white border-purple-600 shadow-md"
+                        : "bg-white hover:bg-purple-50 border-gray-300"
                         }`}
                       onClick={() => setTablaSeleccionada((prev) => (prev === t.nombre ? "" : t.nombre))}
                     >
@@ -342,8 +342,8 @@ export default function DashboardPage() {
                         <td className="p-2">
                           <button
                             className={`px-3 py-1 rounded-lg text-sm transition-colors ${fact
-                                ? "bg-blue-600 hover:bg-blue-700 text-white"
-                                : "bg-gray-300 text-gray-600 cursor-not-allowed"
+                              ? "bg-blue-600 hover:bg-blue-700 text-white"
+                              : "bg-gray-300 text-gray-600 cursor-not-allowed"
                               }`}
                             disabled={!fact}
                             onClick={() => facturarBoleta(b)}
