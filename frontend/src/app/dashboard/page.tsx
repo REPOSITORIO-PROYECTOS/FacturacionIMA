@@ -54,7 +54,7 @@ export default function DashboardPage() {
   };
 
   useEffect(() => {
-    let mounted = true;
+    let cancelled = false;
     async function load() {
       setLoading(true);
       setError("");
@@ -64,28 +64,27 @@ export default function DashboardPage() {
         setLoading(false);
         return;
       }
-
+      // Construir endpoint unificado
+      const params = new URLSearchParams({ tipo: tipoBoleta, skip: '0', limit: '200' });
+      const endpoint = `/api/boletas?${params.toString()}`;
       try {
-        let endpoint = '/api/boletas/obtener-todas?skip=0&limit=200';
-        if (tipoBoleta === 'no-facturadas') endpoint = '/api/boletas/obtener-no-facturadas?skip=0&limit=200';
-        else if (tipoBoleta === 'facturadas') endpoint = '/api/boletas/obtener-facturadas?skip=0&limit=200';
-        const resBoletas = await fetch(endpoint, { headers: { Authorization: `Bearer ${token}` } });
-        if (!resBoletas.ok) {
-          const err = await resBoletas.json().catch(() => ({}));
-          setError(String(err?.detail || "Error al cargar boletas"));
+        const res = await fetch(endpoint, { headers: { Authorization: `Bearer ${token}` } });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          if (!cancelled) setError(String(err?.detail || 'Error al cargar boletas'));
         } else {
-          const data = await resBoletas.json();
-          if (mounted && Array.isArray(data)) setBoletas(data);
+          const data = await res.json().catch(() => []);
+          if (!cancelled && Array.isArray(data)) setBoletas(data);
         }
       } catch {
-        setError("Error de conexión al cargar boletas");
+        if (!cancelled) setError('Error de conexión al cargar boletas');
       } finally {
-        if (mounted) setLoading(false);
+        if (!cancelled) setLoading(false);
       }
     }
     load();
-    return () => { mounted = false; };
-  }, []);
+    return () => { cancelled = true; };
+  }, [tipoBoleta]);
 
   const boletasFiltradas = useMemo(() => {
     return boletas.filter((b) => {
