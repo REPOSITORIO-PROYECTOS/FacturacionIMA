@@ -13,6 +13,8 @@ venv*/
 env/
 ENV/
 env.bak/
+.venv_tmp/
+venv_tmp/
 
 # Environments
 .env
