@@ -58,18 +58,6 @@ export default function DashboardPage() {
         setLoading(false);
         return;
       }
-      try {
-        const resTablas = await fetch(`/api/tablas`, { headers: { Authorization: `Bearer ${token}` } });
-        if (!resTablas.ok) {
-          const err = await resTablas.json().catch(() => ({}));
-          setError(String(err?.detail || "Error al cargar tablas"));
-        } else {
-          const data = await resTablas.json();
-          if (mounted && Array.isArray(data)) setTablas(data);
-        }
-      } catch {
-        setError("Error de conexión al cargar tablas");
-      }
 
       try {
         let endpoint = '/api/boletas/obtener-todas?skip=0&limit=200';
