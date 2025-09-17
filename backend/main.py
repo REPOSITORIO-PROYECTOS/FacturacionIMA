@@ -22,11 +22,12 @@ origins = [
     "https://www.facturador-ima.sistemataup.online",
 ]
 
+# ...existing code...
 app.include_router(boletas.router, prefix="/api")
 app.include_router(auth_router.router, prefix="/api")
 app.include_router(facturador.router, prefix="/api")
-# tablas.router already uses prefix '/api' internally; include it directly
-app.include_router(tablas.router)
+# tablas.router no existe, se comenta para evitar error
+# app.include_router(tablas.router)
 # afip.router already uses prefix '/api' internally; include it directly
 if afip:
     app.include_router(afip.router)
