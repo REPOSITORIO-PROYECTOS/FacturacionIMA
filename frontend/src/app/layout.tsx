@@ -27,7 +27,7 @@ export default function RootLayout({ children }: RootLayoutProps) {
       <body className={clsx(geistSans.variable, geistMono.variable, "antialiased")}>
         <div className="flex min-h-screen">
           <NavbarVisible />
-          <main className="flex-1 bg-gray-50 md:ml-64 transition-all duration-200">{children}</main>
+          <main className="flex-1 bg-white md:ml-64 transition-all duration-200 text-black">{children}</main>
         </div>
       </body>
     </html>

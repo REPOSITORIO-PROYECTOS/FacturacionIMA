@@ -23,6 +23,8 @@ type Boleta = Record<string, string | number | boolean | undefined> & {
 export default function DashboardPage() {
   // const [tablas, setTablas] = useState<Tabla[]>([]); // (Removido: no se usa actualmente)
   const [boletas, setBoletas] = useState<Boleta[]>([]);
+  const [boletasFacturadas, setBoletasFacturadas] = useState<Boleta[]>([]);
+  const [boletasNoFacturadas, setBoletasNoFacturadas] = useState<Boleta[]>([]);
   // Tabla seleccionada removida (no se usa panel de tablas)
   // tablaSeleccionada eliminada
   const [soloFacturables, setSoloFacturables] = useState<boolean>(true);
@@ -86,6 +88,32 @@ export default function DashboardPage() {
     load();
     return () => { cancelled = true; };
   }, [tipoBoleta]);
+
+  // Cargar listas separadas para resumen (limit reducido para performance)
+  useEffect(() => {
+    let cancel = false;
+    async function cargarResumen(tipo: 'facturadas' | 'no-facturadas') {
+      const token = localStorage.getItem('token');
+      if (!token) return;
+      try {
+        const res = await fetch(`/api/boletas?tipo=${tipo}&skip=0&limit=50`, { headers: { Authorization: `Bearer ${token}` } });
+        if (!res.ok) return;
+        const data = await res.json().catch(() => []);
+        if (!cancel && Array.isArray(data)) {
+          if (tipo === 'facturadas') setBoletasFacturadas(data);
+          else setBoletasNoFacturadas(data);
+        }
+      } catch { /* silent */ }
+    }
+    cargarResumen('facturadas');
+    cargarResumen('no-facturadas');
+    return () => { cancel = true; };
+  }, []);
+
+  const totalFacturadas = boletasFacturadas.length;
+  const totalNoFacturadas = boletasNoFacturadas.length;
+  const totalGlobal = totalFacturadas + totalNoFacturadas;
+  const porcentajeFacturadas = totalGlobal === 0 ? 0 : Math.round((totalFacturadas / totalGlobal) * 100);
 
   const boletasFiltradas = useMemo(() => {
     return boletas.filter((b) => {
@@ -159,8 +187,8 @@ export default function DashboardPage() {
   return (
     <div className="flex min-h-screen bg-gray-100">
       <div className="flex-1 flex flex-col">
-        <header className="bg-white shadow-md p-4 flex justify-between items-center">
-          <h1 className="text-xl font-bold text-purple-700">Dashboard</h1>
+        <header className="bg-white border-b p-4 flex justify-between items-center">
+          <h1 className="text-xl font-bold text-blue-700">Dashboard</h1>
           <div className="flex items-center gap-3 text-sm">
             <Link className="text-blue-600" href="/usuarios">Ir a Usuarios</Link>
             <Link className="text-blue-600" href="/perfil">Perfil</Link>
@@ -168,6 +196,69 @@ export default function DashboardPage() {
         </header>
 
         <main className="p-4 md:p-6 space-y-6">
+          {/* KPIs */}
+          <div className="grid gap-4 grid-cols-1 md:grid-cols-4">
+            <div className="p-4 rounded border bg-white">
+              <div className="text-xs text-gray-500">Total Boletas</div>
+              <div className="text-2xl font-bold text-blue-700">{totalGlobal}</div>
+            </div>
+            <div className="p-4 rounded border bg-white">
+              <div className="text-xs text-gray-500">Facturadas</div>
+              <div className="text-2xl font-bold text-blue-700">{totalFacturadas}</div>
+            </div>
+            <div className="p-4 rounded border bg-white">
+              <div className="text-xs text-gray-500">No Facturadas</div>
+              <div className="text-2xl font-bold text-blue-700">{totalNoFacturadas}</div>
+            </div>
+            <div className="p-4 rounded border bg-white">
+              <div className="text-xs text-gray-500">% Facturadas</div>
+              <div className="text-2xl font-bold text-blue-700">{porcentajeFacturadas}%</div>
+            </div>
+          </div>
+
+          {/* Listas resumen */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="bg-white rounded border overflow-hidden">
+              <div className="p-3 font-semibold border-b flex justify-between items-center">
+                <span>Facturadas (últimas {boletasFacturadas.length})</span>
+                <Link href="/boletas/facturadas" className="text-blue-600 text-sm">Ver todas →</Link>
+              </div>
+              <table className="w-full text-xs">
+                <thead className="bg-blue-50">
+                  <tr><th className="p-1">ID</th><th className="p-1">Cliente</th><th className="p-1">Total</th></tr>
+                </thead>
+                <tbody>
+                  {boletasFacturadas.slice(0, 10).map((b, i) => {
+                    const id = String(b['ID Ingresos'] || b['id'] || i);
+                    const cliente = b.cliente || b.nombre || b['Razon Social'] || '';
+                    const total = b.total || b['INGRESOS'] || '';
+                    return <tr key={id} className="border-t"><td className="p-1">{id}</td><td className="p-1 truncate max-w-[140px]">{String(cliente)}</td><td className="p-1">{String(total)}</td></tr>;
+                  })}
+                  {boletasFacturadas.length === 0 && <tr><td colSpan={3} className="p-2 text-center text-gray-500">Sin datos</td></tr>}
+                </tbody>
+              </table>
+            </div>
+            <div className="bg-white rounded border overflow-hidden">
+              <div className="p-3 font-semibold border-b flex justify-between items-center">
+                <span>No Facturadas (últimas {boletasNoFacturadas.length})</span>
+                <Link href="/boletas/no-facturadas" className="text-blue-600 text-sm">Ver todas →</Link>
+              </div>
+              <table className="w-full text-xs">
+                <thead className="bg-blue-50">
+                  <tr><th className="p-1">ID</th><th className="p-1">Cliente</th><th className="p-1">Total</th></tr>
+                </thead>
+                <tbody>
+                  {boletasNoFacturadas.slice(0, 10).map((b, i) => {
+                    const id = String(b['ID Ingresos'] || b['id'] || i);
+                    const cliente = b.cliente || b.nombre || b['Razon Social'] || '';
+                    const total = b.total || b['INGRESOS'] || '';
+                    return <tr key={id} className="border-t"><td className="p-1">{id}</td><td className="p-1 truncate max-w-[140px]">{String(cliente)}</td><td className="p-1">{String(total)}</td></tr>;
+                  })}
+                  {boletasNoFacturadas.length === 0 && <tr><td colSpan={3} className="p-2 text-center text-gray-500">Sin datos</td></tr>}
+                </tbody>
+              </table>
+            </div>
+          </div>
           {/* Controles */}
           <div className="bg-white rounded-lg shadow p-4 flex flex-col md:flex-row gap-3 md:items-end">
             {/* Selector de tabla eliminado temporalmente (no hay fuente de tablas) */}
@@ -204,7 +295,7 @@ export default function DashboardPage() {
 
           {/* Tabla de Boletas */}
           <div className="bg-white rounded-lg shadow overflow-auto">
-            <div className="p-4 border-b font-semibold text-purple-700 flex justify-between items-center">
+            <div className="p-4 border-b font-semibold text-blue-700 flex justify-between items-center">
               <div>
                 <span>Boletas {soloFacturables ? "(facturables)" : "(todas)"}</span>
                 <span className="ml-2 text-sm text-gray-500">({boletasFiltradas.length} resultados)</span>

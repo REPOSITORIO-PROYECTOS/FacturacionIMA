@@ -8,7 +8,7 @@ import { useEffect, useState } from "react";
 export default function Navbar() {
   const [userName, setUserName] = useState<string>("");
   const [open, setOpen] = useState<boolean>(false);
-  // Forzar siempre tema claro y cargar nombre
+  // Forzar siempre tema claro y cargar nombre (tema único)
   useEffect(() => {
     document.body.classList.remove('dark-theme');
     document.body.classList.remove('fixed-theme');
@@ -38,34 +38,34 @@ export default function Navbar() {
       {/* Aside siempre fixed; el main aplicará md:ml-64 para escritorio */}
       <aside className={`bg-white shadow-lg border-r border-gray-200 fixed inset-y-0 left-0 flex flex-col w-64 z-30 transform transition-transform duration-200 ${open ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}`}>
         <div className="p-6 border-b border-gray-200">
-          <h1 className="font-bold text-purple-700 text-xl">FacturacionIMA</h1>
+          <h1 className="font-bold text-blue-700 text-xl">FacturacionIMA</h1>
           <p className="text-sm text-gray-500 mt-1">Sistema de Gestión</p>
         </div>
 
         <nav className="flex-1 mt-4">
           <ul className="space-y-1 px-3">
             <li>
-              <Link href="/dashboard" className="flex items-center px-3 py-2 text-sm font-medium text-gray-700 rounded-lg hover:bg-purple-50 hover:text-purple-700 transition-colors">
+              <Link href="/dashboard" className="flex items-center px-3 py-2 text-sm font-medium text-gray-700 rounded-lg hover:bg-blue-50 hover:text-blue-700 transition-colors">
                 <span className="ml-3">📊 Dashboard</span>
               </Link>
             </li>
             <li>
-              <Link href="/boletas/no-facturadas" className="flex items-center px-3 py-2 text-sm font-medium text-gray-700 rounded-lg hover:bg-purple-50 hover:text-purple-700 transition-colors">
+              <Link href="/boletas/no-facturadas" className="flex items-center px-3 py-2 text-sm font-medium text-gray-700 rounded-lg hover:bg-blue-50 hover:text-blue-700 transition-colors">
                 <span className="ml-3">🧾 No Facturadas</span>
               </Link>
             </li>
             <li>
-              <Link href="/boletas/facturadas" className="flex items-center px-3 py-2 text-sm font-medium text-gray-700 rounded-lg hover:bg-purple-50 hover:text-purple-700 transition-colors">
+              <Link href="/boletas/facturadas" className="flex items-center px-3 py-2 text-sm font-medium text-gray-700 rounded-lg hover:bg-blue-50 hover:text-blue-700 transition-colors">
                 <span className="ml-3">📑 Facturadas</span>
               </Link>
             </li>
             <li>
-              <Link href="/usuarios" className="flex items-center px-3 py-2 text-sm font-medium text-gray-700 rounded-lg hover:bg-purple-50 hover:text-purple-700 transition-colors">
+              <Link href="/usuarios" className="flex items-center px-3 py-2 text-sm font-medium text-gray-700 rounded-lg hover:bg-blue-50 hover:text-blue-700 transition-colors">
                 <span className="ml-3">👥 Usuarios</span>
               </Link>
             </li>
             <li>
-              <Link href="/perfil" className="flex items-center px-3 py-2 text-sm font-medium text-gray-700 rounded-lg hover:bg-purple-50 hover:text-purple-700 transition-colors">
+              <Link href="/perfil" className="flex items-center px-3 py-2 text-sm font-medium text-gray-700 rounded-lg hover:bg-blue-50 hover:text-blue-700 transition-colors">
                 <span className="ml-3">⚙️ Perfil</span>
               </Link>
             </li>
@@ -75,7 +75,7 @@ export default function Navbar() {
         {/* Sección del usuario en la parte inferior */}
         <div className="p-4 border-t border-gray-200 bg-white mt-auto">
           <div className="flex items-center gap-3 mb-3">
-            <div className="w-8 h-8 rounded-full bg-purple-500 flex items-center justify-center text-white text-sm font-bold">
+            <div className="w-8 h-8 rounded-full bg-blue-600 flex items-center justify-center text-white text-sm font-bold">
               {(userName || 'U').toString().slice(0, 1).toUpperCase()}
             </div>
             <div className="flex-1 min-w-0">
@@ -86,12 +86,17 @@ export default function Navbar() {
 
           {/* Enlaces de configuración */}
           <div className="space-y-1">
-            <Link href="/perfil" className="flex items-center px-2 py-1 text-xs text-gray-600 hover:text-purple-600 rounded">
+            <Link href="/perfil" className="flex items-center px-2 py-1 text-xs text-gray-600 hover:text-blue-600 rounded">
               🔧 AFIP Config
             </Link>
-            <Link href="/login" className="flex items-center px-2 py-1 text-xs text-gray-600 hover:text-red-600 rounded">
-              🚪 Cerrar Sesión
-            </Link>
+            <button
+              onClick={async () => {
+                try { await fetch('/api/auth/logout', { method: 'POST' }); } catch { }
+                localStorage.removeItem('token');
+                window.location.href = '/login';
+              }}
+              className="w-full text-left flex items-center px-2 py-1 text-xs text-gray-600 hover:text-red-600 rounded"
+            >🚪 Cerrar Sesión</button>
           </div>
 
           {/* (Se removió info de backend y toggle de tema) */}
