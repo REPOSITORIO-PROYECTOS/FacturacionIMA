@@ -3,6 +3,7 @@ import type { Metadata } from "next";
 import { clsx } from "clsx"; // Utilidad para clases
 import { geistMono, geistSans } from "./lib/fonts"; // Centralizamos las fuentes
 import NavbarVisible from "./components/NavbarVisible";
+import React from 'react';
 import "./globals.css";
 
 // 2. Metadatos significativos y específicos del proyecto
@@ -16,17 +17,14 @@ type RootLayoutProps = {
   children: React.ReactNode;
 };
 
+
 export default function RootLayout({ children }: RootLayoutProps) {
   return (
     <html lang="es">
-      {/* 4. Gestión de clases más limpia y escalable con clsx */}
-      <body
-        className={clsx(
-          geistSans.variable,
-          geistMono.variable,
-          "antialiased"
-        )}
-      >
+      <head>
+        <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1" />
+      </head>
+      <body className={clsx(geistSans.variable, geistMono.variable, "antialiased")}>
         <div className="flex min-h-screen">
           <NavbarVisible />
           <main className="flex-1 bg-gray-50">{children}</main>

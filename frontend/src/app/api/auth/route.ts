@@ -73,10 +73,14 @@ export async function POST(request: Request): Promise<Response> {
         continue;
       }
 
-      return new Response(JSON.stringify(data), {
-        status: response.status || 200,
-        headers: { 'Content-Type': 'application/json' },
-      });
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      // Si autenticación exitosa, setear cookie HttpOnly (8h TTL aprox)
+      if (response.ok && typeof data === 'object' && data && 'access_token' in data) {
+        const tokenVal = (data as any).access_token;
+        const maxAge = 60 * 60 * 8; // 8 horas
+        headers['Set-Cookie'] = `session_token=${tokenVal}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAge}`;
+      }
+      return new Response(JSON.stringify(data), { status: response.status || 200, headers });
     } catch (err) {
       // Intentar el siguiente candidato y loguear detalle completo para depuración
       try {

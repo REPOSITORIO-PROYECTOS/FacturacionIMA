@@ -14,7 +14,13 @@ function LoginPageInner() {
     const tema = localStorage.getItem("tema");
     if (tema === "oscuro") document.body.classList.add("dark-theme");
     else document.body.classList.remove("dark-theme");
-  }, []);
+    // Si ya hay token, redirigir automáticamente (evitar volver al login)
+    const existing = localStorage.getItem('token');
+    if (existing) {
+      const isMobile = typeof window !== 'undefined' && window.innerWidth < 768;
+      router.replace(isMobile ? '/inicio' : '/dashboard');
+    }
+  }, [router]);
 
   // Si aterriza con query params (ej: ?username=admin&password=123), los mantenemos sincronizados sólo en primer render.
   useEffect(() => {
@@ -51,7 +57,8 @@ function LoginPageInner() {
       if (data && data.access_token) {
         localStorage.setItem("token", data.access_token);
         if (remember) localStorage.setItem("remember_user", email);
-        router.push("/");
+        const isMobile = typeof window !== 'undefined' && window.innerWidth < 768;
+        router.push(isMobile ? '/inicio' : '/dashboard');
       } else {
         setError("Respuesta inválida del servidor");
       }
