@@ -19,9 +19,6 @@ type Boleta = Record<string, string | number | boolean | undefined> & {
   "condicion-iva"?: string;
 };
 
-// type Tabla = { id: number | string; nombre: string }; // Eliminado temporalmente
-
-
 export default function DashboardPage() {
   // Estados primero
   const [modalOpen, setModalOpen] = useState(false);
@@ -150,8 +147,6 @@ export default function DashboardPage() {
   const totalGlobal = totalFacturadas + totalNoFacturadas;
   const porcentajeFacturadas = totalGlobal === 0 ? 0 : Math.round((totalFacturadas / totalGlobal) * 100);
 
-  // ...boletasFiltradas ya declarada arriba, se elimina la duplicada...
-
   async function facturarBoleta(b: Boleta) {
     const token = localStorage.getItem("token");
     if (!token) return alert("No autenticado");
@@ -212,6 +207,25 @@ export default function DashboardPage() {
       alert("Error de conexión al facturar en lote");
     }
   }
+  
+  // ----- INICIO DEL CAMBIO -----
+  // Define las columnas que quieres mostrar en el modal
+  const columnasVisibles = [
+    "INGRESOS",
+    "Fecha",
+    "ID Ingresos",
+    "ID Cliente",
+    "Cliente",
+    "CUIT",
+    "Razon Social",
+    "ID Repartidor",
+    "Repartidor",
+    "ID Pedido",
+    "Tipo Pago",
+    "condicion-iva",
+    "facturacion",
+  ];
+  // ----- FIN DEL CAMBIO -----
 
   return (
     <div className="flex min-h-screen bg-gray-100">
@@ -290,7 +304,6 @@ export default function DashboardPage() {
           </div>
           {/* Controles */}
           <div className="bg-white rounded-lg shadow p-4 flex flex-col md:flex-row gap-3 md:items-end">
-            {/* Selector de tabla eliminado temporalmente (no hay fuente de tablas) */}
             <div>
               <label className="block text-sm text-gray-600">Búsqueda</label>
               <input
@@ -320,8 +333,6 @@ export default function DashboardPage() {
             </div>
           </div>
 
-          {/* Panel de Tablas removido */}
-
           {/* Tarjetas agrupadas por facturación, tipo de pago y repartidor */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {agrupadas.map((grupo, idx) => (
@@ -340,7 +351,6 @@ export default function DashboardPage() {
                       <button
                         className="px-3 py-1 rounded text-xs font-semibold bg-blue-600 text-white hover:bg-blue-700"
                         onClick={() => {
-                          // Facturar todas las boletas del grupo no facturado
                           const seleccion = grupo.boletas.filter(isFacturable);
                           if (seleccion.length === 0) return alert("No hay boletas facturables en el grupo");
                           const payloads = seleccion.map((b) => ({
@@ -398,12 +408,14 @@ export default function DashboardPage() {
                     <span className={`px-3 py-1 rounded text-xs font-semibold ${modalGroup.facturado ? "bg-green-100 text-green-800" : "bg-red-100 text-red-800"}`}>{modalGroup.facturado ? "Facturado" : "No facturado"}</span>
                   </div>
                 </div>
+                {/* ----- INICIO DEL CAMBIO EN LA TABLA ----- */}
                 <div className="overflow-auto max-h-[60vh]">
                   <table className="w-full text-xs">
                     <thead className="bg-blue-50">
                       <tr>
                         <th className="p-1">Sel</th>
-                        {modalGroup.boletas.length > 0 && Object.keys(modalGroup.boletas[0]).map((k) => (<th key={k} className="p-1">{k}</th>))}
+                        {/* Iterar sobre el array de columnas visibles */}
+                        {columnasVisibles.map((col) => (<th key={col} className="p-1">{col}</th>))}
                         <th className="p-1">Estado</th>
                         <th className="p-1">Acción</th>
                       </tr>
@@ -430,14 +442,16 @@ export default function DashboardPage() {
                                 }}
                               />
                             </td>
-                            {Object.keys(b).map((k) => {
-                              // Formatear montos conocidos sin centavos
-                              const lower = String(k).toLowerCase();
-                              if (["ingresos", "efectivo", "tarjetas", "mercado pago", "bancos", "total a pagar"].includes(lower)) {
-                                const val = b[k] as string | number | undefined;
-                                return <td key={k} className="p-1">{formatSinCentavos(val)}</td>;
+                            {/* Iterar sobre las columnas visibles para mostrar los datos */}
+                            {columnasVisibles.map((col) => {
+                              const lower = String(col).toLowerCase();
+                              // Mantener el formato para montos
+                              if (["ingresos", "total a pagar"].includes(lower)) {
+                                const val = b[col] as string | number | undefined;
+                                return <td key={col} className="p-1">{formatSinCentavos(val)}</td>;
                               }
-                              return <td key={k} className="p-1">{String(b[k] ?? "")}</td>;
+                              // Mostrar el resto como texto
+                              return <td key={col} className="p-1">{String(b[col] ?? "")}</td>;
                             })}
                             <td className="p-1">
                               <span className={`px-2 py-1 rounded-full text-xs font-medium ${fact ? "bg-green-100 text-green-800" : "bg-red-100 text-red-800"}`}>{fact ? "✓ Facturable" : "✗ No facturable"}</span>
@@ -463,6 +477,7 @@ export default function DashboardPage() {
                     </tbody>
                   </table>
                 </div>
+                {/* ----- FIN DEL CAMBIO EN LA TABLA ----- */}
               </div>
             </div>
           )}

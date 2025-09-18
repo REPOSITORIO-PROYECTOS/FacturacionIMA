@@ -14,8 +14,8 @@ app = FastAPI(
 # --- Configuración de CORS ---
 origins = [
     # Orígenes para desarrollo local
-    "http://localhost",
-    "http://localhost:3000",
+    "https://localhost",
+    "https://localhost:3000",
     
     # Orígenes para producción (sin www y con www)
     "https://facturador-ima.sistemataup.online",
