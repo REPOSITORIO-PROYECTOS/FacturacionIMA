@@ -16,6 +16,8 @@ interface BoletaRecord {
     [key: string]: unknown;
 }
 
+import Navbar from '../../components/Navbar';
+
 export default function BoletasMobilePage() {
     const [tipo, setTipo] = useState<Tipo>('no-facturadas');
     const [items, setItems] = useState<BoletaRecord[]>([]);
@@ -55,37 +57,40 @@ export default function BoletasMobilePage() {
     }), [items]);
 
     return (
-        <div className="p-3 space-y-4">
-            <div className="flex items-center justify-between">
-                <h1 className="text-lg font-bold text-purple-700">Boletas {tipo === 'no-facturadas' ? 'Pendientes' : 'Facturadas'}</h1>
-                <div className="flex gap-2">
-                    <button onClick={() => setTipo('no-facturadas')} className={`px-3 py-1 rounded text-sm font-medium border ${tipo === 'no-facturadas' ? 'bg-purple-600 text-white border-purple-600' : 'bg-white text-purple-600 border-purple-300'}`}>Pendientes</button>
-                    <button onClick={() => setTipo('facturadas')} className={`px-3 py-1 rounded text-sm font-medium border ${tipo === 'facturadas' ? 'bg-purple-600 text-white border-purple-600' : 'bg-white text-purple-600 border-purple-300'}`}>Facturadas</button>
+        <div className="flex">
+            <Navbar />
+            <main className="flex-1 md:ml-64 p-3 space-y-4">
+                <div className="flex items-center justify-between">
+                    <h1 className="text-lg font-bold text-purple-700">Boletas {tipo === 'no-facturadas' ? 'Pendientes' : 'Facturadas'}</h1>
+                    <div className="flex gap-2">
+                        <button onClick={() => setTipo('no-facturadas')} className={`px-3 py-1 rounded text-sm font-medium border ${tipo === 'no-facturadas' ? 'bg-purple-600 text-white border-purple-600' : 'bg-white text-purple-600 border-purple-300'}`}>Pendientes</button>
+                        <button onClick={() => setTipo('facturadas')} className={`px-3 py-1 rounded text-sm font-medium border ${tipo === 'facturadas' ? 'bg-purple-600 text-white border-purple-600' : 'bg-white text-purple-600 border-purple-300'}`}>Facturadas</button>
+                    </div>
                 </div>
-            </div>
 
-            {loading && <p className="text-sm">Cargando...</p>}
-            {error && !loading && <p className="text-sm text-red-600">{error}</p>}
+                {loading && <p className="text-sm">Cargando...</p>}
+                {error && !loading && <p className="text-sm text-red-600">{error}</p>}
 
-            <ul className="divide-y rounded border bg-white overflow-hidden">
-                {resumidos.map(r => (
-                    <li key={r.id} className="p-3 flex flex-col gap-1">
-                        <div className="flex justify-between text-xs text-gray-500">
-                            <span>ID: {r.id}</span>
-                            {r.nroComp && <span>Comp: {r.nroComp}</span>}
-                        </div>
-                        <div className="flex justify-between items-center">
-                            <span className="text-sm font-medium text-gray-800 truncate pr-3">{r.cliente}</span>
-                            <span className="text-sm font-semibold text-purple-700">{r.total}</span>
-                        </div>
-                        <div className="text-xs text-gray-500 flex justify-between">
-                            <span>Rep: {r.repartidor || '-'}</span>
-                            <span>{tipo === 'facturadas' ? '✓' : '⏳'}</span>
-                        </div>
-                    </li>
-                ))}
-                {(!loading && resumidos.length === 0) && <li className="p-4 text-center text-sm text-gray-500">Sin boletas</li>}
-            </ul>
+                <ul className="divide-y rounded border bg-white overflow-hidden">
+                    {resumidos.map(r => (
+                        <li key={r.id} className="p-3 flex flex-col gap-1">
+                            <div className="flex justify-between text-xs text-gray-500">
+                                <span>ID: {r.id}</span>
+                                {r.nroComp && <span>Comp: {r.nroComp}</span>}
+                            </div>
+                            <div className="flex justify-between items-center">
+                                <span className="text-sm font-medium text-gray-800 truncate pr-3">{r.cliente}</span>
+                                <span className="text-sm font-semibold text-purple-700">{r.total}</span>
+                            </div>
+                            <div className="text-xs text-gray-500 flex justify-between">
+                                <span>Rep: {r.repartidor || '-'}</span>
+                                <span>{tipo === 'facturadas' ? '✓' : '⏳'}</span>
+                            </div>
+                        </li>
+                    ))}
+                    {(!loading && resumidos.length === 0) && <li className="p-4 text-center text-sm text-gray-500">Sin boletas</li>}
+                </ul>
+            </main>
         </div>
     );
 }
