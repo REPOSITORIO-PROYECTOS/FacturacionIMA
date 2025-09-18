@@ -37,7 +37,7 @@ export async function POST(request: Request): Promise<Response> {
 
       const text = await response.text().catch(() => '');
       let data: unknown = { detail: text };
-      try { data = JSON.parse(text); } catch (_) { }
+      try { data = JSON.parse(text); } catch { /* silent */ }
 
       // Normalizar `detail` si viene como array de errores (pydantic)
       const normalizeDetail = (d: unknown) => {
@@ -53,7 +53,7 @@ export async function POST(request: Request): Promise<Response> {
               return loc ? `${loc}: ${msg}` : String(msg);
             });
             return parts.join(' | ');
-          } catch (_e) {
+          } catch {
             return JSON.stringify(d);
           }
         }

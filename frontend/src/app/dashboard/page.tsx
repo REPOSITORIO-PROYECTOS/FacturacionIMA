@@ -1,5 +1,5 @@
 "use client";
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState, useCallback } from "react";
 import Link from "next/link";
 
 type Boleta = Record<string, string | number | boolean | undefined> & {
@@ -18,12 +18,13 @@ type Boleta = Record<string, string | number | boolean | undefined> & {
   "condicion-iva"?: string;
 };
 
-type Tabla = { id: number | string; nombre: string };
+// type Tabla = { id: number | string; nombre: string }; // Eliminado temporalmente
 
 export default function DashboardPage() {
-  const [tablas, setTablas] = useState<Tabla[]>([]);
+  // const [tablas, setTablas] = useState<Tabla[]>([]); // (Removido: no se usa actualmente)
   const [boletas, setBoletas] = useState<Boleta[]>([]);
-  const [tablaSeleccionada, setTablaSeleccionada] = useState<string>("");
+  // Tabla seleccionada removida (no se usa panel de tablas)
+  // tablaSeleccionada eliminada
   const [soloFacturables, setSoloFacturables] = useState<boolean>(true);
   const [busqueda, setBusqueda] = useState<string>("");
   const [seleccionadas, setSeleccionadas] = useState<Set<string>>(new Set());
@@ -46,12 +47,12 @@ export default function DashboardPage() {
 
   const getId = (b: Boleta) => String(b["id"] ?? b["ID Ingresos"] ?? b["ID Ingreso"] ?? b["ID"] ?? "");
 
-  const isFacturable = (b: Boleta) => {
+  const isFacturable = useCallback((b: Boleta) => {
     const total = parseMonto(b.total ?? b["INGRESOS"] ?? 0);
     const nombre = b.cliente || b.nombre || b["Razon Social"];
     const ident = b.cuit || b.CUIT || b.dni;
     return total > 0 && Boolean(nombre) && Boolean(ident);
-  };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -88,12 +89,11 @@ export default function DashboardPage() {
 
   const boletasFiltradas = useMemo(() => {
     return boletas.filter((b) => {
-      const coincideTabla = !tablaSeleccionada || b.tabla === tablaSeleccionada;
       const coincideBusqueda = !busqueda || Object.values(b).some((v) => v?.toString().toLowerCase().includes(busqueda.toLowerCase()));
       const pasaFacturable = !soloFacturables || isFacturable(b);
-      return coincideTabla && coincideBusqueda && pasaFacturable;
+      return coincideBusqueda && pasaFacturable;
     });
-  }, [boletas, tablaSeleccionada, busqueda, soloFacturables]);
+  }, [boletas, busqueda, soloFacturables, isFacturable]);
 
   async function facturarBoleta(b: Boleta) {
     const token = localStorage.getItem("token");
@@ -170,21 +170,7 @@ export default function DashboardPage() {
         <main className="p-4 md:p-6 space-y-6">
           {/* Controles */}
           <div className="bg-white rounded-lg shadow p-4 flex flex-col md:flex-row gap-3 md:items-end">
-            <div className="flex-1">
-              <label className="block text-sm text-gray-600">Tabla</label>
-              <select
-                aria-label="Tabla"
-                title="Seleccionar tabla"
-                className="w-full border rounded px-3 py-2"
-                value={tablaSeleccionada}
-                onChange={(e) => setTablaSeleccionada(e.target.value)}
-              >
-                <option value="">Todas</option>
-                {tablas.map((t) => (
-                  <option key={String(t.id)} value={t.nombre}>{t.nombre}</option>
-                ))}
-              </select>
-            </div>
+            {/* Selector de tabla eliminado temporalmente (no hay fuente de tablas) */}
             <div>
               <label className="block text-sm text-gray-600">Búsqueda</label>
               <input
@@ -214,37 +200,7 @@ export default function DashboardPage() {
             </div>
           </div>
 
-          {/* Panel de Tablas */}
-          <div className="bg-white rounded-lg shadow">
-            <div className="p-4 border-b font-semibold text-purple-700 flex items-center justify-between">
-              <span>Tablas Disponibles ({tablas.length})</span>
-              <span className="text-sm text-gray-500">Backend: {process.env.NEXT_PUBLIC_BACKEND_URL || 'localhost'}</span>
-            </div>
-            <div className="p-4">
-              {tablas.length === 0 ? (
-                <div className="text-center py-8 text-gray-500">
-                  <div className="text-4xl mb-2">📊</div>
-                  <p>No hay tablas disponibles</p>
-                  <p className="text-sm">Verifica la conexión con el backend</p>
-                </div>
-              ) : (
-                <div className="flex flex-wrap gap-2">
-                  {tablas.map((t) => (
-                    <button
-                      key={String(t.id)}
-                      className={`px-4 py-2 rounded-lg border transition-colors ${tablaSeleccionada === t.nombre
-                        ? "bg-purple-600 text-white border-purple-600 shadow-md"
-                        : "bg-white hover:bg-purple-50 border-gray-300"
-                        }`}
-                      onClick={() => setTablaSeleccionada((prev) => (prev === t.nombre ? "" : t.nombre))}
-                    >
-                      {t.nombre}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
+          {/* Panel de Tablas removido */}
 
           {/* Tabla de Boletas */}
           <div className="bg-white rounded-lg shadow overflow-auto">

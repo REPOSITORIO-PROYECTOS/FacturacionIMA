@@ -43,7 +43,7 @@ function LoginPageInner() {
       let data: { access_token?: string; token_type?: string; detail?: string } | null = null;
       try {
         data = await res.json();
-      } catch (e) {
+      } catch {
         // no-op: allow fallback to text
       }
 
@@ -62,7 +62,7 @@ function LoginPageInner() {
       } else {
         setError("Respuesta inválida del servidor");
       }
-    } catch (err) {
+    } catch {
       setError("Error de conexión");
     }
   }

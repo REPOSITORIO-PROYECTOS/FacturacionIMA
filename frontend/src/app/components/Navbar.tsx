@@ -35,7 +35,8 @@ export default function Navbar() {
       >
         {open ? '✖' : '☰'}
       </button>
-      <aside className={`bg-white shadow-lg border-r border-gray-200 fixed md:static top-0 left-0 h-full flex flex-col w-64 z-30 transform transition-transform duration-200 ${open ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}`}>
+      {/* Aside siempre fixed; el main aplicará md:ml-64 para escritorio */}
+      <aside className={`bg-white shadow-lg border-r border-gray-200 fixed inset-y-0 left-0 flex flex-col w-64 z-30 transform transition-transform duration-200 ${open ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}`}>
         <div className="p-6 border-b border-gray-200">
           <h1 className="font-bold text-purple-700 text-xl">FacturacionIMA</h1>
           <p className="text-sm text-gray-500 mt-1">Sistema de Gestión</p>

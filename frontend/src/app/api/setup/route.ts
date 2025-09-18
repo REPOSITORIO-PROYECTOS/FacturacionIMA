@@ -7,12 +7,12 @@ if (!baseURL) {
 export async function POST(request: Request): Promise<Response> {
   const url = new URL(request.url);
   const action = url.searchParams.get("action") || "create-user";
-  
+
   try {
     const body = await request.json();
     let endpoint = "";
     let requiresAuth = true;
-    
+
     switch (action) {
       case "create-admin-public":
         endpoint = "/api/setup/create-admin-public";
@@ -54,7 +54,7 @@ export async function POST(request: Request): Promise<Response> {
       status: response.status,
       headers: { "Content-Type": "application/json" },
     });
-  } catch (error) {
+  } catch {
     return new Response(JSON.stringify({ detail: "Error de conexión" }), {
       status: 500,
       headers: { "Content-Type": "application/json" },
@@ -75,13 +75,13 @@ export async function GET(request: Request): Promise<Response> {
     const response = await fetch(`${baseURL}/api/setup/users`, {
       headers: { Authorization: `Bearer ${token}` },
     });
-    
+
     const data = await response.json();
     return new Response(JSON.stringify(data), {
       status: response.status,
       headers: { "Content-Type": "application/json" },
     });
-  } catch (error) {
+  } catch {
     return new Response(JSON.stringify({ detail: "Error de conexión" }), {
       status: 500,
       headers: { "Content-Type": "application/json" },

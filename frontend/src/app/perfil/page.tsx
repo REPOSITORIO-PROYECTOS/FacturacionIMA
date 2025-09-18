@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 
 export default function PerfilPage() {
@@ -7,12 +7,12 @@ export default function PerfilPage() {
   const [nombre, setNombre] = useState("");
   const [mensaje, setMensaje] = useState("");
   const [activeTab, setActiveTab] = useState<"perfil" | "afip">("perfil");
-  
+
   // Estados AFIP
   const [cuit, setCuit] = useState("");
   const [razonSocial, setRazonSocial] = useState("");
   const [certificadoPem, setCertificadoPem] = useState("");
-  const [estadoAfip, setEstadoAfip] = useState<{estado: string; mensaje: string} | null>(null);
+  const [estadoAfip, setEstadoAfip] = useState<{ estado: string; mensaje: string } | null>(null);
   const [loadingAfip, setLoadingAfip] = useState(false);
 
   useEffect(() => {
@@ -27,7 +27,7 @@ export default function PerfilPage() {
     setTimeout(() => router.push("/dashboard"), 800);
   }
 
-  async function generarCSR() {
+  const generarCSR = useCallback(async () => {
     if (!cuit || !razonSocial) {
       setMensaje("Complete CUIT y Razón Social");
       return;
@@ -58,21 +58,21 @@ export default function PerfilPage() {
         a.click();
         window.URL.revokeObjectURL(url);
         document.body.removeChild(a);
-        
+
         setMensaje("CSR generado y descargado. Ahora puede subirlo a AFIP para obtener el certificado.");
         verificarEstadoAfip();
       } else {
-        const error = await response.json();
-        setMensaje(`Error: ${error.detail}`);
+        const errData = await response.json().catch(() => ({ detail: 'Error desconocido' }));
+        setMensaje(`Error: ${errData.detail}`);
       }
-    } catch (error) {
+    } catch {
       setMensaje("Error de conexión");
     } finally {
       setLoadingAfip(false);
     }
-  }
+  }, [cuit, razonSocial]);
 
-  async function subirCertificado() {
+  const subirCertificado = useCallback(async () => {
     if (!cuit || !certificadoPem) {
       setMensaje("Complete CUIT y pegue el certificado");
       return;
@@ -101,14 +101,14 @@ export default function PerfilPage() {
       } else {
         setMensaje(`Error: ${data.detail}`);
       }
-    } catch (error) {
+    } catch {
       setMensaje("Error de conexión");
     } finally {
       setLoadingAfip(false);
     }
-  }
+  }, [cuit, certificadoPem]);
 
-  async function verificarEstadoAfip() {
+  const verificarEstadoAfip = useCallback(async () => {
     if (!cuit) return;
 
     try {
@@ -121,23 +121,23 @@ export default function PerfilPage() {
         const data = await response.json();
         setEstadoAfip(data);
       }
-    } catch (error) {
-      console.error("Error verificando estado AFIP:", error);
+    } catch {
+      // Silenciar error de red
     }
-  }
+  }, [cuit]);
 
   useEffect(() => {
     if (cuit && activeTab === "afip") {
       verificarEstadoAfip();
     }
-  }, [cuit, activeTab]);
+  }, [cuit, activeTab, verificarEstadoAfip]);
 
   return (
     <div className="fixed inset-0 bg-black/20 flex items-center justify-center p-4">
       <div className="bg-white rounded-lg shadow-lg w-full max-w-2xl max-h-[90vh] overflow-y-auto">
         <div className="p-6">
           <h2 className="text-xl font-semibold mb-4">Configuración</h2>
-          
+
           {/* Tabs */}
           <div className="flex border-b mb-4">
             <button
@@ -158,13 +158,13 @@ export default function PerfilPage() {
             <form onSubmit={handleSubmit} className="space-y-4">
               <div>
                 <label className="block text-sm text-gray-600 mb-1" htmlFor="nombre">Nombre de usuario</label>
-                <input 
-                  id="nombre" 
-                  className="w-full border rounded px-3 py-2" 
-                  value={nombre} 
-                  onChange={(e) => setNombre(e.target.value)} 
-                  placeholder="Tu nombre" 
-                  required 
+                <input
+                  id="nombre"
+                  className="w-full border rounded px-3 py-2"
+                  value={nombre}
+                  onChange={(e) => setNombre(e.target.value)}
+                  placeholder="Tu nombre"
+                  required
                 />
               </div>
               <div className="flex gap-2 justify-end">
@@ -198,11 +198,10 @@ export default function PerfilPage() {
               </div>
 
               {estadoAfip && (
-                <div className={`p-3 rounded ${
-                  estadoAfip.estado === 'completo' ? 'bg-green-100 border-green-300' :
-                  estadoAfip.estado === 'pendiente' ? 'bg-yellow-100 border-yellow-300' :
-                  'bg-gray-100 border-gray-300'
-                }`}>
+                <div className={`p-3 rounded ${estadoAfip.estado === 'completo' ? 'bg-green-100 border-green-300' :
+                    estadoAfip.estado === 'pendiente' ? 'bg-yellow-100 border-yellow-300' :
+                      'bg-gray-100 border-gray-300'
+                  }`}>
                   <p className="font-medium">Estado: {estadoAfip.estado}</p>
                   <p className="text-sm">{estadoAfip.mensaje}</p>
                 </div>
