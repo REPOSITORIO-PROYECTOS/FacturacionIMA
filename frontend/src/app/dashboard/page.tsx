@@ -288,7 +288,7 @@ export default function DashboardPage() {
               </div>
               <table className="w-full text-xs">
                 <thead className="bg-blue-50">
-                  <tr><th className="p-1">ID</th><th className="p-1">Cliente</th><th className="p-1">Total</th></tr>
+                  <tr><th className="p-1">ID</th><th className="p-1">Razon social</th><th className="p-1">Total</th></tr>
                 </thead>
                 <tbody>
                   {boletasNoFacturadas.slice(0, 10).map((b, i) => {
