@@ -27,6 +27,12 @@ export async function POST(request: Request): Promise<Response> {
       case "subir-certificado":
         endpoint = "/api/afip/subir-certificado";
         break;
+      case "procesar-archivo-completo":
+        endpoint = "/api/afip/procesar-archivo-completo";
+        break;
+      case "configurar-emisor":
+        endpoint = "/api/afip/configurar-emisor";
+        break;
       default:
         return new Response(JSON.stringify({ detail: "Acción no válida" }), {
           status: 400,
@@ -79,10 +85,16 @@ export async function GET(request: Request): Promise<Response> {
 
   const url = new URL(request.url);
   const cuit = url.searchParams.get("cuit");
+  const action = url.searchParams.get("action");
 
   try {
     let endpoint = "/api/afip/certificados";
-    if (cuit) {
+
+    if (action === "configuracion-emisor" && cuit) {
+      endpoint = `/api/afip/configuracion-emisor/${cuit}`;
+    } else if (action === "condiciones-iva") {
+      endpoint = "/api/afip/condiciones-iva";
+    } else if (cuit) {
       endpoint = `/api/afip/estado/${cuit}`;
     }
 

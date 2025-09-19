@@ -419,7 +419,7 @@ class FacturaElectronica(SQLModel, table=True):
     importe_neto: Decimal = Field(sa_column=Column(DECIMAL(15, 2)))
     importe_iva: Decimal = Field(sa_column=Column(DECIMAL(15, 2)))
     raw_response: Optional[Dict[str, Any]] = Field(default=None, sa_column=Column(JSON))
-    qr_url_afip = Column(String(512), nullable=True)
+    qr_url_afip: Optional[str] = Field(default=None, sa_column=Column(String(512)))
     created_at: Optional[datetime] = Field(
         default_factory=datetime.utcnow,
         sa_column=Column(TIMESTAMP, server_default=func.now())

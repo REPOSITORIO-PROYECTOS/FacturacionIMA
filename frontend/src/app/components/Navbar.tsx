@@ -65,6 +65,11 @@ export default function Navbar() {
               </Link>
             </li>
             <li>
+              <Link href="/afip" className="flex items-center px-3 py-2 text-sm font-medium text-gray-700 rounded-lg hover:bg-blue-50 hover:text-blue-700 transition-colors">
+                <span className="ml-3">🏛️ AFIP</span>
+              </Link>
+            </li>
+            <li>
               <Link href="/perfil" className="flex items-center px-3 py-2 text-sm font-medium text-gray-700 rounded-lg hover:bg-blue-50 hover:text-blue-700 transition-colors">
                 <span className="ml-3">⚙️ Perfil</span>
               </Link>
@@ -86,7 +91,7 @@ export default function Navbar() {
 
           {/* Enlaces de configuración */}
           <div className="space-y-1">
-            <Link href="/perfil" className="flex items-center px-2 py-1 text-xs text-gray-600 hover:text-blue-600 rounded">
+            <Link href="/afip" className="flex items-center px-2 py-1 text-xs text-gray-600 hover:text-blue-600 rounded">
               🔧 AFIP Config
             </Link>
             <button
