@@ -207,25 +207,18 @@ export default function DashboardPage() {
       alert("Error de conexión al facturar en lote");
     }
   }
-  
-  // ----- INICIO DEL CAMBIO -----
-  // Define las columnas que quieres mostrar en el modal
+
+  // Define las columnas que quieres mostrar en el modal (sin IDs, más enfocado)
   const columnasVisibles = [
-    "INGRESOS",
     "Fecha",
-    "ID Ingresos",
-    "ID Cliente",
-    "Cliente",
-    "CUIT",
     "Razon Social",
-    "ID Repartidor",
+    "CUIT",
     "Repartidor",
-    "ID Pedido",
     "Tipo Pago",
+    "INGRESOS",
     "condicion-iva",
     "facturacion",
   ];
-  // ----- FIN DEL CAMBIO -----
 
   return (
     <div className="flex min-h-screen bg-gray-100">
@@ -268,16 +261,16 @@ export default function DashboardPage() {
               </div>
               <table className="w-full text-xs">
                 <thead className="bg-blue-50">
-                  <tr><th className="p-1">ID</th><th className="p-1">Razon social</th><th className="p-1">Total</th></tr>
+                  <tr><th className="p-1">Razón Social</th><th className="p-1">Total</th></tr>
                 </thead>
                 <tbody>
                   {boletasFacturadas.slice(0, 10).map((b, i) => {
                     const id = String(b['ID Ingresos'] || b['id'] || i);
-                    const cliente = b.cliente || b.nombre || b['Razon Social'] || '';
+                    const razonSocial = b.cliente || b.nombre || b['Razon Social'] || '';
                     const total = b.total || b['INGRESOS'] || '';
-                    return <tr key={id} className="border-t"><td className="p-1">{id}</td><td className="p-1 truncate max-w-[140px]">{String(cliente)}</td><td className="p-1">{String(total)}</td></tr>;
+                    return <tr key={id} className="border-t"><td className="p-1 truncate max-w-[180px]">{String(razonSocial)}</td><td className="p-1">{String(total)}</td></tr>;
                   })}
-                  {boletasFacturadas.length === 0 && <tr><td colSpan={3} className="p-2 text-center text-gray-500">Sin datos</td></tr>}
+                  {boletasFacturadas.length === 0 && <tr><td colSpan={2} className="p-2 text-center text-gray-500">Sin datos</td></tr>}
                 </tbody>
               </table>
             </div>
@@ -288,16 +281,16 @@ export default function DashboardPage() {
               </div>
               <table className="w-full text-xs">
                 <thead className="bg-blue-50">
-                  <tr><th className="p-1">ID</th><th className="p-1">Razon social</th><th className="p-1">Total</th></tr>
+                  <tr><th className="p-1">Razón Social</th><th className="p-1">Total</th></tr>
                 </thead>
                 <tbody>
                   {boletasNoFacturadas.slice(0, 10).map((b, i) => {
                     const id = String(b['ID Ingresos'] || b['id'] || i);
-                    const cliente = b.cliente || b.nombre || b['Razon Social'] || '';
+                    const razonSocial = b.cliente || b.nombre || b['Razon Social'] || '';
                     const total = b.total || b['INGRESOS'] || '';
-                    return <tr key={id} className="border-t"><td className="p-1">{id}</td><td className="p-1 truncate max-w-[140px]">{String(cliente)}</td><td className="p-1">{String(total)}</td></tr>;
+                    return <tr key={id} className="border-t"><td className="p-1 truncate max-w-[180px]">{String(razonSocial)}</td><td className="p-1">{String(total)}</td></tr>;
                   })}
-                  {boletasNoFacturadas.length === 0 && <tr><td colSpan={3} className="p-2 text-center text-gray-500">Sin datos</td></tr>}
+                  {boletasNoFacturadas.length === 0 && <tr><td colSpan={2} className="p-2 text-center text-gray-500">Sin datos</td></tr>}
                 </tbody>
               </table>
             </div>
@@ -387,7 +380,7 @@ export default function DashboardPage() {
                 <div className="flex gap-2 flex-wrap">
                   {grupo.boletas.slice(0, 3).map((b, i) => (
                     <div key={getId(b)} className="bg-blue-50 rounded px-2 py-1 text-xs">
-                      {b["Cliente"] || b["cliente"] || b["nombre"] || b["Razon Social"] || "Sin cliente"}
+                      {b["Repartidor"] || b["repartidor"] || b["Nombre de Repartidor"] || b["nombre_repartidor"] || "Sin repartidor"}
                     </div>
                   ))}
                   {grupo.boletas.length > 3 && <div className="text-xs text-gray-400">...más</div>}

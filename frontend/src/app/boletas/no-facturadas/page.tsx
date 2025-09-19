@@ -40,17 +40,16 @@ export default function BoletasNoFacturadasPage() {
             {loading ? <p>Cargando...</p> : error ? <p className="text-red-600">{error}</p> : (
                 <div className="overflow-auto border rounded bg-white">
                     <table className="w-full text-sm">
-                        <thead className="bg-purple-50"><tr><th className="p-2">ID</th><th className="p-2">Repartidor</th><th className="p-2">Nro Comprobante</th><th className="p-2">Cliente</th><th className="p-2">Total</th></tr></thead>
+                        <thead className="bg-purple-50"><tr><th className="p-2">Repartidor</th><th className="p-2">Razón Social</th><th className="p-2">Total</th></tr></thead>
                         <tbody>
                             {items.map((b, i) => {
                                 const rawTotal = b.total || b.INGRESOS || '';
                                 const totalNum = typeof rawTotal === 'number' ? rawTotal : parseFloat(String(rawTotal).replace(/,/g, ''));
                                 const total = isNaN(totalNum) ? rawTotal : Math.round(totalNum).toString();
-                                const cliente = b.cliente || b.nombre || b['Razon Social'] || '';
+                                const razonSocial = b.cliente || b.nombre || b['Razon Social'] || '';
                                 const id = b['ID Ingresos'] || b.id || i;
                                 const repartidor = (b.Repartidor ?? (b as Record<string, unknown>)['repartidor'] ?? '') as string;
-                                const nroComp = (b['Nro Comprobante'] ?? (b as Record<string, unknown>)['nroComprobante'] ?? '') as string | number;
-                                return <tr key={id} className="border-t"><td className="p-2">{id}</td><td className="p-2">{repartidor}</td><td className="p-2">{nroComp}</td><td className="p-2">{cliente}</td><td className="p-2">{total}</td></tr>;
+                                return <tr key={id} className="border-t"><td className="p-2">{repartidor}</td><td className="p-2">{razonSocial}</td><td className="p-2">{total}</td></tr>;
                             })}
                         </tbody>
                     </table>
