@@ -3,7 +3,7 @@ import { useState } from "react";
 
 export default function UsuariosPage() {
   // Simulación de usuarios
-  const [usuarios, setUsuarios] = useState([
+  const [usuarios] = useState([
     { id: 1, nombre: "admin", rol: "Admin" },
     { id: 2, nombre: "cajero1", rol: "Cajero" },
   ]);

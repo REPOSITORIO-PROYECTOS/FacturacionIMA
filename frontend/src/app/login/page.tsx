@@ -1,10 +1,11 @@
 "use client";
-import { useState, useEffect } from "react";
-import { useRouter } from "next/navigation";
+import { useState, useEffect, Suspense } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 
-export default function LoginPage() {
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
+function LoginPageInner() {
+  const searchParams = useSearchParams();
+  const [email, setEmail] = useState(() => searchParams.get("username") || "");
+  const [password, setPassword] = useState(() => searchParams.get("password") || "");
   const [remember, setRemember] = useState(false);
   const [error, setError] = useState("");
   const router = useRouter();
@@ -13,7 +14,22 @@ export default function LoginPage() {
     const tema = localStorage.getItem("tema");
     if (tema === "oscuro") document.body.classList.add("dark-theme");
     else document.body.classList.remove("dark-theme");
-  }, []);
+    // Si ya hay token, redirigir automáticamente (evitar volver al login)
+    const existing = localStorage.getItem('token');
+    if (existing) {
+      const isMobile = typeof window !== 'undefined' && window.innerWidth < 768;
+      router.replace(isMobile ? '/inicio' : '/dashboard');
+    }
+  }, [router]);
+
+  // Si aterriza con query params (ej: ?username=admin&password=123), los mantenemos sincronizados sólo en primer render.
+  useEffect(() => {
+    const qUser = searchParams.get("username");
+    const qPass = searchParams.get("password");
+    if (qUser && !email) setEmail(qUser);
+    if (qPass && !password) setPassword(qPass);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams]);
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -27,7 +43,7 @@ export default function LoginPage() {
       let data: { access_token?: string; token_type?: string; detail?: string } | null = null;
       try {
         data = await res.json();
-      } catch (e) {
+      } catch {
         // no-op: allow fallback to text
       }
 
@@ -41,11 +57,12 @@ export default function LoginPage() {
       if (data && data.access_token) {
         localStorage.setItem("token", data.access_token);
         if (remember) localStorage.setItem("remember_user", email);
-        router.push("/");
+        const isMobile = typeof window !== 'undefined' && window.innerWidth < 768;
+        router.push(isMobile ? '/inicio' : '/dashboard');
       } else {
         setError("Respuesta inválida del servidor");
       }
-    } catch (err) {
+    } catch {
       setError("Error de conexión");
     }
   }
@@ -123,14 +140,19 @@ export default function LoginPage() {
         </form>
 
         <div className="mt-6 text-center">
-          <p className="text-xs text-gray-500">
-            Usuario por defecto: admin / admin123
-          </p>
           <p className="text-xs text-gray-500 mt-2">
             ¿Olvidó su contraseña? Contacte con el administrador o soporte.
           </p>
         </div>
       </div>
     </div>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense fallback={<div className="p-8 text-center">Cargando...</div>}>
+      <LoginPageInner />
+    </Suspense>
   );
 }

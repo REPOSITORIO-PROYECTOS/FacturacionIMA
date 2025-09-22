@@ -14,8 +14,8 @@ app = FastAPI(
 # --- Configuración de CORS ---
 origins = [
     # Orígenes para desarrollo local
-    "http://localhost",
-    "http://localhost:3000",
+    "https://localhost",
+    "https://localhost:3000",
     
     # Orígenes para producción (sin www y con www)
     "https://facturador-ima.sistemataup.online",
@@ -23,9 +23,9 @@ origins = [
 ]
 
 # ...existing code...
-app.include_router(boletas.router, prefix="/api")
-app.include_router(auth_router.router, prefix="/api")
-app.include_router(facturador.router, prefix="/api")
+app.include_router(boletas.router)
+app.include_router(auth_router.router)
+app.include_router(facturador.router)
 # tablas.router no existe, se comenta para evitar error
 # app.include_router(tablas.router)
 # afip.router already uses prefix '/api' internally; include it directly

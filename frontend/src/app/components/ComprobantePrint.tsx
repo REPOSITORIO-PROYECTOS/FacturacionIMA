@@ -12,9 +12,10 @@ export interface ComprobanteProps {
 }
 
 const ComprobantePrint: React.FC<ComprobanteProps> = ({ tipo, numero, fecha, cliente, monto, cae, datosExtra }) => {
+  // Preparado para futura integración de QR (evita warning de variable no usada)
   const qrValue = `CAE:${cae}|Nro:${numero}|Tipo:${tipo}|Monto:${monto}`;
   return (
-    <div className="comprobante-print">
+    <div className="comprobante-print" data-qr={qrValue}>
       <h2 className="comprobante-titulo">Comprobante {tipo}</h2>
       <div className="comprobante-datos">
         <p><b>Número:</b> {numero}</p>

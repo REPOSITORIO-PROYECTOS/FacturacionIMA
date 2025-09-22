@@ -1,5 +1,6 @@
 "use client";
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState, useCallback } from "react";
+import { Fragment } from "react";
 import Link from "next/link";
 
 type Boleta = Record<string, string | number | boolean | undefined> & {
@@ -18,12 +19,13 @@ type Boleta = Record<string, string | number | boolean | undefined> & {
   "condicion-iva"?: string;
 };
 
-type Tabla = { id: number | string; nombre: string };
-
 export default function DashboardPage() {
-  const [tablas, setTablas] = useState<Tabla[]>([]);
+  // Estados primero
+  const [modalOpen, setModalOpen] = useState(false);
+  const [modalGroup, setModalGroup] = useState<{ key: string; boletas: Boleta[]; groupType: string; facturado: boolean } | null>(null);
   const [boletas, setBoletas] = useState<Boleta[]>([]);
-  const [tablaSeleccionada, setTablaSeleccionada] = useState<string>("");
+  const [boletasFacturadas, setBoletasFacturadas] = useState<Boleta[]>([]);
+  const [boletasNoFacturadas, setBoletasNoFacturadas] = useState<Boleta[]>([]);
   const [soloFacturables, setSoloFacturables] = useState<boolean>(true);
   const [busqueda, setBusqueda] = useState<string>("");
   const [seleccionadas, setSeleccionadas] = useState<Set<string>>(new Set());
@@ -31,6 +33,7 @@ export default function DashboardPage() {
   const [error, setError] = useState("");
   const [tipoBoleta, setTipoBoleta] = useState<'todas' | 'no-facturadas' | 'facturadas'>('no-facturadas');
 
+  // Funciones utilitarias
   const parseMonto = (monto: string | number | undefined): number => {
     if (typeof monto === "number") return monto;
     if (!monto || typeof monto !== "string") return 0;
@@ -38,17 +41,55 @@ export default function DashboardPage() {
     return parseFloat(numeroLimpio) || 0;
   };
 
-  const getId = (b: Boleta) => String(b["id"] ?? b["ID Ingresos"] ?? b["ID Ingreso"] ?? b["ID"] ?? "");
-
-  const isFacturable = (b: Boleta) => {
-    const total = parseMonto(b.total ?? b["INGRESOS"] ?? 0);
-    const nombre = b.cliente || b.nombre || b["Razon Social"]; 
-    const ident = b.cuit || b.CUIT || b.dni;
-    return total > 0 && Boolean(nombre) && Boolean(ident);
+  const formatSinCentavos = (monto: string | number | undefined): string => {
+    const n = parseMonto(monto);
+    const entero = Math.round(n); // quitar centavos
+    return entero.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ".");
   };
 
+  const getId = (b: Boleta) => String(b["id"] ?? b["ID Ingresos"] ?? b["ID Ingreso"] ?? b["ID"] ?? "");
+
+
+  const isFacturable = useCallback((b: Boleta) => {
+    const total = parseMonto(b.total ?? b["INGRESOS"] ?? 0);
+    const nombre = b.cliente || b.nombre || b["Razon Social"];
+    const ident = b.cuit || b.CUIT || b.dni;
+    return total > 0 && Boolean(nombre) && Boolean(ident);
+  }, []);
+
+  // Función para imprimir boleta
+  const imprimirBoleta = (boleta: Boleta) => {
+    // Aquí puedes implementar la lógica real de impresión (PDF, ventana, etc)
+    alert(`Imprimir boleta: ${getId(boleta)}`);
+  };
+
+  // Filtrado de boletas
+  const boletasFiltradas = useMemo(() => {
+    return boletas.filter((b) => {
+      const coincideBusqueda = !busqueda || Object.values(b).some((v) => v?.toString().toLowerCase().includes(busqueda.toLowerCase()));
+      const pasaFacturable = !soloFacturables || isFacturable(b);
+      return coincideBusqueda && pasaFacturable;
+    });
+  }, [boletas, busqueda, soloFacturables, isFacturable]);
+
+  // Agrupamiento por facturación, tipo de pago y repartidor
+  const agrupadas = useMemo(() => {
+    const grupos: Record<string, { key: string; boletas: Boleta[]; groupType: string; facturado: boolean }> = {};
+    for (const b of boletasFiltradas) {
+      // Clave de agrupación: facturacion + tipo pago + repartidor
+      const facturacion = String(b.facturacion ?? b["facturacion"] ?? "");
+      const tipoPago = String(b["Tipo Pago"] ?? b["tipo_pago"] ?? "");
+      const repartidor = String(b["Repartidor"] ?? b["repartidor"] ?? "");
+      const key = `${facturacion}|${tipoPago}|${repartidor}`;
+      const facturado = String(b["Estado"] ?? b["estado"] ?? "").toLowerCase().includes("factur") || String(b["Nro Comprobante"] ?? "").length > 0;
+      if (!grupos[key]) grupos[key] = { key, boletas: [], groupType: `${facturacion} / ${tipoPago} / ${repartidor}`, facturado };
+      grupos[key].boletas.push(b);
+    }
+    return Object.values(grupos);
+  }, [boletasFiltradas]);
+
   useEffect(() => {
-    let mounted = true;
+    let cancelled = false;
     async function load() {
       setLoading(true);
       setError("");
@@ -58,49 +99,53 @@ export default function DashboardPage() {
         setLoading(false);
         return;
       }
+      // Construir endpoint unificado
+      const params = new URLSearchParams({ tipo: tipoBoleta, skip: '0', limit: '200' });
+      const endpoint = `/api/boletas?${params.toString()}`;
       try {
-        const resTablas = await fetch(`/api/tablas`, { headers: { Authorization: `Bearer ${token}` } });
-        if (!resTablas.ok) {
-          const err = await resTablas.json().catch(() => ({}));
-          setError(String(err?.detail || "Error al cargar tablas"));
+        const res = await fetch(endpoint, { headers: { Authorization: `Bearer ${token}` } });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          if (!cancelled) setError(String(err?.detail || 'Error al cargar boletas'));
         } else {
-          const data = await resTablas.json();
-          if (mounted && Array.isArray(data)) setTablas(data);
+          const data = await res.json().catch(() => []);
+          if (!cancelled && Array.isArray(data)) setBoletas(data);
         }
       } catch {
-        setError("Error de conexión al cargar tablas");
-      }
-
-      try {
-        let endpoint = '/api/boletas?skip=0&limit=200';
-        if (tipoBoleta === 'no-facturadas') endpoint = '/api/boletas?tipo=no-facturadas&skip=0&limit=200';
-        else if (tipoBoleta === 'facturadas') endpoint = '/api/boletas?tipo=facturadas&skip=0&limit=200';
-        const resBoletas = await fetch(endpoint, { headers: { Authorization: `Bearer ${token}` } });
-        if (!resBoletas.ok) {
-          const err = await resBoletas.json().catch(() => ({}));
-          setError(String(err?.detail || "Error al cargar boletas"));
-        } else {
-          const data = await resBoletas.json();
-          if (mounted && Array.isArray(data)) setBoletas(data);
-        }
-      } catch {
-        setError("Error de conexión al cargar boletas");
+        if (!cancelled) setError('Error de conexión al cargar boletas');
       } finally {
-        if (mounted) setLoading(false);
+        if (!cancelled) setLoading(false);
       }
     }
     load();
-    return () => { mounted = false; };
+    return () => { cancelled = true; };
+  }, [tipoBoleta]);
+
+  // Cargar listas separadas para resumen (limit reducido para performance)
+  useEffect(() => {
+    let cancel = false;
+    async function cargarResumen(tipo: 'facturadas' | 'no-facturadas') {
+      const token = localStorage.getItem('token');
+      if (!token) return;
+      try {
+        const res = await fetch(`/api/boletas?tipo=${tipo}&skip=0&limit=50`, { headers: { Authorization: `Bearer ${token}` } });
+        if (!res.ok) return;
+        const data = await res.json().catch(() => []);
+        if (!cancel && Array.isArray(data)) {
+          if (tipo === 'facturadas') setBoletasFacturadas(data);
+          else setBoletasNoFacturadas(data);
+        }
+      } catch { /* silent */ }
+    }
+    cargarResumen('facturadas');
+    cargarResumen('no-facturadas');
+    return () => { cancel = true; };
   }, []);
 
-  const boletasFiltradas = useMemo(() => {
-    return boletas.filter((b) => {
-      const coincideTabla = !tablaSeleccionada || b.tabla === tablaSeleccionada;
-      const coincideBusqueda = !busqueda || Object.values(b).some((v) => v?.toString().toLowerCase().includes(busqueda.toLowerCase()));
-      const pasaFacturable = !soloFacturables || isFacturable(b);
-      return coincideTabla && coincideBusqueda && pasaFacturable;
-    });
-  }, [boletas, tablaSeleccionada, busqueda, soloFacturables]);
+  const totalFacturadas = boletasFacturadas.length;
+  const totalNoFacturadas = boletasNoFacturadas.length;
+  const totalGlobal = totalFacturadas + totalNoFacturadas;
+  const porcentajeFacturadas = totalGlobal === 0 ? 0 : Math.round((totalFacturadas / totalGlobal) * 100);
 
   async function facturarBoleta(b: Boleta) {
     const token = localStorage.getItem("token");
@@ -163,11 +208,23 @@ export default function DashboardPage() {
     }
   }
 
+  // Define las columnas que quieres mostrar en el modal (sin IDs, más enfocado)
+  const columnasVisibles = [
+    "Fecha",
+    "Razon Social",
+    "CUIT",
+    "Repartidor",
+    "Tipo Pago",
+    "INGRESOS",
+    "condicion-iva",
+    "facturacion",
+  ];
+
   return (
     <div className="flex min-h-screen bg-gray-100">
       <div className="flex-1 flex flex-col">
-        <header className="bg-white shadow-md p-4 flex justify-between items-center">
-          <h1 className="text-xl font-bold text-purple-700">Dashboard</h1>
+        <header className="bg-white border-b p-4 flex justify-between items-center">
+          <h1 className="text-xl font-bold text-blue-700">Dashboard</h1>
           <div className="flex items-center gap-3 text-sm">
             <Link className="text-blue-600" href="/usuarios">Ir a Usuarios</Link>
             <Link className="text-blue-600" href="/perfil">Perfil</Link>
@@ -175,23 +232,71 @@ export default function DashboardPage() {
         </header>
 
         <main className="p-4 md:p-6 space-y-6">
+          {/* KPIs */}
+          <div className="grid gap-4 grid-cols-1 md:grid-cols-4">
+            <div className="p-4 rounded border bg-white">
+              <div className="text-xs text-gray-500">Total Boletas</div>
+              <div className="text-2xl font-bold text-blue-700">{totalGlobal}</div>
+            </div>
+            <div className="p-4 rounded border bg-white">
+              <div className="text-xs text-gray-500">Facturadas</div>
+              <div className="text-2xl font-bold text-blue-700">{totalFacturadas}</div>
+            </div>
+            <div className="p-4 rounded border bg-white">
+              <div className="text-xs text-gray-500">No Facturadas</div>
+              <div className="text-2xl font-bold text-blue-700">{totalNoFacturadas}</div>
+            </div>
+            <div className="p-4 rounded border bg-white">
+              <div className="text-xs text-gray-500">% Facturadas</div>
+              <div className="text-2xl font-bold text-blue-700">{porcentajeFacturadas}%</div>
+            </div>
+          </div>
+
+          {/* Listas resumen */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="bg-white rounded border overflow-hidden">
+              <div className="p-3 font-semibold border-b flex justify-between items-center">
+                <span>Facturadas (últimas {boletasFacturadas.length})</span>
+                <Link href="/boletas/facturadas" className="text-blue-600 text-sm">Ver todas →</Link>
+              </div>
+              <table className="w-full text-xs">
+                <thead className="bg-blue-50">
+                  <tr><th className="p-1">Razón Social</th><th className="p-1">Total</th></tr>
+                </thead>
+                <tbody>
+                  {boletasFacturadas.slice(0, 10).map((b, i) => {
+                    const id = String(b['ID Ingresos'] || b['id'] || i);
+                    const razonSocial = b.cliente || b.nombre || b['Razon Social'] || '';
+                    const total = b.total || b['INGRESOS'] || '';
+                    return <tr key={id} className="border-t"><td className="p-1 truncate max-w-[180px]">{String(razonSocial)}</td><td className="p-1">{String(total)}</td></tr>;
+                  })}
+                  {boletasFacturadas.length === 0 && <tr><td colSpan={2} className="p-2 text-center text-gray-500">Sin datos</td></tr>}
+                </tbody>
+              </table>
+            </div>
+            <div className="bg-white rounded border overflow-hidden">
+              <div className="p-3 font-semibold border-b flex justify-between items-center">
+                <span>No Facturadas (últimas {boletasNoFacturadas.length})</span>
+                <Link href="/boletas/no-facturadas" className="text-blue-600 text-sm">Ver todas →</Link>
+              </div>
+              <table className="w-full text-xs">
+                <thead className="bg-blue-50">
+                  <tr><th className="p-1">Razón Social</th><th className="p-1">Total</th></tr>
+                </thead>
+                <tbody>
+                  {boletasNoFacturadas.slice(0, 10).map((b, i) => {
+                    const id = String(b['ID Ingresos'] || b['id'] || i);
+                    const razonSocial = b.cliente || b.nombre || b['Razon Social'] || '';
+                    const total = b.total || b['INGRESOS'] || '';
+                    return <tr key={id} className="border-t"><td className="p-1 truncate max-w-[180px]">{String(razonSocial)}</td><td className="p-1">{String(total)}</td></tr>;
+                  })}
+                  {boletasNoFacturadas.length === 0 && <tr><td colSpan={2} className="p-2 text-center text-gray-500">Sin datos</td></tr>}
+                </tbody>
+              </table>
+            </div>
+          </div>
           {/* Controles */}
           <div className="bg-white rounded-lg shadow p-4 flex flex-col md:flex-row gap-3 md:items-end">
-            <div className="flex-1">
-              <label className="block text-sm text-gray-600">Tabla</label>
-              <select
-                aria-label="Tabla"
-                title="Seleccionar tabla"
-                className="w-full border rounded px-3 py-2"
-                value={tablaSeleccionada}
-                onChange={(e) => setTablaSeleccionada(e.target.value)}
-              >
-                <option value="">Todas</option>
-                {tablas.map((t) => (
-                  <option key={String(t.id)} value={t.nombre}>{t.nombre}</option>
-                ))}
-              </select>
-            </div>
             <div>
               <label className="block text-sm text-gray-600">Búsqueda</label>
               <input
@@ -221,136 +326,154 @@ export default function DashboardPage() {
             </div>
           </div>
 
-          {/* Panel de Tablas */}
-          <div className="bg-white rounded-lg shadow">
-            <div className="p-4 border-b font-semibold text-purple-700 flex items-center justify-between">
-              <span>Tablas Disponibles ({tablas.length})</span>
-              <span className="text-sm text-gray-500">Backend: {process.env.NEXT_PUBLIC_BACKEND_URL || 'localhost'}</span>
-            </div>
-            <div className="p-4">
-              {tablas.length === 0 ? (
-                <div className="text-center py-8 text-gray-500">
-                  <div className="text-4xl mb-2">📊</div>
-                  <p>No hay tablas disponibles</p>
-                  <p className="text-sm">Verifica la conexión con el backend</p>
-                </div>
-              ) : (
-                <div className="flex flex-wrap gap-2">
-                  {tablas.map((t) => (
+          {/* Tarjetas agrupadas por facturación, tipo de pago y repartidor */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {agrupadas.map((grupo, idx) => (
+              <div key={grupo.key} className="bg-white rounded-lg border shadow p-4 flex flex-col gap-2">
+                <div className="flex justify-between items-center">
+                  <div>
+                    <div className="font-bold text-blue-700">{grupo.groupType}</div>
+                    <div className="text-xs text-gray-500">{grupo.boletas.length} boletas</div>
+                  </div>
+                  <div className="flex gap-2">
                     <button
-                      key={String(t.id)}
-                      className={`px-4 py-2 rounded-lg border transition-colors ${
-                        tablaSeleccionada === t.nombre 
-                          ? "bg-purple-600 text-white border-purple-600 shadow-md" 
-                          : "bg-white hover:bg-purple-50 border-gray-300"
-                      }`}
-                      onClick={() => setTablaSeleccionada((prev) => (prev === t.nombre ? "" : t.nombre))}
-                    >
-                      {t.nombre}
-                    </button>
-                  ))}
+                      className={`px-3 py-1 rounded text-xs font-semibold ${grupo.facturado ? "bg-green-100 text-green-800" : "bg-red-100 text-red-800"}`}
+                      onClick={() => { setModalGroup(grupo); setModalOpen(true); }}
+                    >{grupo.facturado ? "Facturado" : "No facturado"}</button>
+                    {!grupo.facturado && (
+                      <button
+                        className="px-3 py-1 rounded text-xs font-semibold bg-blue-600 text-white hover:bg-blue-700"
+                        onClick={() => {
+                          const seleccion = grupo.boletas.filter(isFacturable);
+                          if (seleccion.length === 0) return alert("No hay boletas facturables en el grupo");
+                          const payloads = seleccion.map((b) => ({
+                            id: getId(b),
+                            total: b.total || parseMonto(String(b.INGRESOS || b.total || 0)),
+                            cliente_data: {
+                              cuit_o_dni: b.cuit || b.dni || String(b.CUIT || ""),
+                              nombre_razon_social: b.cliente || b.nombre || b["Razon Social"] || "",
+                              domicilio: b.domicilio || b["Domicilio"] || "",
+                              condicion_iva: b.condicion_iva || b["condicion-iva"] || "",
+                            },
+                          }));
+                          (async () => {
+                            const token = localStorage.getItem("token");
+                            if (!token) return alert("No autenticado");
+                            try {
+                              const res = await fetch("/api/facturar", {
+                                method: "POST",
+                                headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+                                body: JSON.stringify(payloads),
+                              });
+                              const data = await res.json().catch(() => ({}));
+                              if (res.ok) alert("Facturación en grupo exitosa");
+                              else alert(String(data?.detail || "Error al facturar grupo"));
+                            } catch {
+                              alert("Error de conexión al facturar grupo");
+                            }
+                          })();
+                        }}
+                      >Facturar grupo</button>
+                    )}
+                  </div>
                 </div>
-              )}
-            </div>
+                <div className="flex gap-2 flex-wrap">
+                  {grupo.boletas.slice(0, 3).map((b, i) => (
+                    <div key={getId(b)} className="bg-blue-50 rounded px-2 py-1 text-xs">
+                      {b["Repartidor"] || b["repartidor"] || b["Nombre de Repartidor"] || b["nombre_repartidor"] || "Sin repartidor"}
+                    </div>
+                  ))}
+                  {grupo.boletas.length > 3 && <div className="text-xs text-gray-400">...más</div>}
+                </div>
+              </div>
+            ))}
           </div>
 
-          {/* Tabla de Boletas */}
-          <div className="bg-white rounded-lg shadow overflow-auto">
-            <div className="p-4 border-b font-semibold text-purple-700 flex justify-between items-center">
-              <div>
-                <span>Boletas {soloFacturables ? "(facturables)" : "(todas)"}</span>
-                <span className="ml-2 text-sm text-gray-500">({boletasFiltradas.length} resultados)</span>
-              </div>
-              {seleccionadas.size > 0 && (
-                <button 
-                  className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg shadow transition-colors" 
-                  onClick={facturarSeleccionadas}
-                >
-                  Facturar {seleccionadas.size} seleccionadas
-                </button>
-              )}
-            </div>
-            {loading ? (
-              <div className="p-8 text-center">
-                <div className="animate-spin w-8 h-8 border-4 border-purple-600 border-t-transparent rounded-full mx-auto mb-4"></div>
-                <p className="text-gray-500">Cargando boletas...</p>
-              </div>
-            ) : error ? (
-              <div className="p-8 text-center text-red-600">
-                <div className="text-4xl mb-2">⚠️</div>
-                <p className="font-semibold">Error de conexión</p>
-                <p className="text-sm">{error}</p>
-              </div>
-            ) : boletasFiltradas.length === 0 ? (
-              <div className="p-8 text-center text-gray-500">
-                <div className="text-4xl mb-2">📋</div>
-                <p>No hay boletas que coincidan con los filtros</p>
-                <p className="text-sm">Intenta cambiar los criterios de búsqueda</p>
-              </div>
-            ) : (
-              <table className="w-full text-left text-sm">
-                <thead className="bg-purple-50">
-                  <tr>
-                    <th className="p-2">Sel</th>
-                    {boletasFiltradas.length > 0 && Object.keys(boletasFiltradas[0]).map((k) => (
-                      <th key={k} className="p-2">{k}</th>
-                    ))}
-                    <th className="p-2">Estado</th>
-                    <th className="p-2">Acción</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {boletasFiltradas.map((b) => {
-                    const id = getId(b);
-                    const fact = isFacturable(b);
-                    return (
-                      <tr key={id} className="border-t">
-                        <td className="p-2">
-                          <input
-                            aria-label="Seleccionar boleta"
-                            title="Seleccionar boleta"
-                            type="checkbox"
-                            disabled={!fact}
-                            checked={seleccionadas.has(id)}
-                            onChange={(e) => {
-                              setSeleccionadas((prev) => {
-                                const next = new Set(prev);
-                                if (e.target.checked) next.add(id); else next.delete(id);
-                                return next;
-                              });
-                            }}
-                          />
-                        </td>
-                        {Object.keys(b).map((k) => (
-                          <td key={k} className="p-2">{String(b[k])}</td>
-                        ))}
-                        <td className="p-2">
-                          <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-                            fact ? "bg-green-100 text-green-800" : "bg-red-100 text-red-800"
-                          }`}>
-                            {fact ? "✓ Facturable" : "✗ No facturable"}
-                          </span>
-                        </td>
-                        <td className="p-2">
-                          <button 
-                            className={`px-3 py-1 rounded-lg text-sm transition-colors ${
-                              fact 
-                                ? "bg-blue-600 hover:bg-blue-700 text-white" 
-                                : "bg-gray-300 text-gray-600 cursor-not-allowed"
-                            }`} 
-                            disabled={!fact} 
-                            onClick={() => facturarBoleta(b)}
-                          >
-                            Facturar
-                          </button>
-                        </td>
+          {/* Modal de detalle de grupo */}
+          {modalOpen && modalGroup && (
+            <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center" onClick={() => setModalOpen(false)}>
+              <div className="bg-white rounded-lg shadow-lg max-w-4xl w-full p-6 relative" onClick={e => e.stopPropagation()}>
+                <button className="absolute top-2 right-2 text-gray-500 hover:text-red-600 text-xl" onClick={() => setModalOpen(false)}>&times;</button>
+                <div className="mb-4">
+                  <div className="font-bold text-blue-700 text-lg">{modalGroup.groupType}</div>
+                  <div className="text-xs text-gray-500">{modalGroup.boletas.length} boletas</div>
+                  <div className="mt-2">
+                    <span className={`px-3 py-1 rounded text-xs font-semibold ${modalGroup.facturado ? "bg-green-100 text-green-800" : "bg-red-100 text-red-800"}`}>{modalGroup.facturado ? "Facturado" : "No facturado"}</span>
+                  </div>
+                </div>
+                {/* ----- INICIO DEL CAMBIO EN LA TABLA ----- */}
+                <div className="overflow-auto max-h-[60vh]">
+                  <table className="w-full text-xs">
+                    <thead className="bg-blue-50">
+                      <tr>
+                        <th className="p-1">Sel</th>
+                        {/* Iterar sobre el array de columnas visibles */}
+                        {columnasVisibles.map((col) => (<th key={col} className="p-1">{col}</th>))}
+                        <th className="p-1">Estado</th>
+                        <th className="p-1">Acción</th>
                       </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            )}
-          </div>
+                    </thead>
+                    <tbody>
+                      {modalGroup.boletas.map((b, i) => {
+                        const id = getId(b);
+                        const fact = isFacturable(b);
+                        return (
+                          <tr key={id} className="border-t">
+                            <td className="p-1">
+                              <input
+                                aria-label="Seleccionar boleta"
+                                title="Seleccionar boleta"
+                                type="checkbox"
+                                disabled={!fact}
+                                checked={seleccionadas.has(id)}
+                                onChange={(e) => {
+                                  setSeleccionadas((prev) => {
+                                    const next = new Set(prev);
+                                    if (e.target.checked) next.add(id); else next.delete(id);
+                                    return next;
+                                  });
+                                }}
+                              />
+                            </td>
+                            {/* Iterar sobre las columnas visibles para mostrar los datos */}
+                            {columnasVisibles.map((col) => {
+                              const lower = String(col).toLowerCase();
+                              // Mantener el formato para montos
+                              if (["ingresos", "total a pagar"].includes(lower)) {
+                                const val = b[col] as string | number | undefined;
+                                return <td key={col} className="p-1">{formatSinCentavos(val)}</td>;
+                              }
+                              // Mostrar el resto como texto
+                              return <td key={col} className="p-1">{String(b[col] ?? "")}</td>;
+                            })}
+                            <td className="p-1">
+                              <span className={`px-2 py-1 rounded-full text-xs font-medium ${fact ? "bg-green-100 text-green-800" : "bg-red-100 text-red-800"}`}>{fact ? "✓ Facturable" : "✗ No facturable"}</span>
+                            </td>
+                            <td className="p-1 flex gap-1">
+                              <button
+                                className={`px-2 py-1 rounded-lg text-xs transition-colors ${fact ? "bg-blue-600 hover:bg-blue-700 text-white" : "bg-gray-300 text-gray-600 cursor-not-allowed"}`}
+                                disabled={!fact}
+                                onClick={() => facturarBoleta(b)}
+                              >Facturar</button>
+                              <button
+                                className="px-2 py-1 rounded-lg text-xs bg-gray-200 hover:bg-gray-300 text-gray-800"
+                                onClick={() => alert(JSON.stringify(b, null, 2))}
+                              >Ver boleta</button>
+                              <button
+                                className="px-2 py-1 rounded-lg text-xs bg-green-600 hover:bg-green-700 text-white"
+                                onClick={() => imprimirBoleta(b)}
+                              >Imprimir boleta</button>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+                {/* ----- FIN DEL CAMBIO EN LA TABLA ----- */}
+              </div>
+            </div>
+          )}
         </main>
       </div>
     </div>

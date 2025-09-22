@@ -15,17 +15,23 @@ export async function POST(request: Request): Promise<Response> {
 
   const url = new URL(request.url);
   const action = url.searchParams.get("action");
-  
+
   try {
     const body = await request.json();
     let endpoint = "";
-    
+
     switch (action) {
       case "generar-csr":
         endpoint = "/api/afip/generar-csr";
         break;
       case "subir-certificado":
         endpoint = "/api/afip/subir-certificado";
+        break;
+      case "procesar-archivo-completo":
+        endpoint = "/api/afip/procesar-archivo-completo";
+        break;
+      case "configurar-emisor":
+        endpoint = "/api/afip/configurar-emisor";
         break;
       default:
         return new Response(JSON.stringify({ detail: "Acción no válida" }), {
@@ -60,7 +66,7 @@ export async function POST(request: Request): Promise<Response> {
       status: response.status,
       headers: { "Content-Type": "application/json" },
     });
-  } catch (error) {
+  } catch {
     return new Response(JSON.stringify({ detail: "Error de conexión" }), {
       status: 500,
       headers: { "Content-Type": "application/json" },
@@ -79,23 +85,29 @@ export async function GET(request: Request): Promise<Response> {
 
   const url = new URL(request.url);
   const cuit = url.searchParams.get("cuit");
-  
+  const action = url.searchParams.get("action");
+
   try {
     let endpoint = "/api/afip/certificados";
-    if (cuit) {
+
+    if (action === "configuracion-emisor" && cuit) {
+      endpoint = `/api/afip/configuracion-emisor/${cuit}`;
+    } else if (action === "condiciones-iva") {
+      endpoint = "/api/afip/condiciones-iva";
+    } else if (cuit) {
       endpoint = `/api/afip/estado/${cuit}`;
     }
 
     const response = await fetch(`${baseURL}${endpoint}`, {
       headers: { Authorization: `Bearer ${token}` },
     });
-    
+
     const data = await response.json();
     return new Response(JSON.stringify(data), {
       status: response.status,
       headers: { "Content-Type": "application/json" },
     });
-  } catch (error) {
+  } catch {
     return new Response(JSON.stringify({ detail: "Error de conexión" }), {
       status: 500,
       headers: { "Content-Type": "application/json" },

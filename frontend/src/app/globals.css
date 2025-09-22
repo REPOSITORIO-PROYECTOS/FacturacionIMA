@@ -1,10 +1,15 @@
-/* Paleta principal: celeste (#1976d2), blanco, negro */
+/* Paleta fija (modo único) */
 :root {
   --celeste: #1976d2;
+  /* Azul principal */
   --celeste-claro: #bbdefb;
   --negro: #0a0a0a;
+  /* Texto base negro */
   --blanco: #ffffff;
+  /* Fondo base blanco */
   --gris: #f3f6fb;
+  --background: #ffffff;
+  --foreground: #0a0a0a;
 }
 
 /* Botón de tema en navbar */
@@ -19,10 +24,12 @@
   cursor: pointer;
   transition: background 0.15s, color 0.15s;
 }
+
 .navbar-theme-btn:hover {
   background: var(--celeste);
   color: var(--blanco);
 }
+
 /* LOGIN STYLES */
 .login-bg {
   min-height: 100vh;
@@ -32,10 +39,11 @@
   justify-content: center;
   padding: 2rem;
 }
+
 .login-container {
   background: var(--blanco);
   border-radius: 12px;
-  box-shadow: 0 6px 28px rgba(25,118,210,0.12);
+  box-shadow: 0 6px 28px rgba(25, 118, 210, 0.12);
   padding: 2rem;
   max-width: 420px;
   width: 100%;
@@ -43,6 +51,7 @@
   flex-direction: column;
   gap: 0.75rem;
 }
+
 .login-title {
   color: var(--celeste);
   font-size: 1.6rem;
@@ -50,24 +59,28 @@
   margin-bottom: 0.25rem;
   text-align: center;
 }
+
 .login-form {
   width: 100%;
   display: flex;
   flex-direction: column;
   gap: 1rem;
 }
+
 .login-input {
   padding: 12px 14px;
-  border: 1px solid rgba(25,118,210,0.15);
+  border: 1px solid rgba(25, 118, 210, 0.15);
   border-radius: 8px;
   font-size: 1rem;
   outline: none;
   transition: box-shadow 0.12s, border-color 0.12s;
 }
+
 .login-input:focus {
   border-color: var(--celeste);
-  box-shadow: 0 4px 10px rgba(25,118,210,0.06);
+  box-shadow: 0 4px 10px rgba(25, 118, 210, 0.06);
 }
+
 .login-btn {
   background: var(--celeste);
   color: var(--blanco);
@@ -80,9 +93,11 @@
   margin-top: 0.25rem;
   transition: background 0.12s;
 }
+
 .login-btn:hover {
   background: #165fa8;
 }
+
 .login-theme-btn {
   margin-top: 1.5rem;
   background: #bbdefb;
@@ -96,42 +111,13 @@
   width: 100%;
   transition: background 0.2s;
 }
+
 .login-theme-btn:hover {
   background: #1976d2;
   color: #fff;
 }
-.dark-theme {
-  background: var(--negro) !important;
-  color: #ededed !important;
-}
-.dark-theme .login-container {
-  background: #171717;
-  color: #ededed;
-}
-.dark-theme .login-title {
-  color: #bbdefb;
-}
-.dark-theme .login-input {
-  border-color: #bbdefb;
-  background: #222;
-  color: #ededed;
-}
-.dark-theme .login-btn {
-  background: #bbdefb;
-  color: #1976d2;
-}
-.dark-theme .login-btn:hover {
-  background: #1976d2;
-  color: #fff;
-}
-.dark-theme .login-theme-btn {
-  background: #1976d2;
-  color: #bbdefb;
-}
-.dark-theme .login-theme-btn:hover {
-  background: #bbdefb;
-  color: #1976d2;
-}
+
+/* Eliminado soporte de tema oscuro: se fuerza modo claro permanente */
 /* Loader y paginación */
 .loader {
   display: inline-block;
@@ -143,10 +129,17 @@
   animation: spin 1s linear infinite;
   margin-bottom: 1rem;
 }
+
 @keyframes spin {
-  0% { transform: rotate(0deg); }
-  100% { transform: rotate(360deg); }
+  0% {
+    transform: rotate(0deg);
+  }
+
+  100% {
+    transform: rotate(360deg);
+  }
 }
+
 .paginacion-facturacion {
   display: flex;
   gap: 1rem;
@@ -154,6 +147,7 @@
   justify-content: center;
   margin: 2rem 0;
 }
+
 .paginacion-facturacion button {
   background: #1976d2;
   color: #fff;
@@ -164,11 +158,13 @@
   cursor: pointer;
   transition: background 0.2s;
 }
+
 .paginacion-facturacion button:disabled {
   background: #ccc;
   color: #888;
   cursor: not-allowed;
 }
+
 /* FORMULARIOS FACTURACION */
 .form-facturacion {
   display: flex;
@@ -176,6 +172,7 @@
   gap: 12px;
   max-width: 320px;
 }
+
 .enlace-registrar-usuario {
   display: inline-block;
   margin-bottom: 16px;
@@ -184,16 +181,19 @@
   text-decoration: none;
   font-size: 1rem;
 }
+
 .enlace-registrar-usuario:hover {
   text-decoration: underline;
   color: #0d47a1;
 }
+
 /* NAVBAR */
 .navbar-facturacion {
   background: #1976d2;
   padding: 0.5rem 1.5rem;
   margin-bottom: 2rem;
 }
+
 .navbar-facturacion ul {
   display: flex;
   gap: 2rem;
@@ -201,6 +201,7 @@
   margin: 0;
   padding: 0;
 }
+
 .navbar-facturacion a {
   color: #fff;
   text-decoration: none;
@@ -208,6 +209,7 @@
   font-size: 1.1rem;
   transition: color 0.2s;
 }
+
 .navbar-facturacion a:hover {
   color: #bbdefb;
 }
@@ -217,55 +219,49 @@
   align-items: center;
   justify-content: space-between;
 }
+
 .navbar-nav {
   display: flex;
   gap: 1.5rem;
   align-items: center;
 }
+
 .navbar-actions {
   display: flex;
   gap: 0.75rem;
   align-items: center;
 }
+
 .env-badge {
-  background: rgba(255,255,255,0.14);
+  background: rgba(255, 255, 255, 0.14);
   color: #fff;
   padding: 6px 10px;
   border-radius: 6px;
   font-size: 0.85rem;
   font-weight: 700;
 }
-/* Tema fijo cuando la app apunta a un backend remoto */
-.fixed-theme {
-  --celeste: #1976d2;
-  --celeste-claro: #bbdefb;
-  --negro: #0a0a0a;
-  --blanco: #ffffff;
-  background: var(--blanco) !important;
-  color: var(--negro) !important;
-}
-.fixed-theme .navbar-facturacion {
-  background: var(--celeste) !important;
-}
-.fixed-theme .navbar-theme-btn {
-  display: none !important; /* ocultar toggle de tema cuando es remoto */
-}
+
+/* Eliminado tema fijo alterno: ya es el único estilo */
 /* CONTENEDOR Y CONTEXTO DE FACTURACION */
 .facturacion-contenedor {
   max-width: 1200px;
   margin: 0 auto;
   padding: 2rem 1rem;
 }
+
 .facturacion-titulo {
   margin-bottom: 8px;
 }
+
 .facturacion-contexto {
   margin-bottom: 16px;
   color: #555;
 }
+
 .filtros-facturacion-mb {
   margin-bottom: 24px;
 }
+
 .tabla-facturacion-wrap {
   overflow-x: auto;
   background: #fff;
@@ -273,9 +269,11 @@
   box-shadow: 0 2px 8px #eee;
   padding: 16px;
 }
+
 .tabla-facturacion-min {
   min-width: 700px;
 }
+
 .tabla-facturacion-caption {
   caption-side: top;
   text-align: left;
@@ -283,6 +281,7 @@
   margin-bottom: 8px;
   color: #333;
 }
+
 /* Estilos globales para facturación */
 .tabla-facturacion {
   width: 100%;
@@ -290,24 +289,31 @@
   margin-top: 20px;
   font-size: 1rem;
 }
-.tabla-facturacion th, .tabla-facturacion td {
+
+.tabla-facturacion th,
+.tabla-facturacion td {
   border: 1px solid #ccc;
   padding: 8px;
   text-align: left;
 }
+
 .tabla-facturacion th {
   background: #1976d2;
   color: #fff;
 }
+
 .tabla-facturacion tr:nth-child(even) {
   background: #e3f2fd;
 }
+
 .tabla-facturacion tr:hover {
   background: #bbdefb;
 }
+
 .tabla-facturacion td {
   transition: background 0.2s;
 }
+
 .filtros-facturacion {
   display: flex;
   gap: 1rem;
@@ -315,41 +321,43 @@
   margin-bottom: 1rem;
   flex-wrap: wrap;
 }
+
 .filtros-facturacion .search-wrap {
   display: flex;
   gap: 0.5rem;
   align-items: center;
 }
+
 .btn-clear-search {
   background: transparent;
-  border: 1px solid rgba(25,118,210,0.12);
+  border: 1px solid rgba(25, 118, 210, 0.12);
   color: var(--celeste);
   padding: 6px 10px;
   border-radius: 6px;
   cursor: pointer;
   font-weight: 700;
 }
+
 .btn-clear-search:hover {
-  background: rgba(25,118,210,0.06);
+  background: rgba(25, 118, 210, 0.06);
 }
+
 .busqueda-facturacion {
   padding: 6px 12px;
   border: 1px solid #ccc;
   border-radius: 4px;
   min-width: 200px;
 }
+
 .error-message {
   color: #c00;
   font-weight: bold;
   margin-bottom: 1rem;
 }
+
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
-
+/* Forzamos un único esquema de color (claro) sin override por prefers-color-scheme */
 :root {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
@@ -357,18 +365,12 @@
   --font-mono: var(--font-geist-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
-
 body {
-  background: var(--background);
-  color: var(--foreground);
+  background: var(--blanco);
+  color: var(--negro);
   font-family: Arial, Helvetica, sans-serif;
 }
+
 /* Contenedor para la tabla, permite el desplazamiento horizontal en pantallas pequeñas */
 .tabla-facturacion-wrap {
   overflow-x: auto;
@@ -380,25 +382,31 @@ body {
 /* Estilos base para la tabla */
 .tabla-facturacion {
   width: 100%;
-  border-collapse: collapse; /* Une los bordes de las celdas */
-  font-size: 14px; /* Un tamaño de fuente más pequeño y legible */
+  border-collapse: collapse;
+  /* Une los bordes de las celdas */
+  font-size: 14px;
+  /* Un tamaño de fuente más pequeño y legible */
   text-align: left;
-  white-space: nowrap; /* Evita que el texto se parta en varias líneas */
+  white-space: nowrap;
+  /* Evita que el texto se parta en varias líneas */
 }
 
 /* Estilo para las cabeceras (th) */
 .tabla-facturacion th {
-  background-color: #007bff; /* Un azul profesional */
+  background-color: #007bff;
+  /* Un azul profesional */
   color: white;
   padding: 12px 15px;
   font-weight: 600;
-  text-transform: capitalize; /* Pone en mayúscula la primera letra */
+  text-transform: capitalize;
+  /* Pone en mayúscula la primera letra */
 }
 
 /* Estilo para las celdas (td) */
 .tabla-facturacion td {
   padding: 10px 15px;
-  border-bottom: 1px solid #e2e8f0; /* Línea separadora sutil */
+  border-bottom: 1px solid #e2e8f0;
+  /* Línea separadora sutil */
 }
 
 /* "Zebra Striping": Colores alternos para las filas para mejorar la legibilidad */
@@ -412,23 +420,30 @@ body {
 }
 
 /* --- Clases para controlar el ancho de columnas específicas --- */
-.col-id, .col-checkbox {
-  width: 5%; /* Columnas pequeñas para IDs y checkboxes */
+.col-id,
+.col-checkbox {
+  width: 5%;
+  /* Columnas pequeñas para IDs y checkboxes */
 }
+
 .col-monto {
   width: 15%;
-  text-align: right; /* Alinea los números a la derecha */
+  text-align: right;
+  /* Alinea los números a la derecha */
 }
+
 .col-acciones {
   width: 10%;
-  text-align: center; /* Centra el botón de acciones */
+  text-align: center;
+  /* Centra el botón de acciones */
 }
 
 /* Estilo para el botón de facturar dentro de la tabla */
 .btn-facturar {
   padding: 6px 12px;
   font-size: 12px;
-  background-color: #28a745; /* Verde para acción positiva */
+  background-color: #28a745;
+  /* Verde para acción positiva */
   color: white;
   border: none;
   border-radius: 5px;
@@ -448,19 +463,23 @@ body {
   color: white;
   border: none;
   border-radius: 8px;
-  
+
   /* --- Espaciado y Tamaño (Sin cambios) --- */
   padding: 12px 24px;
   font-size: 16px;
   font-weight: 600;
-  
+
   /* --- POSICIONAMIENTO Y CENTRADO (¡AQUÍ ESTÁN LOS CAMBIOS!) --- */
-  display: block; /* Sigue siendo un bloque para poder centrarlo */
-  width: 40%; /* Un ancho considerable, pero no el 100%. Ajústalo a tu gusto (ej. 300px, 50%, etc.) */
-  min-width: 18x; /* Un ancho mínimo para que no se vea mal en pantallas muy pequeñas */
-  margin: 20px auto 0 auto; /* TRUCO DE CENTRADO: margen superior, auto a los lados, 0 abajo */
+  display: block;
+  /* Sigue siendo un bloque para poder centrarlo */
+  width: 40%;
+  /* Un ancho considerable, pero no el 100%. Ajústalo a tu gusto (ej. 300px, 50%, etc.) */
+  min-width: 18x;
+  /* Un ancho mínimo para que no se vea mal en pantallas muy pequeñas */
+  margin: 20px auto 0 auto;
+  /* TRUCO DE CENTRADO: margen superior, auto a los lados, 0 abajo */
   box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-  
+
   /* --- Interacción (Sin cambios) --- */
   cursor: pointer;
   transition: all 0.2s ease-in-out;
@@ -469,14 +488,18 @@ body {
 
 /* Efecto al pasar el cursor por encima */
 .btn-facturar-lote:hover {
-  background-color: #0056b3; /* Un azul un poco más oscuro */
-  box-shadow: 0 6px 8px rgba(0, 0, 0, 0.15); /* La sombra se hace un poco más grande */
-  transform: translateY(-2px); /* El botón se "levanta" un poquito */
+  background-color: #0056b3;
+  /* Un azul un poco más oscuro */
+  box-shadow: 0 6px 8px rgba(0, 0, 0, 0.15);
+  /* La sombra se hace un poco más grande */
+  transform: translateY(-2px);
+  /* El botón se "levanta" un poquito */
 }
 
 /* Efecto al hacer clic */
 .btn-facturar-lote:active {
-  transform: translateY(0); /* Vuelve a su posición original */
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1); /* La sombra se reduce */
+  transform: translateY(0);
+  /* Vuelve a su posición original */
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  /* La sombra se reduce */
 }
-
