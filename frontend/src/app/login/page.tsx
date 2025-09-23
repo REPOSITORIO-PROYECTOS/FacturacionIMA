@@ -60,7 +60,11 @@ function LoginPageInner() {
         const isMobile = typeof window !== 'undefined' && window.innerWidth < 768;
         router.push(isMobile ? '/inicio' : '/dashboard');
       } else {
-        setError("Respuesta inválida del servidor");
+        // Mostrar un resumen del body recibido para facilitar diagnóstico en desarrollo
+        const preview = data
+          ? (typeof data === 'object' ? JSON.stringify(data) : String(data))
+          : '';
+        setError(`Respuesta inválida del servidor${preview ? ': ' + preview : ''}`);
       }
     } catch {
       setError("Error de conexión");

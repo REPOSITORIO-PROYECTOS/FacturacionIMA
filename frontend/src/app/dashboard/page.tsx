@@ -32,6 +32,25 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [tipoBoleta, setTipoBoleta] = useState<'todas' | 'no-facturadas' | 'facturadas'>('no-facturadas');
+  
+  // Nuevos filtros - Inicializar con valor fijo para evitar errores de hidratación
+  const [fechaDesde, setFechaDesde] = useState("");
+  const [fechaHasta, setFechaHasta] = useState("");
+  const [fechasInicializadas, setFechasInicializadas] = useState(false);
+  const [filtroRazonSocial, setFiltroRazonSocial] = useState("");
+  const [mediosPago] = useState([
+    'Efectivo',
+    'Tarjeta de Débito',
+    'Tarjeta de Crédito',
+    'Transferencia',
+    'Mercado Pago',
+    'Otro'
+  ]);
+  const [medioSeleccionado, setMedioSeleccionado] = useState('Efectivo');
+  
+  // Filtros para listas de resumen
+  const [filtroFacturadas, setFiltroFacturadas] = useState("");
+  const [filtroNoFacturadas, setFiltroNoFacturadas] = useState("");
 
   // Funciones utilitarias
   const parseMonto = (monto: string | number | undefined): number => {
@@ -66,11 +85,32 @@ export default function DashboardPage() {
   // Filtrado de boletas
   const boletasFiltradas = useMemo(() => {
     return boletas.filter((b) => {
+      // Filtro por búsqueda general
       const coincideBusqueda = !busqueda || Object.values(b).some((v) => v?.toString().toLowerCase().includes(busqueda.toLowerCase()));
+      
+      // Filtro por razón social específico
+      const razonSocial = (b.cliente || b.nombre || b["Razon Social"] || "").toString().toLowerCase();
+      const coincideRazonSocial = !filtroRazonSocial || razonSocial.includes(filtroRazonSocial.toLowerCase());
+      
+      // Filtro por fecha
+      const fechaBoleta = b.Fecha || b.fecha || b["Fecha"] || "";
+      let coincideFecha = true;
+      if (fechaBoleta && fechaDesde) {
+        try {
+          const fechaBoletaObj = new Date(fechaBoleta.toString());
+          const fechaDesdeObj = new Date(fechaDesde);
+          const fechaHastaObj = new Date(fechaHasta);
+          coincideFecha = fechaBoletaObj >= fechaDesdeObj && fechaBoletaObj <= fechaHastaObj;
+        } catch {
+          // Si hay error parseando fecha, incluir la boleta
+          coincideFecha = true;
+        }
+      }
+      
       const pasaFacturable = !soloFacturables || isFacturable(b);
-      return coincideBusqueda && pasaFacturable;
+      return coincideBusqueda && coincideRazonSocial && coincideFecha && pasaFacturable;
     });
-  }, [boletas, busqueda, soloFacturables, isFacturable]);
+  }, [boletas, busqueda, filtroRazonSocial, fechaDesde, fechaHasta, soloFacturables, isFacturable]);
 
   // Agrupamiento por facturación, tipo de pago y repartidor
   const agrupadas = useMemo(() => {
@@ -87,6 +127,16 @@ export default function DashboardPage() {
     }
     return Object.values(grupos);
   }, [boletasFiltradas]);
+
+  // Inicializar fechas después de la hidratación para evitar errores
+  useEffect(() => {
+    if (!fechasInicializadas) {
+      const today = new Date().toISOString().split('T')[0];
+      setFechaDesde(today);
+      setFechaHasta(today);
+      setFechasInicializadas(true);
+    }
+  }, [fechasInicializadas]);
 
   useEffect(() => {
     let cancelled = false;
@@ -142,6 +192,25 @@ export default function DashboardPage() {
     return () => { cancel = true; };
   }, []);
 
+  // Filtrado de listas de resumen
+  const boletasFacturadasFiltradas = useMemo(() => {
+    if (!filtroFacturadas) return boletasFacturadas;
+    return boletasFacturadas.filter((b) => {
+      const razonSocial = (b.cliente || b.nombre || b["Razon Social"] || "").toString().toLowerCase();
+      return razonSocial.includes(filtroFacturadas.toLowerCase()) ||
+             Object.values(b).some((v) => v?.toString().toLowerCase().includes(filtroFacturadas.toLowerCase()));
+    });
+  }, [boletasFacturadas, filtroFacturadas]);
+  
+  const boletasNoFacturadasFiltradas = useMemo(() => {
+    if (!filtroNoFacturadas) return boletasNoFacturadas;
+    return boletasNoFacturadas.filter((b) => {
+      const razonSocial = (b.cliente || b.nombre || b["Razon Social"] || "").toString().toLowerCase();
+      return razonSocial.includes(filtroNoFacturadas.toLowerCase()) ||
+             Object.values(b).some((v) => v?.toString().toLowerCase().includes(filtroNoFacturadas.toLowerCase()));
+    });
+  }, [boletasNoFacturadas, filtroNoFacturadas]);
+  
   const totalFacturadas = boletasFacturadas.length;
   const totalNoFacturadas = boletasNoFacturadas.length;
   const totalGlobal = totalFacturadas + totalNoFacturadas;
@@ -151,9 +220,27 @@ export default function DashboardPage() {
     const token = localStorage.getItem("token");
     if (!token) return alert("No autenticado");
     if (!isFacturable(b)) return alert("Esta boleta no es facturable (faltan datos o total)");
+    
+    // Seleccionar medio de pago
+    const medioSeleccionado = prompt(
+      `Seleccionar medio de pago:\n\n` +
+      mediosPago.map((medio, idx) => `${idx + 1}. ${medio}`).join('\n') +
+      '\n\nIngrese el número del medio de pago (1-' + mediosPago.length + '):', 
+      '1'
+    );
+    
+    if (!medioSeleccionado) return;
+    const indice = parseInt(medioSeleccionado) - 1;
+    if (indice < 0 || indice >= mediosPago.length) {
+      alert('Opción inválida');
+      return;
+    }
+    
+    const medio = mediosPago[indice];
     const payload = {
       id: getId(b),
       total: b.total || parseMonto(String(b.INGRESOS || b.total || 0)),
+      medio_pago: medio,
       cliente_data: {
         cuit_o_dni: b.cuit || b.dni || String(b.CUIT || ""),
         nombre_razon_social: b.cliente || b.nombre || b["Razon Social"] || "",
@@ -168,7 +255,7 @@ export default function DashboardPage() {
         body: JSON.stringify(payload),
       });
       const data = await res.json().catch(() => ({}));
-      if (res.ok) alert("Facturación exitosa");
+      if (res.ok) alert(`Facturación exitosa con ${medio}`);
       else alert(String(data?.detail || "Error al facturar"));
     } catch {
       alert("Error de conexión al facturar");
@@ -180,9 +267,27 @@ export default function DashboardPage() {
     if (!token) return alert("No autenticado");
     const seleccion = boletasFiltradas.filter((b) => seleccionadas.has(getId(b)) && isFacturable(b));
     if (seleccion.length === 0) return alert("No hay boletas facturables seleccionadas");
+    
+    // Seleccionar medio de pago
+    const medioSeleccionado = prompt(
+      `Seleccionar medio de pago para ${seleccion.length} boletas:\n\n` +
+      mediosPago.map((medio, idx) => `${idx + 1}. ${medio}`).join('\n') +
+      '\n\nIngrese el número del medio de pago (1-' + mediosPago.length + '):', 
+      '1'
+    );
+    
+    if (!medioSeleccionado) return;
+    const indice = parseInt(medioSeleccionado) - 1;
+    if (indice < 0 || indice >= mediosPago.length) {
+      alert('Opción inválida');
+      return;
+    }
+    
+    const medio = mediosPago[indice];
     const payloads = seleccion.map((b) => ({
       id: getId(b),
       total: b.total || parseMonto(String(b.INGRESOS || b.total || 0)),
+      medio_pago: medio,
       cliente_data: {
         cuit_o_dni: b.cuit || b.dni || String(b.CUIT || ""),
         nombre_razon_social: b.cliente || b.nombre || b["Razon Social"] || "",
@@ -198,7 +303,7 @@ export default function DashboardPage() {
       });
       const data = await res.json().catch(() => ({}));
       if (res.ok) {
-        alert("Facturación en lote exitosa");
+        alert(`Facturación en lote exitosa con ${medio}`);
         setSeleccionadas(new Set());
       } else {
         alert(String(data?.detail || "Error al facturar en lote"));
@@ -255,74 +360,171 @@ export default function DashboardPage() {
           {/* Listas resumen */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="bg-white rounded border overflow-hidden">
-              <div className="p-3 font-semibold border-b flex justify-between items-center">
-                <span>Facturadas (últimas {boletasFacturadas.length})</span>
-                <Link href="/boletas/facturadas" className="text-blue-600 text-sm">Ver todas →</Link>
+              <div className="p-3 font-semibold border-b">
+                <div className="flex justify-between items-center mb-2">
+                  <span>Facturadas (mostrando {boletasFacturadasFiltradas.length} de {boletasFacturadas.length})</span>
+                  <Link href="/boletas/facturadas" className="text-blue-600 text-sm">Ver todas →</Link>
+                </div>
+                <div className="flex gap-2">
+                  <input
+                    className="flex-1 border rounded px-2 py-1 text-xs"
+                    placeholder="Filtrar facturadas..."
+                    value={filtroFacturadas}
+                    onChange={(e) => setFiltroFacturadas(e.target.value)}
+                    title="Filtrar boletas facturadas"
+                  />
+                  {filtroFacturadas && (
+                    <button 
+                      className="px-2 py-1 bg-gray-200 hover:bg-gray-300 rounded text-xs"
+                      onClick={() => setFiltroFacturadas("")}
+                      title="Limpiar filtro"
+                    >
+                      ✕
+                    </button>
+                  )}
+                </div>
               </div>
               <table className="w-full text-xs">
                 <thead className="bg-blue-50">
                   <tr><th className="p-1">Razón Social</th><th className="p-1">Total</th></tr>
                 </thead>
                 <tbody>
-                  {boletasFacturadas.slice(0, 10).map((b, i) => {
+                  {boletasFacturadasFiltradas.slice(0, 10).map((b, i) => {
                     const id = String(b['ID Ingresos'] || b['id'] || i);
                     const razonSocial = b.cliente || b.nombre || b['Razon Social'] || '';
                     const total = b.total || b['INGRESOS'] || '';
                     return <tr key={id} className="border-t"><td className="p-1 truncate max-w-[180px]">{String(razonSocial)}</td><td className="p-1">{String(total)}</td></tr>;
                   })}
-                  {boletasFacturadas.length === 0 && <tr><td colSpan={2} className="p-2 text-center text-gray-500">Sin datos</td></tr>}
+                  {boletasFacturadasFiltradas.length === 0 && <tr><td colSpan={2} className="p-2 text-center text-gray-500">{filtroFacturadas ? 'Sin resultados para el filtro' : 'Sin datos'}</td></tr>}
                 </tbody>
               </table>
             </div>
             <div className="bg-white rounded border overflow-hidden">
-              <div className="p-3 font-semibold border-b flex justify-between items-center">
-                <span>No Facturadas (últimas {boletasNoFacturadas.length})</span>
-                <Link href="/boletas/no-facturadas" className="text-blue-600 text-sm">Ver todas →</Link>
+              <div className="p-3 font-semibold border-b">
+                <div className="flex justify-between items-center mb-2">
+                  <span>No Facturadas (mostrando {boletasNoFacturadasFiltradas.length} de {boletasNoFacturadas.length})</span>
+                  <Link href="/boletas/no-facturadas" className="text-blue-600 text-sm">Ver todas →</Link>
+                </div>
+                <div className="flex gap-2">
+                  <input
+                    className="flex-1 border rounded px-2 py-1 text-xs"
+                    placeholder="Filtrar no facturadas..."
+                    value={filtroNoFacturadas}
+                    onChange={(e) => setFiltroNoFacturadas(e.target.value)}
+                    title="Filtrar boletas no facturadas"
+                  />
+                  {filtroNoFacturadas && (
+                    <button 
+                      className="px-2 py-1 bg-gray-200 hover:bg-gray-300 rounded text-xs"
+                      onClick={() => setFiltroNoFacturadas("")}
+                      title="Limpiar filtro"
+                    >
+                      ✕
+                    </button>
+                  )}
+                </div>
               </div>
               <table className="w-full text-xs">
                 <thead className="bg-blue-50">
                   <tr><th className="p-1">Razón Social</th><th className="p-1">Total</th></tr>
                 </thead>
                 <tbody>
-                  {boletasNoFacturadas.slice(0, 10).map((b, i) => {
+                  {boletasNoFacturadasFiltradas.slice(0, 10).map((b, i) => {
                     const id = String(b['ID Ingresos'] || b['id'] || i);
                     const razonSocial = b.cliente || b.nombre || b['Razon Social'] || '';
                     const total = b.total || b['INGRESOS'] || '';
                     return <tr key={id} className="border-t"><td className="p-1 truncate max-w-[180px]">{String(razonSocial)}</td><td className="p-1">{String(total)}</td></tr>;
                   })}
-                  {boletasNoFacturadas.length === 0 && <tr><td colSpan={2} className="p-2 text-center text-gray-500">Sin datos</td></tr>}
+                  {boletasNoFacturadasFiltradas.length === 0 && <tr><td colSpan={2} className="p-2 text-center text-gray-500">{filtroNoFacturadas ? 'Sin resultados para el filtro' : 'Sin datos'}</td></tr>}
                 </tbody>
               </table>
             </div>
           </div>
-          {/* Controles */}
-          <div className="bg-white rounded-lg shadow p-4 flex flex-col md:flex-row gap-3 md:items-end">
-            <div>
-              <label className="block text-sm text-gray-600">Búsqueda</label>
-              <input
-                className="border rounded px-3 py-2"
-                placeholder="Cliente, CUIT, etc."
-                value={busqueda}
-                onChange={(e) => setBusqueda(e.target.value)}
-              />
+          {/* Controles de filtrado */}
+          <div className="bg-white rounded-lg shadow p-4 space-y-4">
+            <h3 className="font-semibold text-gray-700">Filtros de Búsqueda</h3>
+            
+            {/* Primera fila de filtros */}
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+              <div>
+                <label className="block text-sm text-gray-600 mb-1">Fecha desde</label>
+                <input
+                  type="date"
+                  className="w-full border rounded px-3 py-2"
+                  value={fechaDesde}
+                  onChange={(e) => setFechaDesde(e.target.value)}
+                  title="Seleccionar fecha desde"
+                  placeholder="Fecha desde"
+                />
+              </div>
+              <div>
+                <label className="block text-sm text-gray-600 mb-1">Fecha hasta</label>
+                <input
+                  type="date"
+                  className="w-full border rounded px-3 py-2"
+                  value={fechaHasta}
+                  onChange={(e) => setFechaHasta(e.target.value)}
+                  title="Seleccionar fecha hasta"
+                  placeholder="Fecha hasta"
+                />
+              </div>
+              <div>
+                <label className="block text-sm text-gray-600 mb-1">Razón Social</label>
+                <input
+                  className="w-full border rounded px-3 py-2"
+                  placeholder="Filtrar por razón social..."
+                  value={filtroRazonSocial}
+                  onChange={(e) => setFiltroRazonSocial(e.target.value)}
+                />
+              </div>
+              <div>
+                <label className="block text-sm text-gray-600 mb-1">Ver:</label>
+                <select
+                  aria-label="Tipo de boleta"
+                  className="w-full border rounded px-3 py-2"
+                  value={tipoBoleta}
+                  onChange={(e) => setTipoBoleta(e.target.value as 'todas' | 'no-facturadas' | 'facturadas')}
+                >
+                  <option value="no-facturadas">No facturadas</option>
+                  <option value="facturadas">Facturadas</option>
+                  <option value="todas">Todas</option>
+                </select>
+              </div>
             </div>
-            <label className="inline-flex items-center gap-2">
-              <input type="checkbox" checked={soloFacturables} onChange={(e) => setSoloFacturables(e.target.checked)} />
-              <span>Solo facturables</span>
-            </label>
-            <div>
-              <label className="block text-sm text-gray-600">Ver:</label>
-              <select
-                aria-label="Tipo de boleta"
-                title="Seleccionar tipo de boleta"
-                className="w-full border rounded px-3 py-2"
-                value={tipoBoleta}
-                onChange={(e) => setTipoBoleta(e.target.value as 'todas' | 'no-facturadas' | 'facturadas')}
+            
+            {/* Segunda fila de filtros */}
+            <div className="flex flex-col md:flex-row gap-4 md:items-end">
+              <div className="flex-1">
+                <label className="block text-sm text-gray-600 mb-1">Búsqueda general</label>
+                <input
+                  className="w-full border rounded px-3 py-2"
+                  placeholder="Cliente, CUIT, repartidor, etc."
+                  value={busqueda}
+                  onChange={(e) => setBusqueda(e.target.value)}
+                />
+              </div>
+              <label className="inline-flex items-center gap-2">
+                <input type="checkbox" checked={soloFacturables} onChange={(e) => setSoloFacturables(e.target.checked)} />
+                <span className="text-sm">Solo facturables</span>
+              </label>
+              <button 
+                className="px-4 py-2 bg-gray-200 hover:bg-gray-300 rounded text-sm"
+                onClick={() => {
+                  setBusqueda("");
+                  setFiltroRazonSocial("");
+                  setFiltroFacturadas("");
+                  setFiltroNoFacturadas("");
+                  // Solo actualizar fechas si ya están inicializadas
+                  if (fechasInicializadas) {
+                    const today = new Date().toISOString().split('T')[0];
+                    setFechaDesde(today);
+                    setFechaHasta(today);
+                  }
+                  setSoloFacturables(true);
+                }}
               >
-                <option value="no-facturadas">No facturadas</option>
-                <option value="facturadas">Facturadas</option>
-                <option value="todas">Todas</option>
-              </select>
+                Limpiar todos los filtros
+              </button>
             </div>
           </div>
 
@@ -346,9 +548,27 @@ export default function DashboardPage() {
                         onClick={() => {
                           const seleccion = grupo.boletas.filter(isFacturable);
                           if (seleccion.length === 0) return alert("No hay boletas facturables en el grupo");
+                          
+                          // Mostrar modal de confirmación con medio de pago
+                          const medioSeleccionado = prompt(
+                            `Seleccionar medio de pago para facturar ${seleccion.length} boletas:\n\n` +
+                            mediosPago.map((medio, idx) => `${idx + 1}. ${medio}`).join('\n') +
+                            '\n\nIngrese el número del medio de pago (1-' + mediosPago.length + '):', 
+                            '1'
+                          );
+                          
+                          if (!medioSeleccionado) return;
+                          const indice = parseInt(medioSeleccionado) - 1;
+                          if (indice < 0 || indice >= mediosPago.length) {
+                            alert('Opción inválida');
+                            return;
+                          }
+                          
+                          const medio = mediosPago[indice];
                           const payloads = seleccion.map((b) => ({
                             id: getId(b),
                             total: b.total || parseMonto(String(b.INGRESOS || b.total || 0)),
+                            medio_pago: medio,
                             cliente_data: {
                               cuit_o_dni: b.cuit || b.dni || String(b.CUIT || ""),
                               nombre_razon_social: b.cliente || b.nombre || b["Razon Social"] || "",
@@ -356,6 +576,7 @@ export default function DashboardPage() {
                               condicion_iva: b.condicion_iva || b["condicion-iva"] || "",
                             },
                           }));
+                          
                           (async () => {
                             const token = localStorage.getItem("token");
                             if (!token) return alert("No autenticado");
@@ -366,7 +587,7 @@ export default function DashboardPage() {
                                 body: JSON.stringify(payloads),
                               });
                               const data = await res.json().catch(() => ({}));
-                              if (res.ok) alert("Facturación en grupo exitosa");
+                              if (res.ok) alert(`Facturación en grupo exitosa con ${medio}`);
                               else alert(String(data?.detail || "Error al facturar grupo"));
                             } catch {
                               alert("Error de conexión al facturar grupo");
