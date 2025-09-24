@@ -480,23 +480,41 @@ export default function DashboardPage() {
                         onClick={() => {
                           const seleccion = grupo.boletas.filter(isFacturable);
                           if (seleccion.length === 0) return alert("No hay boletas facturables en el grupo");
-
-                          const medioSeleccionado = prompt(
-                            `Seleccionar medio de pago para facturar ${seleccion.length} boletas:\n\n` +
-                            mediosPago.map((medio, idx) => `${idx + 1}. ${medio}`).join('\n') +
-                            `\n\nIngrese el número del medio de pago (1-${mediosPago.length}):`,
-                            '1'
-                          );
-                          if (!medioSeleccionado) return;
-                          const indice = parseInt(medioSeleccionado) - 1;
-                          if (isNaN(indice) || indice < 0 || indice >= mediosPago.length) {
-                            alert('Opción inválida');
-                            return;
-                          }
-                          const medio = mediosPago[indice];
+                          // Construir payload de facturación por cantidad
+                          const invoices = seleccion.map((b) => ({
+                            id: getId(b),
+                            total: Number(b.total ?? b["INGRESOS"] ?? 0),
+                            cliente_data: {
+                              cuit_o_dni: String(b.cuit || b.CUIT || b.dni || ""),
+                              nombre_razon_social: String(b.cliente || b.nombre || b["Razon Social"] || ""),
+                              domicilio: String(b["Domicilio"] || ""),
+                              condicion_iva: String(b.condicion_iva || b["condicion-iva"] || "CONSUMIDOR_FINAL"),
+                            },
+                          }));
                           (async () => {
-                            for (const b of seleccion) {
-                              await facturarBoleta(b, medio);
+                            try {
+                              if (!token) { alert('No autenticado'); return; }
+                              const res = await fetch(`/api/facturador/facturar-por-cantidad?max_parallel_workers=5`, {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+                                body: JSON.stringify(invoices),
+                              });
+                              type LoteResultado = { ok?: boolean } | Record<string, unknown>;
+                              const dataText = await res.text();
+                              const isJson = dataText.trim().startsWith("{") || dataText.trim().startsWith("[");
+                              const data: unknown = isJson ? JSON.parse(dataText) : dataText;
+                              if (!res.ok) {
+                                const detail = typeof data === 'object' && data && !Array.isArray(data) ? (data as { detail?: string }).detail : undefined;
+                                alert(String(detail || 'Error al facturar en lote'));
+                                return;
+                              }
+                              // Mostrar resumen simple
+                              const okCount = Array.isArray(data) ? data.filter((r) => (r as { ok?: boolean }).ok !== false).length : 0;
+                              alert(`Lote procesado. Éxitos: ${okCount} / ${seleccion.length}`);
+                              // Refrescar datos
+                              window.location.reload();
+                            } catch {
+                              alert('Error de conexión al facturar en lote');
                             }
                           })();
                         }}
