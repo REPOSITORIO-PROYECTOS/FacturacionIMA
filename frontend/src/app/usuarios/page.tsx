@@ -7,17 +7,24 @@ export default function UsuariosPage() {
   const [modalOpen, setModalOpen] = useState(false);
   const [modalUsuario, setModalUsuario] = useState<Usuario | null>(null);
   const [modalRol, setModalRol] = useState("");
+  const [modalNombre, setModalNombre] = useState("");
+  const [modalPassword, setModalPassword] = useState("");
   const [modalMode, setModalMode] = useState<'edit' | 'create'>("edit");
+  const rolesDisponibles = ["Admin", "Cajero", "Gerente", "Soporte"];
 
   function openEditModal(u: Usuario) {
     setModalUsuario(u);
     setModalRol(u.rol_nombre || u.rol || "Cajero");
+    setModalNombre(u.nombre_usuario || u.nombre || "");
+    setModalPassword("");
     setModalMode("edit");
     setModalOpen(true);
   }
   function openCreateModal() {
     setModalUsuario(null);
     setModalRol("");
+    setModalNombre("");
+    setModalPassword("");
     setModalMode("create");
     setModalOpen(true);
   }
@@ -25,17 +32,23 @@ export default function UsuariosPage() {
     setModalOpen(false);
     setModalUsuario(null);
     setModalRol("");
+    setModalNombre("");
+    setModalPassword("");
   }
+  type UpdateUsuarioPayload = { rol_nombre?: string; password?: string; activo?: boolean };
   function handleModalSave() {
     const token = localStorage.getItem("token");
     if (modalMode === "edit" && modalUsuario) {
-      fetch(`/api/usuarios/${modalUsuario.nombre_usuario || modalUsuario.nombre}`, {
+      const username = modalUsuario.nombre_usuario || modalUsuario.nombre;
+      const body: UpdateUsuarioPayload = { rol_nombre: modalRol };
+      if (modalPassword) body.password = modalPassword; // si desea resetear contraseña
+      fetch(`/api/usuarios/${username}`, {
         method: "PUT",
         headers: {
           "Authorization": `Bearer ${token}`,
           "Content-Type": "application/json"
         },
-        body: JSON.stringify({ rol_nombre: modalRol })
+        body: JSON.stringify(body)
       })
         .then(res => res.ok ? res.json() : Promise.reject(res))
         .then(() => {
@@ -45,45 +58,28 @@ export default function UsuariosPage() {
         .catch(() => alert("Error al actualizar usuario"));
     } else if (modalMode === "create") {
       const token = localStorage.getItem("token");
-      const nombre_usuario = prompt("Nombre de usuario para el nuevo perfil:");
+      const nombre_usuario = (modalNombre || "").trim();
       if (!nombre_usuario) return alert("Debes ingresar un nombre de usuario");
+      const password = (modalPassword || "").trim();
+      if (!password) return alert("Debes ingresar una contraseña");
       fetch(`/api/setup?action=create-user`, {
         method: "POST",
         headers: {
           "Authorization": `Bearer ${token}`,
           "Content-Type": "application/json"
         },
-        body: JSON.stringify({ nombre_usuario, password: "cambiame123", rol_nombre: modalRol || "Cajero" })
+        body: JSON.stringify({ nombre_usuario, password, rol_nombre: modalRol || "Cajero" })
       })
         .then(res => res.ok ? res.json() : Promise.reject(res))
         .then(() => {
-          alert("Usuario creado exitosamente. La contraseña inicial es 'cambiame123'.");
+          alert("Usuario creado exitosamente.");
           window.location.reload();
         })
         .catch(() => alert("Error al crear usuario"));
       closeModal();
     }
   }
-  // --- Funciones para editar y desactivar ---
-  function handleEdit(u: Usuario) {
-    const nuevoRol = prompt(`Nuevo rol para ${u.nombre_usuario || u.nombre}:`, u.rol_nombre || u.rol || "Cajero");
-    if (!nuevoRol) return;
-    const token = localStorage.getItem("token");
-    fetch(`/api/usuarios/${u.nombre_usuario || u.nombre}`, {
-      method: "PUT",
-      headers: {
-        "Authorization": `Bearer ${token}`,
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({ rol_nombre: nuevoRol })
-    })
-      .then(res => res.ok ? res.json() : Promise.reject(res))
-      .then(() => {
-        alert("Usuario actualizado");
-        window.location.reload();
-      })
-      .catch(() => alert("Error al actualizar usuario"));
-  }
+  // --- Funciones para desactivar ---
 
   function handleDeactivate(u: Usuario) {
     if (!window.confirm(`¿Desactivar usuario ${u.nombre_usuario || u.nombre}?`)) return;
@@ -190,18 +186,41 @@ export default function UsuariosPage() {
         <div className="fixed inset-0 bg-black bg-opacity-40 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg shadow-lg p-6 w-full max-w-md">
             <h3 className="text-xl font-bold mb-4">{modalMode === "edit" ? "Editar usuario" : "Crear usuario"}</h3>
-            {modalUsuario && (
-              <div className="mb-2 text-sm text-gray-700">Usuario: <span className="font-semibold">{modalUsuario.nombre_usuario || modalUsuario.nombre}</span></div>
-            )}
-            <div className="mb-4">
-              <label className="block text-gray-700 mb-1">Rol</label>
-              <input
-                type="text"
-                className="border px-3 py-2 rounded w-full"
-                value={modalRol}
-                onChange={e => setModalRol(e.target.value)}
-                placeholder="Rol (Admin, Cajero, etc)"
-              />
+            <div className="space-y-3">
+              <div>
+                <label className="block text-gray-700 mb-1">Nombre de usuario</label>
+                <input
+                  type="text"
+                  className="border px-3 py-2 rounded w-full"
+                  value={modalNombre}
+                  onChange={e => setModalNombre(e.target.value)}
+                  placeholder="usuario"
+                  disabled={modalMode === 'edit'}
+                />
+              </div>
+              <div>
+                <label className="block text-gray-700 mb-1">Contraseña {modalMode === 'edit' ? "(opcional)" : ""}</label>
+                <input
+                  type="password"
+                  className="border px-3 py-2 rounded w-full"
+                  value={modalPassword}
+                  onChange={e => setModalPassword(e.target.value)}
+                  placeholder={modalMode === 'edit' ? "Dejar vacío para no cambiar" : "Contraseña inicial"}
+                />
+              </div>
+              <div>
+                <label className="block text-gray-700 mb-1">Rol</label>
+                <select
+                  className="border px-3 py-2 rounded w-full"
+                  value={modalRol}
+                  onChange={e => setModalRol(e.target.value)}
+                >
+                  <option value="" disabled>Selecciona un rol…</option>
+                  {rolesDisponibles.map(r => (
+                    <option key={r} value={r}>{r}</option>
+                  ))}
+                </select>
+              </div>
             </div>
             <div className="flex gap-2 justify-end">
               <button
