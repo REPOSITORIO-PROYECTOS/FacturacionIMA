@@ -50,18 +50,26 @@ export default function DashboardPage() {
   const [userInfo, setUserInfo] = useState<{ username: string; role: string } | null>(null);
   const [token, setToken] = useState<string | null>(null);
 
+  // Sincronizar userInfo y token en cada render para evitar problemas de actualización
   useEffect(() => {
-    // Leer token y user_info del localStorage
-    const t = localStorage.getItem("token");
-    const info = localStorage.getItem("user_info");
-    setToken(t);
-    if (info) {
-      try {
-        setUserInfo(JSON.parse(info));
-      } catch {
+    const syncAuth = () => {
+      const t = localStorage.getItem("token");
+      const info = localStorage.getItem("user_info");
+      setToken(t);
+      if (info) {
+        try {
+          setUserInfo(JSON.parse(info));
+        } catch {
+          setUserInfo(null);
+        }
+      } else {
         setUserInfo(null);
       }
-    }
+    };
+    syncAuth();
+    // Escuchar cambios en localStorage (por ejemplo, login/logout en otra pestaña)
+    window.addEventListener("storage", syncAuth);
+    return () => window.removeEventListener("storage", syncAuth);
   }, []);
 
   // Funciones utilitarias
@@ -278,9 +286,11 @@ export default function DashboardPage() {
         <header className="bg-white border-b p-4 flex justify-between items-center">
           <h1 className="text-xl font-bold text-blue-700">Dashboard</h1>
           <div className="flex items-center gap-3 text-sm">
-            {/* Mostrar solo si el usuario es admin */}
-            {userInfo?.role === "Admin" && (
-              <Link className="text-blue-600" href="/usuarios">Ir a Usuarios</Link>
+            {/* Mostrar solo si el usuario es admin, y mostrar mensaje si no hay userInfo */}
+            {userInfo?.role === "Admin" ? (
+              <Link className="text-blue-600 font-semibold" href="/usuarios">Ir a Usuarios</Link>
+            ) : (
+              <span className="text-gray-400 text-xs">No eres admin</span>
             )}
           </div>
         </header>
