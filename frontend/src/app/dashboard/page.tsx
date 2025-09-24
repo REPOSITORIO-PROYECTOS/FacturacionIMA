@@ -157,6 +157,9 @@ export default function DashboardPage() {
   const [modalGroup, setModalGroup] = useState<{ key: string; boletas: Boleta[]; groupType: string; facturado: boolean } | null>(null);
   // Estado de selección en el modal
   const [seleccionadas, setSeleccionadas] = useState<Set<string>>(new Set());
+  // Estados extra del modal para búsqueda/filtrado rápido
+  const [modalSearch, setModalSearch] = useState("");
+  const [modalSoloFacturables, setModalSoloFacturables] = useState(false);
   // Filtrado de listas de resumen
   // ...existing code...
   // Filtros y estados de búsqueda
@@ -213,9 +216,32 @@ export default function DashboardPage() {
       if (!coincide) return false;
     }
 
-    // Nota: filtros por fecha pueden añadirse aquí si el formato es estable
+    // Filtro por fecha (si se estableció)
+    const normalizaFecha = (texto: string): string | null => {
+      if (!texto) return null;
+      const t = texto.trim();
+      // Quitar hora si existe
+      const base = t.split(" ")[0].split("T")[0];
+      if (/^\d{4}-\d{2}-\d{2}$/.test(base)) return base; // YYYY-MM-DD
+      if (/^\d{2}\/\d{2}\/\d{4}$/.test(base)) {
+        const [dd, mm, yyyy] = base.split("/");
+        return `${yyyy}-${mm}-${dd}`;
+      }
+      if (/^\d{4}\/\d{2}\/\d{2}$/.test(base)) {
+        const [yyyy, mm, dd] = base.split("/");
+        return `${yyyy}-${mm}-${dd}`;
+      }
+      return null;
+    };
+    if (fechaDesde || fechaHasta) {
+      const fechaRaw = String((b as Record<string, unknown>)["Fecha"] || (b as Record<string, unknown>)["fecha"] || "");
+      const f = normalizaFecha(fechaRaw);
+      if (!f) return false;
+      if (fechaDesde && f < fechaDesde) return false;
+      if (fechaHasta && f > fechaHasta) return false;
+    }
     return true;
-  }, [busqueda, filtroRazonSocial, soloFacturables, isFacturable]);
+  }, [busqueda, filtroRazonSocial, soloFacturables, isFacturable, fechaDesde, fechaHasta]);
 
   // Variante para listas rápidas: ignora "solo facturables", pero respeta búsqueda y razón social
   const aplicaFiltrosParaListas = useCallback((b: Boleta): boolean => {
@@ -238,8 +264,31 @@ export default function DashboardPage() {
       const coincide = campos.some((k) => v(k).includes(texto));
       if (!coincide) return false;
     }
+    // Aplicar también filtro por fecha a las listas rápidas
+    const normalizaFecha = (texto: string): string | null => {
+      if (!texto) return null;
+      const t = texto.trim();
+      const base = t.split(" ")[0].split("T")[0];
+      if (/^\d{4}-\d{2}-\d{2}$/.test(base)) return base;
+      if (/^\d{2}\/\d{2}\/\d{4}$/.test(base)) {
+        const [dd, mm, yyyy] = base.split("/");
+        return `${yyyy}-${mm}-${dd}`;
+      }
+      if (/^\d{4}\/\d{2}\/\d{2}$/.test(base)) {
+        const [yyyy, mm, dd] = base.split("/");
+        return `${yyyy}-${mm}-${dd}`;
+      }
+      return null;
+    };
+    if (fechaDesde || fechaHasta) {
+      const fechaRaw = String((b as Record<string, unknown>)["Fecha"] || (b as Record<string, unknown>)["fecha"] || "");
+      const f = normalizaFecha(fechaRaw);
+      if (!f) return false;
+      if (fechaDesde && f < fechaDesde) return false;
+      if (fechaHasta && f > fechaHasta) return false;
+    }
     return true;
-  }, [busqueda, filtroRazonSocial]);
+  }, [busqueda, filtroRazonSocial, fechaDesde, fechaHasta]);
 
   // Aplicar filtros globales previos a los específicos de cada tarjeta
   const boletasFacturadasGlobal = useMemo(
@@ -332,6 +381,27 @@ export default function DashboardPage() {
     cargar();
     return () => { cancelado = true; };
   }, [token]);
+
+  // Restaurar filtros de fecha desde localStorage
+  useEffect(() => {
+    try {
+      const fd = localStorage.getItem("filtro_fecha_desde") || "";
+      const fh = localStorage.getItem("filtro_fecha_hasta") || "";
+      if (fd || fh) {
+        setFechaDesde(fd);
+        setFechaHasta(fh);
+        _setFechasInicializadas(true);
+      }
+    } catch { /* noop */ }
+  }, []);
+
+  // Persistir filtros de fecha
+  useEffect(() => {
+    try {
+      localStorage.setItem("filtro_fecha_desde", fechaDesde);
+      localStorage.setItem("filtro_fecha_hasta", fechaHasta);
+    } catch { /* noop */ }
+  }, [fechaDesde, fechaHasta]);
   // Agrupación (se declara después de calcular las listas filtradas)
   const agrupadas = useMemo(() => {
     const grupos: Record<string, { key: string; boletas: Boleta[]; groupType: string; facturado: boolean }> = {};
@@ -664,6 +734,34 @@ export default function DashboardPage() {
 
           {/* Segunda fila de filtros */}
           <div className="flex flex-col md:flex-row gap-4 md:items-end">
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-gray-600">Rango:</span>
+              <button
+                type="button"
+                className="px-2 py-1 text-xs rounded border hover:bg-gray-50"
+                onClick={() => {
+                  const today = new Date().toISOString().split('T')[0];
+                  setFechaDesde(today); setFechaHasta(today); _setFechasInicializadas(true);
+                }}
+                title="Hoy"
+              >Hoy</button>
+              <button
+                type="button"
+                className="px-2 py-1 text-xs rounded border hover:bg-gray-50"
+                onClick={() => {
+                  const d = new Date(); d.setDate(d.getDate() - 1);
+                  const y = d.toISOString().split('T')[0];
+                  setFechaDesde(y); setFechaHasta(y); _setFechasInicializadas(true);
+                }}
+                title="Ayer"
+              >Ayer</button>
+              <button
+                type="button"
+                className="px-2 py-1 text-xs rounded border hover:bg-gray-50"
+                onClick={() => { setFechaDesde(""); setFechaHasta(""); }}
+                title="Limpiar fecha"
+              >Borrar</button>
+            </div>
             <div className="flex-1">
               <label className="block text-sm text-gray-600 mb-1">Búsqueda general</label>
               <input
@@ -685,11 +783,7 @@ export default function DashboardPage() {
                 setFiltroFacturadas("");
                 setFiltroNoFacturadas("");
                 // Solo actualizar fechas si ya están inicializadas
-                if (fechasInicializadas) {
-                  const today = new Date().toISOString().split('T')[0];
-                  setFechaDesde(today);
-                  setFechaHasta(today);
-                }
+                setFechaDesde(""); setFechaHasta("");
                 setSoloFacturables(true);
               }}
             >
@@ -774,7 +868,7 @@ export default function DashboardPage() {
           {/* Modal de detalle de grupo */}
           {modalOpen && modalGroup && (
             <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center" onClick={() => setModalOpen(false)}>
-              <div className="bg-white rounded-lg shadow-lg max-w-4xl w-full p-6 relative" onClick={e => e.stopPropagation()}>
+              <div className="bg-white rounded-lg shadow-lg max-w-4xl w-full p-4 md:p-6 relative" onClick={e => e.stopPropagation()}>
                 <button className="absolute top-2 right-2 text-gray-500 hover:text-red-600 text-xl" onClick={() => setModalOpen(false)}>&times;</button>
                 <div className="mb-4">
                   <div className="font-bold text-blue-700 text-lg">{modalGroup.groupType}</div>
@@ -783,10 +877,85 @@ export default function DashboardPage() {
                     <span className={`px-3 py-1 rounded text-xs font-semibold ${modalGroup.facturado ? "bg-green-100 text-green-800" : "bg-red-100 text-red-800"}`}>{modalGroup.facturado ? "Facturado" : "No facturado"}</span>
                   </div>
                 </div>
+                {/* Barra de acciones rápidas */}
+                <div className="flex flex-col md:flex-row md:items-end gap-2 md:gap-4 mb-3">
+                  <div className="flex-1">
+                    <label className="block text-xs text-gray-600 mb-1">Buscar en el grupo</label>
+                    <input
+                      className="w-full border rounded px-2 py-1 text-sm"
+                      placeholder="Cliente, CUIT/DNI, repartidor, medio..."
+                      value={modalSearch}
+                      onChange={(e) => setModalSearch(e.target.value)}
+                    />
+                  </div>
+                  <label className="inline-flex items-center gap-2 text-sm">
+                    <input type="checkbox" checked={modalSoloFacturables} onChange={(e) => setModalSoloFacturables(e.target.checked)} />
+                    <span>Solo facturables</span>
+                  </label>
+                  <div className="flex gap-2">
+                    <button
+                      className="px-3 py-1.5 rounded bg-gray-200 hover:bg-gray-300 text-sm"
+                      onClick={() => {
+                        // Seleccionar visibles facturables
+                        const visibles = (modalGroup?.boletas || []).filter((b) => {
+                          const txt = modalSearch.toLowerCase();
+                          const v = (k: string) => String((b as Record<string, unknown>)[k] ?? "").toLowerCase();
+                          const coincide = !txt || ["cliente","nombre","Razon Social","cuit","CUIT","dni","Repartidor","repartidor","Tipo Pago","tipo_pago","Nro Comprobante"].some((k)=> v(k).includes(txt));
+                          return coincide && (!modalSoloFacturables || isFacturable(b));
+                        });
+                        const ids = new Set(visibles.map((b) => getId(b)));
+                        setSeleccionadas(ids);
+                      }}
+                      title="Seleccionar todas las visibles"
+                    >Seleccionar visibles</button>
+                    <button
+                      className="px-3 py-1.5 rounded bg-gray-200 hover:bg-gray-300 text-sm"
+                      onClick={() => setSeleccionadas(new Set())}
+                    >Limpiar selección</button>
+                    <button
+                      className="px-3 py-1.5 rounded bg-blue-600 text-white hover:bg-blue-700 text-sm"
+                      onClick={async () => {
+                        const seleccion = (modalGroup?.boletas || []).filter((b) => seleccionadas.has(getId(b)) && isFacturable(b));
+                        if (seleccion.length === 0) return toast.warning("No hay boletas seleccionadas facturables");
+                        try {
+                          if (!token) { toast.error('No autenticado'); return; }
+                          const invoices = seleccion.map((b) => ({
+                            id: getId(b),
+                            total: parseMonto(b.total ?? b["INGRESOS"] ?? b["Total"] ?? b["TOTAL"] ?? 0),
+                            cliente_data: {
+                              cuit_o_dni: String((b as Record<string, unknown>)["cuit"] || (b as Record<string, unknown>)["CUIT"] || (b as Record<string, unknown>)["dni"] || ""),
+                              nombre_razon_social: String((b as Record<string, unknown>)["cliente"] || (b as Record<string, unknown>)["nombre"] || (b as Record<string, unknown>)["Razon Social"] || ""),
+                              domicilio: String((b as Record<string, unknown>)["Domicilio"] || ""),
+                              condicion_iva: String((b as Record<string, unknown>)["condicion_iva"] || (b as Record<string, unknown>)["condicion-iva"] || "CONSUMIDOR_FINAL"),
+                            },
+                          }));
+                          const res = await fetch(`/api/facturador/facturar-por-cantidad?max_parallel_workers=5`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+                            body: JSON.stringify(invoices),
+                          });
+                          const dataText = await res.text();
+                          const isJson = dataText.trim().startsWith("{") || dataText.trim().startsWith("[");
+                          const data: unknown = isJson ? JSON.parse(dataText) : dataText;
+                          if (!res.ok) {
+                            const detail = typeof data === 'object' && data && !Array.isArray(data) ? (data as { detail?: string }).detail : undefined;
+                            toast.error(String(detail || 'Error al facturar seleccionadas'));
+                            return;
+                          }
+                          const okCount = Array.isArray(data) ? data.filter((r) => (r as { ok?: boolean }).ok !== false).length : seleccion.length;
+                          toast.success(`Lote procesado`, `Éxitos: ${okCount} / ${seleccion.length}`);
+                          window.location.reload();
+                        } catch {
+                          toast.error('Error de conexión al facturar seleccionadas');
+                        }
+                      }}
+                    >Facturar seleccionadas</button>
+                  </div>
+                </div>
                 {/* ----- INICIO DEL CAMBIO EN LA TABLA ----- */}
                 <div className="overflow-auto max-h-[60vh]">
                   <table className="w-full text-xs">
-                    <thead className="bg-blue-50">
+                    <thead className="bg-blue-50 sticky top-0 z-10">
                       <tr>
                         <th className="p-1">Sel</th>
                         {/* Iterar sobre el array de columnas visibles */}
@@ -796,7 +965,14 @@ export default function DashboardPage() {
                       </tr>
                     </thead>
                     <tbody>
-                      {modalGroup.boletas.map((b) => {
+                      {(modalGroup.boletas
+                        .filter((b) => {
+                          const txt = modalSearch.toLowerCase();
+                          const v = (k: string) => String((b as Record<string, unknown>)[k] ?? "").toLowerCase();
+                          const coincide = !txt || ["cliente","nombre","Razon Social","cuit","CUIT","dni","Repartidor","repartidor","Tipo Pago","tipo_pago","Nro Comprobante"].some((k)=> v(k).includes(txt));
+                          return coincide && (!modalSoloFacturables || isFacturable(b));
+                        }))
+                        .map((b) => {
                         const id = getId(b);
                         const fact = isFacturable(b);
                         return (

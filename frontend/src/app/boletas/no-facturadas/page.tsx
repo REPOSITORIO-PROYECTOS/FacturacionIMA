@@ -35,6 +35,8 @@ export default function BoletasNoFacturadasPage() {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
     const [search, setSearch] = useState('');
+    const [fechaDesde, setFechaDesde] = useState<string>('');
+    const [fechaHasta, setFechaHasta] = useState<string>('');
     useEffect(() => {
         let cancel = false;
         async function load() {
@@ -52,8 +54,49 @@ export default function BoletasNoFacturadasPage() {
         return () => { cancel = true; };
     }, []);
 
+    // Restaurar/persistir fechas
+    useEffect(() => {
+        try {
+            const fd = localStorage.getItem('no_facturadas_fecha_desde') || '';
+            const fh = localStorage.getItem('no_facturadas_fecha_hasta') || '';
+            if (fd || fh) { setFechaDesde(fd); setFechaHasta(fh); }
+        } catch { /* noop */ }
+    }, []);
+    useEffect(() => {
+        try {
+            localStorage.setItem('no_facturadas_fecha_desde', fechaDesde);
+            localStorage.setItem('no_facturadas_fecha_hasta', fechaHasta);
+        } catch { /* noop */ }
+    }, [fechaDesde, fechaHasta]);
+
+    const normalizaFecha = (texto: string): string | null => {
+        if (!texto) return null;
+        const t = String(texto).trim();
+        const base = t.split(' ')[0].split('T')[0];
+        if (/^\d{4}-\d{2}-\d{2}$/.test(base)) return base; // YYYY-MM-DD
+        if (/^\d{2}\/\d{2}\/\d{4}$/.test(base)) {
+            const [dd, mm, yyyy] = base.split('/');
+            return `${yyyy}-${mm}-${dd}`;
+        }
+        if (/^\d{4}\/\d{2}\/\d{2}$/.test(base)) {
+            const [yyyy, mm, dd] = base.split('/');
+            return `${yyyy}-${mm}-${dd}`;
+        }
+        return null;
+    };
+
+    const itemsConFecha = items.filter((b) => {
+        if (!fechaDesde && !fechaHasta) return true;
+        const fechaRaw = String((b as Record<string, unknown>)['Fecha'] || (b as Record<string, unknown>)['fecha'] || '');
+        const f = normalizaFecha(fechaRaw);
+        if (!f) return false;
+        if (fechaDesde && f < fechaDesde) return false;
+        if (fechaHasta && f > fechaHasta) return false;
+        return true;
+    });
+
     // Filtrar items por búsqueda
-    const filteredItems = items.filter((b) => {
+    const filteredItems = itemsConFecha.filter((b) => {
         const razonSocial = (b.cliente || b.nombre || b['Razon Social'] || '').toString().toLowerCase();
         const repartidor = (b.Repartidor ?? (b as Record<string, unknown>)['repartidor'] ?? '').toString().toLowerCase();
         const searchText = search.toLowerCase();
@@ -63,7 +106,22 @@ export default function BoletasNoFacturadasPage() {
     return (
         <div className="p-4 md:p-6 space-y-4">
             <h1 className="text-xl font-bold text-purple-700">Boletas No Facturadas</h1>
-            <div className="mb-4">
+            <div className="flex flex-col gap-3 mb-4">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 max-w-3xl">
+                    <div>
+                        <label className="block text-sm text-gray-600 mb-1">Fecha desde</label>
+                        <input type="date" className="border rounded px-3 py-2 w-full" value={fechaDesde} onChange={(e) => setFechaDesde(e.target.value)} />
+                    </div>
+                    <div>
+                        <label className="block text-sm text-gray-600 mb-1">Fecha hasta</label>
+                        <input type="date" className="border rounded px-3 py-2 w-full" value={fechaHasta} onChange={(e) => setFechaHasta(e.target.value)} />
+                    </div>
+                    <div className="flex items-end gap-2">
+                        <button className="px-3 py-2 border rounded text-sm hover:bg-gray-50" onClick={() => { const t = new Date().toISOString().split('T')[0]; setFechaDesde(t); setFechaHasta(t); }}>Hoy</button>
+                        <button className="px-3 py-2 border rounded text-sm hover:bg-gray-50" onClick={() => { const d = new Date(); d.setDate(d.getDate() - 1); const y = d.toISOString().split('T')[0]; setFechaDesde(y); setFechaHasta(y); }}>Ayer</button>
+                        <button className="px-3 py-2 border rounded text-sm hover:bg-gray-50" onClick={() => { setFechaDesde(''); setFechaHasta(''); }}>Borrar</button>
+                    </div>
+                </div>
                 <input
                     type="text"
                     value={search}
