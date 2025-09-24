@@ -98,6 +98,24 @@ export default function UsuariosPage() {
       })
       .catch(() => alert("Error al desactivar usuario"));
   }
+  function handleReactivate(u: Usuario) {
+    if (!window.confirm(`¿Reactivar usuario ${u.nombre_usuario || u.nombre}?`)) return;
+    const token = localStorage.getItem("token");
+    fetch(`/api/usuarios/${u.nombre_usuario || u.nombre}`, {
+      method: "PUT",
+      headers: {
+        "Authorization": `Bearer ${token}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({ activo: true })
+    })
+      .then(res => res.ok ? res.json() : Promise.reject(res))
+      .then(() => {
+        alert("Usuario reactivado");
+        window.location.reload();
+      })
+      .catch(() => alert("Error al reactivar usuario"));
+  }
   const router = useRouter();
   type Usuario = {
     id: number | string;
@@ -105,6 +123,7 @@ export default function UsuariosPage() {
     nombre?: string;
     rol_nombre?: string;
     rol?: string;
+    activo?: boolean | number;
   };
   const [usuarios, setUsuarios] = useState<Usuario[]>([]);
   const [loading, setLoading] = useState(true);
@@ -156,6 +175,7 @@ export default function UsuariosPage() {
                 <th className="px-4 py-2 text-blue-700">ID</th>
                 <th className="px-4 py-2 text-blue-700">Nombre</th>
                 <th className="px-4 py-2 text-blue-700">Rol</th>
+                <th className="px-4 py-2 text-blue-700">Estado</th>
                 <th className="px-4 py-2 text-blue-700">Acciones</th>
               </tr>
             </thead>
@@ -165,15 +185,29 @@ export default function UsuariosPage() {
                   <td className="px-4 py-2 border-t border-blue-200">{u.id}</td>
                   <td className="px-4 py-2 border-t border-blue-200">{u.nombre_usuario || u.nombre}</td>
                   <td className="px-4 py-2 border-t border-blue-200">{u.rol_nombre || u.rol}</td>
+                  <td className="px-4 py-2 border-t border-blue-200">
+                    {(u.activo ? 1 : 0) === 1 ? (
+                      <span className="inline-block px-2 py-0.5 text-xs rounded-full bg-green-100 text-green-700">Activo</span>
+                    ) : (
+                      <span className="inline-block px-2 py-0.5 text-xs rounded-full bg-gray-200 text-gray-700">Inactivo</span>
+                    )}
+                  </td>
                   <td className="px-4 py-2 border-t border-blue-200 flex gap-2">
                     <button
                       className="bg-blue-500 text-white px-2 py-1 rounded hover:bg-blue-600 transition"
                       onClick={() => openEditModal(u)}
                     >Editar</button>
-                    <button
-                      className="bg-red-500 text-white px-2 py-1 rounded hover:bg-red-600 transition"
-                      onClick={() => handleDeactivate(u)}
-                    >Desactivar</button>
+                    {(u.activo ? 1 : 0) === 1 ? (
+                      <button
+                        className="bg-red-500 text-white px-2 py-1 rounded hover:bg-red-600 transition"
+                        onClick={() => handleDeactivate(u)}
+                      >Desactivar</button>
+                    ) : (
+                      <button
+                        className="bg-green-600 text-white px-2 py-1 rounded hover:bg-green-700 transition"
+                        onClick={() => handleReactivate(u)}
+                      >Reactivar</button>
+                    )}
                   </td>
                 </tr>
               ))}
