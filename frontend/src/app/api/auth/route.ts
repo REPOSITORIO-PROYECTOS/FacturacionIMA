@@ -39,6 +39,17 @@ export async function POST(request: Request): Promise<Response> {
       let data: unknown = { detail: text };
       try { data = JSON.parse(text); } catch { /* silent */ }
 
+      // Si el backend devolvió HTML (por ejemplo el front-end por error), detectarlo y fallar rápido
+      const preview = (typeof text === 'string' ? text.trim().slice(0, 2000) : '');
+      const looksLikeHtml = typeof preview === 'string' && (preview.startsWith('<!DOCTYPE') || /<html[\s>]/i.test(preview));
+      if (looksLikeHtml) {
+        // Si el primario responde HTML (p. ej. devuelve la app en lugar de la API),
+        // registrar y continuar para intentar el siguiente endpoint (fallback local).
+        console.error(`[api/auth] respuesta inesperada (HTML) desde ${endpoint}. status=${response.status}. preview=${preview.slice(0,200)}`);
+        // intentar siguiente candidato en la lista en lugar de devolver 502
+        continue;
+      }
+
       // Normalizar `detail` si viene como array de errores (pydantic)
       const normalizeDetail = (d: unknown) => {
         if (d === null || d === undefined) return '';

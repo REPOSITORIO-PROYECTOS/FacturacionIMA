@@ -3,6 +3,7 @@ import type { Metadata } from "next";
 import { clsx } from "clsx"; // Utilidad para clases
 import { geistMono, geistSans } from "./lib/fonts"; // Centralizamos las fuentes
 import NavbarVisible from "./components/NavbarVisible";
+import MainContent from "./components/MainContent";
 import React from 'react';
 import "./globals.css";
 
@@ -27,7 +28,7 @@ export default function RootLayout({ children }: RootLayoutProps) {
       <body className={clsx(geistSans.variable, geistMono.variable, "antialiased")}>
         <div className="flex min-h-screen">
           <NavbarVisible />
-          <main className="flex-1 bg-white md:ml-64 transition-all duration-200 text-black">{children}</main>
+          <MainContent>{children}</MainContent>
         </div>
       </body>
     </html>
