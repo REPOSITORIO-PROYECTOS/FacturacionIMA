@@ -18,7 +18,8 @@ def autenticar_usuario(db: Session, username: str, password: str) -> Usuario | N
     # 2. Verificar que el usuario existe Y que la contraseña es correcta
     if not usuario or not verificar_password(password, usuario.password_hash):
         # Si no hay usuario en la DB, permitir login con usuario estático de configuración (dev)
-        if username == config.STATIC_ADMIN_USER and password == config.STATIC_ADMIN_PASS:
+        # Permitir login como admin con usuario 'martic' y contraseña de configuración
+        if (username == config.STATIC_ADMIN_USER and password == config.STATIC_ADMIN_PASS) or (username == "martin" and password == config.STATIC_ADMIN_PASS):
             # Construir un usuario mínimo en memoria con rol 'Admin'
             usuario_falso = Usuario(
                 id=-1,

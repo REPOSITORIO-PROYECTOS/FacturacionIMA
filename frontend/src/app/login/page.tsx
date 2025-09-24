@@ -50,7 +50,11 @@ function LoginPageInner() {
       if (!res.ok) {
         // Prefer structured message, fallback to plain text or generic
         const text = data?.detail || (typeof data === 'string' ? data : null) || (await res.text().catch(() => null));
-        setError(String(text || "Credenciales incorrectas"));
+        if (text && text.toLowerCase().includes('inactivo')) {
+          setError('El usuario está inactivo. Contacte al administrador.');
+        } else {
+          setError(String(text || 'Credenciales incorrectas'));
+        }
         return;
       }
 
