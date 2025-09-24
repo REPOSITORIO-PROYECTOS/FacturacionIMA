@@ -900,7 +900,7 @@ export default function DashboardPage() {
                         const visibles = (modalGroup?.boletas || []).filter((b) => {
                           const txt = modalSearch.toLowerCase();
                           const v = (k: string) => String((b as Record<string, unknown>)[k] ?? "").toLowerCase();
-                          const coincide = !txt || ["cliente","nombre","Razon Social","cuit","CUIT","dni","Repartidor","repartidor","Tipo Pago","tipo_pago","Nro Comprobante"].some((k)=> v(k).includes(txt));
+                          const coincide = !txt || ["cliente", "nombre", "Razon Social", "cuit", "CUIT", "dni", "Repartidor", "repartidor", "Tipo Pago", "tipo_pago", "Nro Comprobante"].some((k) => v(k).includes(txt));
                           return coincide && (!modalSoloFacturables || isFacturable(b));
                         });
                         const ids = new Set(visibles.map((b) => getId(b)));
@@ -969,67 +969,67 @@ export default function DashboardPage() {
                         .filter((b) => {
                           const txt = modalSearch.toLowerCase();
                           const v = (k: string) => String((b as Record<string, unknown>)[k] ?? "").toLowerCase();
-                          const coincide = !txt || ["cliente","nombre","Razon Social","cuit","CUIT","dni","Repartidor","repartidor","Tipo Pago","tipo_pago","Nro Comprobante"].some((k)=> v(k).includes(txt));
+                          const coincide = !txt || ["cliente", "nombre", "Razon Social", "cuit", "CUIT", "dni", "Repartidor", "repartidor", "Tipo Pago", "tipo_pago", "Nro Comprobante"].some((k) => v(k).includes(txt));
                           return coincide && (!modalSoloFacturables || isFacturable(b));
                         }))
                         .map((b) => {
-                        const id = getId(b);
-                        const fact = isFacturable(b);
-                        return (
-                          <tr key={id} className="border-t">
-                            <td className="p-1">
-                              <input
-                                aria-label="Seleccionar boleta"
-                                title="Seleccionar boleta"
-                                type="checkbox"
-                                disabled={!fact}
-                                checked={seleccionadas.has(id)}
-                                onChange={(e) => {
-                                  setSeleccionadas((prev) => {
-                                    const next = new Set(prev);
-                                    if (e.target.checked) next.add(id); else next.delete(id);
-                                    return next;
-                                  });
-                                }}
-                              />
-                            </td>
-                            {/* Iterar sobre las columnas visibles para mostrar los datos */}
-                            {columnasVisibles.map((col) => {
-                              const lower = String(col).toLowerCase();
-                              // Mantener el formato para montos
-                              if (["ingresos", "total a pagar"].includes(lower)) {
-                                const val = b[col] as string | number | undefined;
-                                return <td key={col} className="p-1">{formatSinCentavos(val)}</td>;
-                              }
-                              // Mostrar el resto como texto
-                              return <td key={col} className="p-1">{String(b[col] ?? "")}</td>;
-                            })}
-                            <td className="p-1">
-                              <span
-                                className={`px-2 py-1 rounded-full text-xs font-medium ${fact ? "bg-green-100 text-green-800" : "bg-red-100 text-red-800"}`}
-                                title={fact ? "Cumple condiciones para facturar" : motivoNoFacturable(b)}
-                              >
-                                {fact ? "✓ Facturable" : "✗ No facturable"}
-                              </span>
-                            </td>
-                            <td className="p-1 flex gap-1">
-                              <button
-                                className={`px-2 py-1 rounded-lg text-xs transition-colors ${fact ? "bg-blue-600 hover:bg-blue-700 text-white" : "bg-gray-300 text-gray-600 cursor-not-allowed"}`}
-                                disabled={!fact}
-                                onClick={() => facturarBoleta(b)}
-                              >Facturar</button>
-                              <button
-                                className="px-2 py-1 rounded-lg text-xs bg-gray-200 hover:bg-gray-300 text-gray-800"
-                                onClick={() => setBoletaDetalle(b)}
-                              >Ver boleta</button>
-                              <button
-                                className="px-2 py-1 rounded-lg text-xs bg-green-600 hover:bg-green-700 text-white"
-                                onClick={() => imprimirBoleta(b)}
-                              >Imprimir boleta</button>
-                            </td>
-                          </tr>
-                        );
-                      })}
+                          const id = getId(b);
+                          const fact = isFacturable(b);
+                          return (
+                            <tr key={id} className="border-t">
+                              <td className="p-1">
+                                <input
+                                  aria-label="Seleccionar boleta"
+                                  title="Seleccionar boleta"
+                                  type="checkbox"
+                                  disabled={!fact}
+                                  checked={seleccionadas.has(id)}
+                                  onChange={(e) => {
+                                    setSeleccionadas((prev) => {
+                                      const next = new Set(prev);
+                                      if (e.target.checked) next.add(id); else next.delete(id);
+                                      return next;
+                                    });
+                                  }}
+                                />
+                              </td>
+                              {/* Iterar sobre las columnas visibles para mostrar los datos */}
+                              {columnasVisibles.map((col) => {
+                                const lower = String(col).toLowerCase();
+                                // Mantener el formato para montos
+                                if (["ingresos", "total a pagar"].includes(lower)) {
+                                  const val = b[col] as string | number | undefined;
+                                  return <td key={col} className="p-1">{formatSinCentavos(val)}</td>;
+                                }
+                                // Mostrar el resto como texto
+                                return <td key={col} className="p-1">{String(b[col] ?? "")}</td>;
+                              })}
+                              <td className="p-1">
+                                <span
+                                  className={`px-2 py-1 rounded-full text-xs font-medium ${fact ? "bg-green-100 text-green-800" : "bg-red-100 text-red-800"}`}
+                                  title={fact ? "Cumple condiciones para facturar" : motivoNoFacturable(b)}
+                                >
+                                  {fact ? "✓ Facturable" : "✗ No facturable"}
+                                </span>
+                              </td>
+                              <td className="p-1 flex gap-1">
+                                <button
+                                  className={`px-2 py-1 rounded-lg text-xs transition-colors ${fact ? "bg-blue-600 hover:bg-blue-700 text-white" : "bg-gray-300 text-gray-600 cursor-not-allowed"}`}
+                                  disabled={!fact}
+                                  onClick={() => facturarBoleta(b)}
+                                >Facturar</button>
+                                <button
+                                  className="px-2 py-1 rounded-lg text-xs bg-gray-200 hover:bg-gray-300 text-gray-800"
+                                  onClick={() => setBoletaDetalle(b)}
+                                >Ver boleta</button>
+                                <button
+                                  className="px-2 py-1 rounded-lg text-xs bg-green-600 hover:bg-green-700 text-white"
+                                  onClick={() => imprimirBoleta(b)}
+                                >Imprimir boleta</button>
+                              </td>
+                            </tr>
+                          );
+                        })}
                     </tbody>
                   </table>
                 </div>
