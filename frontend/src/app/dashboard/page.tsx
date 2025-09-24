@@ -19,6 +19,7 @@ type Boleta = Record<string, string | number | boolean | undefined> & {
 };
 
 export default function DashboardPage() {
+
   // Estados primero
   const [modalOpen, setModalOpen] = useState(false);
   const [modalGroup, setModalGroup] = useState<{ key: string; boletas: Boleta[]; groupType: string; facturado: boolean } | null>(null);
@@ -28,11 +29,7 @@ export default function DashboardPage() {
   const [soloFacturables, setSoloFacturables] = useState<boolean>(true);
   const [busqueda, setBusqueda] = useState<string>("");
   const [seleccionadas, setSeleccionadas] = useState<Set<string>>(new Set());
-  // ...existing code...
-  // Eliminado: error no usado
   const [tipoBoleta, setTipoBoleta] = useState<'todas' | 'no-facturadas' | 'facturadas'>('no-facturadas');
-
-  // Nuevos filtros - Inicializar con valor fijo para evitar errores de hidratación
   const [fechaDesde, setFechaDesde] = useState("");
   const [fechaHasta, setFechaHasta] = useState("");
   const [fechasInicializadas, setFechasInicializadas] = useState(false);
@@ -45,11 +42,27 @@ export default function DashboardPage() {
     'Mercado Pago',
     'Otro'
   ]);
-  // Eliminado: loading no usado
-
-  // Filtros para listas de resumen
   const [filtroFacturadas, setFiltroFacturadas] = useState("");
   const [filtroNoFacturadas, setFiltroNoFacturadas] = useState("");
+
+  // --- AUTH ---
+  // Recuperar user_info y token del localStorage
+  const [userInfo, setUserInfo] = useState<{ username: string; role: string } | null>(null);
+  const [token, setToken] = useState<string | null>(null);
+
+  useEffect(() => {
+    // Leer token y user_info del localStorage
+    const t = localStorage.getItem("token");
+    const info = localStorage.getItem("user_info");
+    setToken(t);
+    if (info) {
+      try {
+        setUserInfo(JSON.parse(info));
+      } catch {
+        setUserInfo(null);
+      }
+    }
+  }, []);
 
   // Funciones utilitarias
   const parseMonto = (monto: string | number | undefined): number => {
@@ -141,27 +154,16 @@ export default function DashboardPage() {
     let cancelled = false;
     async function load() {
       // Eliminado: setLoading y setError no usados
-      const token = localStorage.getItem("token");
-      if (!token) {
-        // Eliminado: setError y setLoading no usados
-        return;
-      }
-      // Construir endpoint unificado
+      if (!token) return;
       const params = new URLSearchParams({ tipo: tipoBoleta, skip: '0', limit: '200' });
       const endpoint = `/api/boletas?${params.toString()}`;
       try {
         const res = await fetch(endpoint, { headers: { Authorization: `Bearer ${token}` } });
-        if (!res.ok) {
-          // Eliminado: setError no usado
-        } else {
+        if (res.ok) {
           const data = await res.json().catch(() => []);
           if (!cancelled && Array.isArray(data)) setBoletas(data);
         }
-      } catch {
-        // Eliminado: setError no usado
-      } finally {
-        // Eliminado: setLoading no usado
-      }
+      } catch { }
     }
     load();
     return () => { cancelled = true; };
@@ -171,7 +173,6 @@ export default function DashboardPage() {
   useEffect(() => {
     let cancel = false;
     async function cargarResumen(tipo: 'facturadas' | 'no-facturadas') {
-      const token = localStorage.getItem('token');
       if (!token) return;
       try {
         const res = await fetch(`/api/boletas?tipo=${tipo}&skip=0&limit=50`, { headers: { Authorization: `Bearer ${token}` } });
@@ -213,7 +214,6 @@ export default function DashboardPage() {
   const porcentajeFacturadas = totalGlobal === 0 ? 0 : Math.round((totalFacturadas / totalGlobal) * 100);
 
   async function facturarBoleta(b: Boleta) {
-    const token = localStorage.getItem("token");
     if (!token) return alert("No autenticado");
     if (!isFacturable(b)) return alert("Esta boleta no es facturable (faltan datos o total)");
 
@@ -278,8 +278,10 @@ export default function DashboardPage() {
         <header className="bg-white border-b p-4 flex justify-between items-center">
           <h1 className="text-xl font-bold text-blue-700">Dashboard</h1>
           <div className="flex items-center gap-3 text-sm">
-            <Link className="text-blue-600" href="/usuarios">Ir a Usuarios</Link>
-            <Link className="text-blue-600" href="/perfil">Perfil</Link>
+            {/* Mostrar solo si el usuario es admin */}
+            {userInfo?.role === "Admin" && (
+              <Link className="text-blue-600" href="/usuarios">Ir a Usuarios</Link>
+            )}
           </div>
         </header>
 
