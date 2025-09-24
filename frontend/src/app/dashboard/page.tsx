@@ -4,8 +4,11 @@ import Link from "next/link";
 import type { Boleta } from "@/types/boleta";
 import { MediosPagoResumen } from "@/components/dashboard/MediosPagoResumen";
 import { BoletaDetalleModal } from "@/components/dashboard/BoletaDetalleModal";
+import { useToast } from "../components/ToastProvider";
+import { LoadingSpinner } from "../components/LoadingSpinner";
 
 export default function DashboardPage() {
+  const toast = useToast();
   // Estados y funciones
   // Estados de detalle (no usados actualmente)
   const [mediosPago] = useState([
@@ -40,8 +43,9 @@ export default function DashboardPage() {
     return () => window.removeEventListener("storage", syncAuth);
   }, []);
 
-  const parseMonto = (monto: string | number | undefined): number => {
+  const parseMonto = (monto: string | number | boolean | undefined): number => {
     if (typeof monto === "number") return monto;
+    if (typeof monto === "boolean") return 0;
     if (!monto || typeof monto !== "string") return 0;
     const numeroLimpio = monto.replace(/\$|\s/g, "").replace(/\./g, "").replace(",", ".");
     return parseFloat(numeroLimpio) || 0;
@@ -56,19 +60,39 @@ export default function DashboardPage() {
   const getId = (b: Boleta) => String(b["id"] ?? b["ID Ingresos"] ?? b["ID Ingreso"] ?? b["ID"] ?? "");
 
   const isFacturable = useCallback((b: Boleta) => {
-    const total = parseMonto(b.total ?? b["INGRESOS"] ?? 0);
-    const nombre = b.cliente || b.nombre || b["Razon Social"];
-    const ident = b.cuit || b.CUIT || b.dni;
+    // Considerar diferentes nombres de campos
+    const total = parseMonto(b.total ?? b["INGRESOS"] ?? b["Total"] ?? b["TOTAL"] ?? 0);
+    const nombre = b.cliente || b.nombre || b["Razon Social"] || b["razon_social"];
+    const ident = b.cuit || b.CUIT || b.dni || b["DNI"];
     return total > 0 && Boolean(nombre) && Boolean(ident);
   }, []);
 
+  const motivoNoFacturable = useCallback((b: Boleta): string => {
+    const motivos: string[] = [];
+    const total = parseMonto(b.total ?? b["INGRESOS"] ?? b["Total"] ?? b["TOTAL"] ?? 0);
+    if (!(total > 0)) motivos.push("Total <= 0");
+    const nombre = b.cliente || b.nombre || b["Razon Social"] || b["razon_social"];
+    if (!nombre) motivos.push("Falta nombre/razón social");
+    const ident = b.cuit || b.CUIT || b.dni || b["DNI"];
+    if (!ident) motivos.push("Falta CUIT/DNI");
+    return motivos.join(" · ");
+  }, []);
+
   const imprimirBoleta = (boleta: Boleta) => {
-    alert(`Imprimir boleta: ${getId(boleta)}`);
+    toast.info("Imprimir boleta", `Boleta ${getId(boleta)}`);
   };
 
   async function facturarBoleta(b: Boleta, medioOverride?: string) {
-    if (!token) return alert("No autenticado");
-    if (!isFacturable(b)) return alert("Esta boleta no es facturable (faltan datos o total)");
+    if (!token) return toast.error("No autenticado");
+    if (!isFacturable(b)) {
+      const nombre = b.cliente || b.nombre || b["Razon Social"] || b["razon_social"];
+      if (!nombre) {
+        toast.warning("Registrar razón social", "La boleta no tiene nombre/razón social. Cárguelo para poder facturar.");
+      } else {
+        toast.warning("Boleta no facturable", "Faltan datos o total <= 0");
+      }
+      return;
+    }
 
     // Seleccionar medio de pago
     let medio = medioOverride;
@@ -82,7 +106,7 @@ export default function DashboardPage() {
       if (!medioSeleccionado) return;
       const indice = parseInt(medioSeleccionado) - 1;
       if (indice < 0 || indice >= mediosPago.length) {
-        alert('Opción inválida');
+        toast.error('Opción inválida');
         return;
       }
       medio = mediosPago[indice];
@@ -105,10 +129,10 @@ export default function DashboardPage() {
         body: JSON.stringify(payload),
       });
       const data = await res.json().catch(() => ({}));
-      if (res.ok) alert(`Facturación exitosa con ${medio}`);
-      else alert(String(data?.detail || "Error al facturar"));
+      if (res.ok) toast.success(`Facturación exitosa`, `Medio: ${medio}`);
+      else toast.error(String(data?.detail || "Error al facturar"));
     } catch {
-      alert("Error de conexión al facturar");
+      toast.error("Error de conexión al facturar");
     }
   }
 
@@ -146,6 +170,7 @@ export default function DashboardPage() {
   const [filtroNoFacturadas, setFiltroNoFacturadas] = useState("");
   const [boletasFacturadas, _setBoletasFacturadas] = useState<Boleta[]>([]);
   const [boletasNoFacturadas, _setBoletasNoFacturadas] = useState<Boleta[]>([]);
+  const [cargando, setCargando] = useState(false);
   // Modal de detalle de boleta
   const [boletaDetalle, setBoletaDetalle] = useState<Boleta | null>(null);
 
@@ -231,6 +256,7 @@ export default function DashboardPage() {
     const headers = { Authorization: `Bearer ${token}` } as Record<string, string>;
     const cargar = async () => {
       try {
+        setCargando(true);
         const [nfRes, fRes] = await Promise.all([
           fetch(`/api/boletas?tipo=no-facturadas&limit=200`, { headers }),
           fetch(`/api/boletas?tipo=facturadas&limit=200`, { headers })
@@ -247,6 +273,8 @@ export default function DashboardPage() {
         _setBoletasFacturadas(arrF as Boleta[]);
       } catch {
         // Silencio: la tarjeta ya avisa si no hay data
+      } finally {
+        if (!cancelado) setCargando(false);
       }
     };
     cargar();
@@ -294,6 +322,11 @@ export default function DashboardPage() {
         </header>
 
         <main className="p-4 md:p-6 space-y-6">
+          {cargando && (
+            <div className="fixed inset-0 bg-white/60 backdrop-blur-sm z-40 flex items-center justify-center">
+              <LoadingSpinner label="Cargando boletas…" />
+            </div>
+          )}
           {/* KPIs */}
           <div className="grid gap-4 grid-cols-1 md:grid-cols-4">
             <div className="p-4 rounded border bg-white">
@@ -369,7 +402,11 @@ export default function DashboardPage() {
                     const total = b['total'] || b['INGRESOS'] || '';
                     return (
                       <tr key={id} className="border-t">
-                        <td className="p-1 truncate max-w-[180px]">{String(razonSocial)}</td>
+                        <td className="p-1 truncate max-w-[180px]">
+                          <button className="text-blue-700 hover:underline" onClick={() => setBoletaDetalle(b)} title="Ver boleta">
+                            {String(razonSocial)}
+                          </button>
+                        </td>
                         <td className="p-1">{String(total)}</td>
                       </tr>
                     );
@@ -415,7 +452,20 @@ export default function DashboardPage() {
                     const total = b['total'] || b['INGRESOS'] || '';
                     return (
                       <tr key={id} className="border-t">
-                        <td className="p-1 truncate max-w-[180px]">{String(razonSocial)}</td>
+                        <td className="p-1 truncate max-w-[180px]">
+                          <div className="flex items-center gap-2">
+                            <button className="text-blue-700 hover:underline" onClick={() => setBoletaDetalle(b)} title="Ver boleta">
+                              {String(razonSocial || '— Sin razón social —')}
+                            </button>
+                            {isFacturable(b) ? (
+                              <button className="text-xs bg-blue-600 text-white rounded px-2 py-0.5 hover:bg-blue-700" onClick={() => facturarBoleta(b)} title="Facturar">
+                                Facturar
+                              </button>
+                            ) : (
+                              <span className="text-[10px] px-1.5 py-0.5 rounded bg-gray-200 text-gray-600" title="No facturable">No facturable</span>
+                            )}
+                          </div>
+                        </td>
                         <td className="p-1">{String(total)}</td>
                       </tr>
                     );
@@ -535,11 +585,11 @@ export default function DashboardPage() {
                         className="px-3 py-1 rounded text-xs font-semibold bg-blue-600 text-white hover:bg-blue-700"
                         onClick={() => {
                           const seleccion = grupo.boletas.filter(isFacturable);
-                          if (seleccion.length === 0) return alert("No hay boletas facturables en el grupo");
+                          if (seleccion.length === 0) return toast.warning("No hay boletas facturables en el grupo");
                           // Construir payload de facturación por cantidad
                           const invoices = seleccion.map((b) => ({
                             id: getId(b),
-                            total: Number(b.total ?? b["INGRESOS"] ?? 0),
+                            total: parseMonto(b.total ?? b["INGRESOS"] ?? b["Total"] ?? b["TOTAL"] ?? 0),
                             cliente_data: {
                               cuit_o_dni: String(b.cuit || b.CUIT || b.dni || ""),
                               nombre_razon_social: String(b.cliente || b.nombre || b["Razon Social"] || ""),
@@ -549,7 +599,7 @@ export default function DashboardPage() {
                           }));
                           (async () => {
                             try {
-                              if (!token) { alert('No autenticado'); return; }
+                              if (!token) { toast.error('No autenticado'); return; }
                               const res = await fetch(`/api/facturador/facturar-por-cantidad?max_parallel_workers=5`, {
                                 method: 'POST',
                                 headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
@@ -561,16 +611,16 @@ export default function DashboardPage() {
                               const data: unknown = isJson ? JSON.parse(dataText) : dataText;
                               if (!res.ok) {
                                 const detail = typeof data === 'object' && data && !Array.isArray(data) ? (data as { detail?: string }).detail : undefined;
-                                alert(String(detail || 'Error al facturar en lote'));
+                                toast.error(String(detail || 'Error al facturar en lote'));
                                 return;
                               }
                               // Mostrar resumen simple
                               const okCount = Array.isArray(data) ? data.filter((r) => (r as { ok?: boolean }).ok !== false).length : 0;
-                              alert(`Lote procesado. Éxitos: ${okCount} / ${seleccion.length}`);
+                              toast.success(`Lote procesado`, `Éxitos: ${okCount} / ${seleccion.length}`);
                               // Refrescar datos
                               window.location.reload();
                             } catch {
-                              alert('Error de conexión al facturar en lote');
+                              toast.error('Error de conexión al facturar en lote');
                             }
                           })();
                         }}
@@ -648,7 +698,12 @@ export default function DashboardPage() {
                               return <td key={col} className="p-1">{String(b[col] ?? "")}</td>;
                             })}
                             <td className="p-1">
-                              <span className={`px-2 py-1 rounded-full text-xs font-medium ${fact ? "bg-green-100 text-green-800" : "bg-red-100 text-red-800"}`}>{fact ? "✓ Facturable" : "✗ No facturable"}</span>
+                              <span
+                                className={`px-2 py-1 rounded-full text-xs font-medium ${fact ? "bg-green-100 text-green-800" : "bg-red-100 text-red-800"}`}
+                                title={fact ? "Cumple condiciones para facturar" : motivoNoFacturable(b)}
+                              >
+                                {fact ? "✓ Facturable" : "✗ No facturable"}
+                              </span>
                             </td>
                             <td className="p-1 flex gap-1">
                               <button

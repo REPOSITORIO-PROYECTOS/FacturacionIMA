@@ -6,6 +6,7 @@ import NavbarVisible from "./components/NavbarVisible";
 import MainContent from "./components/MainContent";
 import React from 'react';
 import "./globals.css";
+import { ToastProvider } from "./components/ToastProvider";
 
 // 2. Metadatos significativos y específicos del proyecto
 export const metadata: Metadata = {
@@ -26,10 +27,12 @@ export default function RootLayout({ children }: RootLayoutProps) {
         <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1" />
       </head>
       <body className={clsx(geistSans.variable, geistMono.variable, "antialiased")}>
-        <div className="flex min-h-screen">
-          <NavbarVisible />
-          <MainContent>{children}</MainContent>
-        </div>
+        <ToastProvider>
+          <div className="flex min-h-screen">
+            <NavbarVisible />
+            <MainContent>{children}</MainContent>
+          </div>
+        </ToastProvider>
       </body>
     </html>
   );

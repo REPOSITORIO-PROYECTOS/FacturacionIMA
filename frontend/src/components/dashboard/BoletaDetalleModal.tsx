@@ -24,6 +24,18 @@ export function BoletaDetalleModal({
     const tipoPago = (boleta["Tipo Pago"] as string) || (boleta["tipo_pago"] as string) || "";
     const nroComp = (boleta["Nro Comprobante"] as string) || (boleta["nro_comprobante"] as string) || "";
     const estado = (boleta["Estado"] as string) || (boleta["estado"] as string) || (nroComp ? "Facturado" : "No facturado");
+    const repartidor = (boleta["Repartidor"] as string) || (boleta["repartidor"] as string) || (boleta["Nombre de Repartidor"] as string) || (boleta["nombre_repartidor"] as string) || "";
+    const registradoPor = (boleta["Registrado por"] as string)
+        || (boleta["Registrado Por"] as string)
+        || (boleta["registrado por"] as string)
+        || (boleta["registrado_por"] as string)
+        || (boleta["Usuario"] as string)
+        || (boleta["usuario"] as string)
+        || (boleta["Operador"] as string)
+        || (boleta["operador"] as string)
+        || (boleta["Cajero"] as string)
+        || (boleta["cajero"] as string)
+        || "";
 
     const entries = Object.entries(boleta);
 
@@ -34,11 +46,13 @@ export function BoletaDetalleModal({
                 <div className="mb-4">
                     <div className="text-sm text-gray-500">Detalle de boleta</div>
                     <div className="text-xl font-bold text-blue-700">{String(razon)}</div>
-                    <div className="text-xs text-gray-500 flex gap-3 mt-1">
+                    <div className="text-xs text-gray-500 flex gap-3 mt-1 flex-wrap">
                         {fecha && <span>Fecha: {String(fecha)}</span>}
                         {ident && <span>CUIT/DNI: {String(ident)}</span>}
                         {tipoPago && <span>Pago: {String(tipoPago)}</span>}
                         {estado && <span>Estado: {String(estado)}</span>}
+                        {repartidor && <span>Repartidor: {String(repartidor)}</span>}
+                        {registradoPor && <span>Registrado por: {String(registradoPor)}</span>}
                     </div>
                 </div>
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4 text-sm">
