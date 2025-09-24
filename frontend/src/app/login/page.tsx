@@ -40,7 +40,7 @@ function LoginPageInner() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ username: email, password }),
       });
-      let data: { access_token?: string; token_type?: string; detail?: string } | null = null;
+      let data: { access_token?: string; token_type?: string; detail?: string; user_info?: { username: string; role: string } } | null = null;
       try {
         data = await res.json();
       } catch {
@@ -60,6 +60,9 @@ function LoginPageInner() {
 
       if (data && data.access_token) {
         localStorage.setItem("token", data.access_token);
+        if (data.user_info) {
+          localStorage.setItem("user_info", JSON.stringify(data.user_info));
+        }
         if (remember) localStorage.setItem("remember_user", email);
         const isMobile = typeof window !== 'undefined' && window.innerWidth < 768;
         router.push(isMobile ? '/inicio' : '/dashboard');
