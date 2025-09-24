@@ -173,7 +173,7 @@ export default function UsuariosPage() {
             <thead className="bg-blue-100">
               <tr>
                 <th className="px-4 py-2 text-blue-700">ID</th>
-                <th className="px-4 py-2 text-blue-700">Nombre</th>
+                <th className="px-4 py-2 text-blue-700">Usuario</th>
                 <th className="px-4 py-2 text-blue-700">Rol</th>
                 <th className="px-4 py-2 text-blue-700">Estado</th>
                 <th className="px-4 py-2 text-blue-700">Acciones</th>

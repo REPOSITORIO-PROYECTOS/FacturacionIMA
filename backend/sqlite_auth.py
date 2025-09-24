@@ -238,23 +238,58 @@ def obtener_usuarios_sqlite() -> list:
     return sqlite_auth.listar_usuarios()
 
 def actualizar_usuario_sqlite(username: str, datos: dict) -> bool:
-    """Actualizar datos de usuario (rol, activo, etc)"""
+    """Actualizar datos de usuario.
+
+    Soporta: rol_nombre, activo, password (cambia el hash) y nuevo_nombre_usuario (rename).
+    """
     try:
         with sqlite3.connect(sqlite_auth.db_path) as conn:
             cursor = conn.cursor()
+
+            # 1) Validar existencia del usuario actual
+            cursor.execute("SELECT id, nombre_usuario FROM usuarios WHERE nombre_usuario = ?", (username,))
+            fila = cursor.fetchone()
+            if not fila:
+                return False
+
             campos = []
             valores = []
+
+            # 2) Rol
             if "rol_nombre" in datos:
                 cursor.execute("SELECT id FROM roles WHERE nombre = ?", (datos["rol_nombre"],))
                 rol = cursor.fetchone()
                 if rol:
                     campos.append("rol_id = ?")
                     valores.append(rol[0])
+
+            # 3) Activo
             if "activo" in datos:
                 campos.append("activo = ?")
                 valores.append(int(bool(datos["activo"])))
+
+            # 4) Password
+            if "password" in datos and datos["password"]:
+                password_hash = sqlite_auth.get_password_hash(datos["password"])  # type: ignore[attr-defined]
+                campos.append("password_hash = ?")
+                valores.append(password_hash)
+
+            # 5) Rename de nombre_usuario
+            if "nuevo_nombre_usuario" in datos and datos["nuevo_nombre_usuario"]:
+                nuevo = str(datos["nuevo_nombre_usuario"]).strip()
+                if nuevo:
+                    # Verificar que no exista ya
+                    cursor.execute("SELECT COUNT(*) FROM usuarios WHERE nombre_usuario = ?", (nuevo,))
+                    existe = cursor.fetchone()[0]
+                    if existe:
+                        # Ya existe otro con ese nombre
+                        return False
+                    campos.append("nombre_usuario = ?")
+                    valores.append(nuevo)
+
             if not campos:
                 return False
+
             valores.append(username)
             cursor.execute(f"UPDATE usuarios SET {', '.join(campos)} WHERE nombre_usuario = ?", valores)
             conn.commit()
