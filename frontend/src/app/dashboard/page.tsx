@@ -148,22 +148,73 @@ export default function DashboardPage() {
   const [boletasNoFacturadas, _setBoletasNoFacturadas] = useState<Boleta[]>([]);
   // Modal de detalle de boleta
   const [boletaDetalle, setBoletaDetalle] = useState<Boleta | null>(null);
+
+  // --- Filtros globales (incluye búsqueda por quien registró la operación) ---
+  const aplicaFiltrosGlobales = useCallback((b: Boleta): boolean => {
+    // Solo facturables
+    if (soloFacturables && !isFacturable(b)) return false;
+
+    // Filtro por razón social (si se ingresó)
+    if (filtroRazonSocial) {
+      const rs = (b["cliente"] || b["nombre"] || b["Razon Social"] || "").toString().toLowerCase();
+      if (!rs.includes(filtroRazonSocial.toLowerCase())) return false;
+    }
+
+    // Búsqueda general: incluye cliente, CUIT/DNI, repartidor, tipo de pago,
+    // número de comprobante y QUIEN REGISTRÓ (operador/usuario/cajero)
+    if (busqueda) {
+      const v = (key: string) => String((b as Record<string, unknown>)[key] ?? "").toLowerCase();
+      const texto = busqueda.toLowerCase();
+
+      const campos: string[] = [
+        // Cliente / razón social
+        "cliente", "nombre", "Razon Social",
+        // Identificación
+        "cuit", "CUIT", "dni",
+        // Repartidor
+        "Repartidor", "repartidor", "Nombre de Repartidor", "nombre_repartidor",
+        // Tipo de pago
+        "Tipo Pago", "tipo_pago",
+        // Comprobante
+        "Nro Comprobante", "Comprobante", "NroComp",
+        // QUIEN REGISTRÓ / OPERADOR
+        "Registrado por", "Registrado Por", "registrado por", "registrado_por",
+        "Usuario", "usuario", "Operador", "operador", "Cajero", "cajero",
+      ];
+
+      const coincide = campos.some((k) => v(k).includes(texto));
+      if (!coincide) return false;
+    }
+
+    // Nota: filtros por fecha pueden añadirse aquí si el formato es estable
+    return true;
+  }, [busqueda, filtroRazonSocial, soloFacturables, isFacturable]);
+
+  // Aplicar filtros globales previos a los específicos de cada tarjeta
+  const boletasFacturadasGlobal = useMemo(
+    () => boletasFacturadas.filter(aplicaFiltrosGlobales),
+    [boletasFacturadas, aplicaFiltrosGlobales]
+  );
+  const boletasNoFacturadasGlobal = useMemo(
+    () => boletasNoFacturadas.filter(aplicaFiltrosGlobales),
+    [boletasNoFacturadas, aplicaFiltrosGlobales]
+  );
   const boletasFacturadasFiltradas = useMemo(() => {
-    if (!filtroFacturadas) return boletasFacturadas;
-    return boletasFacturadas.filter((b) => {
+    if (!filtroFacturadas) return boletasFacturadasGlobal;
+    return boletasFacturadasGlobal.filter((b) => {
       const razonSocial = (b.cliente || b.nombre || b["Razon Social"] || "").toString().toLowerCase();
       return razonSocial.includes(filtroFacturadas.toLowerCase()) ||
         Object.values(b).some((v) => v?.toString().toLowerCase().includes(filtroFacturadas.toLowerCase()));
     });
-  }, [boletasFacturadas, filtroFacturadas]);
+  }, [boletasFacturadasGlobal, filtroFacturadas]);
   const boletasNoFacturadasFiltradas = useMemo(() => {
-    if (!filtroNoFacturadas) return boletasNoFacturadas;
-    return boletasNoFacturadas.filter((b) => {
+    if (!filtroNoFacturadas) return boletasNoFacturadasGlobal;
+    return boletasNoFacturadasGlobal.filter((b) => {
       const razonSocial = (b.cliente || b.nombre || b["Razon Social"] || "").toString().toLowerCase();
       return razonSocial.includes(filtroNoFacturadas.toLowerCase()) ||
         Object.values(b).some((v) => v?.toString().toLowerCase().includes(filtroNoFacturadas.toLowerCase()));
     });
-  }, [boletasNoFacturadas, filtroNoFacturadas]);
+  }, [boletasNoFacturadasGlobal, filtroNoFacturadas]);
   const totalFacturadas = boletasFacturadas.length;
   const totalNoFacturadas = boletasNoFacturadas.length;
   const totalGlobal = totalFacturadas + totalNoFacturadas;
@@ -204,7 +255,12 @@ export default function DashboardPage() {
   // Agrupación (se declara después de calcular las listas filtradas)
   const agrupadas = useMemo(() => {
     const grupos: Record<string, { key: string; boletas: Boleta[]; groupType: string; facturado: boolean }> = {};
-    for (const b of boletasFacturadasFiltradas.concat(boletasNoFacturadasFiltradas)) {
+    const fuente: Boleta[] = (
+      tipoBoleta === 'facturadas' ? boletasFacturadasFiltradas :
+      tipoBoleta === 'no-facturadas' ? boletasNoFacturadasFiltradas :
+      boletasFacturadasFiltradas.concat(boletasNoFacturadasFiltradas)
+    );
+    for (const b of fuente) {
       const facturacion = String(b["facturacion"] ?? "");
       const tipoPago = String(b["Tipo Pago"] ?? b["tipo_pago"] ?? "");
       const repartidor = String(b["Repartidor"] ?? b["repartidor"] ?? "");
@@ -214,7 +270,7 @@ export default function DashboardPage() {
       grupos[key].boletas.push(b);
     }
     return Object.values(grupos);
-  }, [boletasFacturadasFiltradas, boletasNoFacturadasFiltradas]);
+  }, [boletasFacturadasFiltradas, boletasNoFacturadasFiltradas, tipoBoleta]);
 
   return (
     <div className="flex min-h-screen bg-gray-100">
@@ -431,7 +487,7 @@ export default function DashboardPage() {
               <label className="block text-sm text-gray-600 mb-1">Búsqueda general</label>
               <input
                 className="w-full border rounded px-3 py-2"
-                placeholder="Cliente, CUIT, repartidor, etc."
+                placeholder="Cliente, CUIT/DNI, repartidor, operador/usuario, etc."
                 value={busqueda}
                 onChange={(e) => setBusqueda(e.target.value)}
               />
