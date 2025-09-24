@@ -257,8 +257,8 @@ export default function DashboardPage() {
     const grupos: Record<string, { key: string; boletas: Boleta[]; groupType: string; facturado: boolean }> = {};
     const fuente: Boleta[] = (
       tipoBoleta === 'facturadas' ? boletasFacturadasFiltradas :
-      tipoBoleta === 'no-facturadas' ? boletasNoFacturadasFiltradas :
-      boletasFacturadasFiltradas.concat(boletasNoFacturadasFiltradas)
+        tipoBoleta === 'no-facturadas' ? boletasNoFacturadasFiltradas :
+          boletasFacturadasFiltradas.concat(boletasNoFacturadasFiltradas)
     );
     for (const b of fuente) {
       const facturacion = String(b["facturacion"] ?? "");
