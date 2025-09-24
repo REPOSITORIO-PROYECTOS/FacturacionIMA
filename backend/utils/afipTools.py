@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-import datetime
+from datetime import datetime
 import os
 import requests
 from dotenv import load_dotenv
@@ -155,7 +155,7 @@ def generar_factura_para_venta(
                 "numero_comprobante": resultado_afip.get("numero_comprobante"),
                 "punto_venta": datos_factura.get("punto_venta"),
                 "tipo_comprobante": datos_factura.get("tipo_afip"),
-                "fecha_comprobante": datetime.now().strftime('%Y-%m-%d'),
+                "fecha_comprobante": datetime.now(),
                 "importe_total": total,
                 "cuit_emisor": int(AFIP_CUIT),
                 "tipo_doc_receptor": datos_factura.get("tipo_documento"),
@@ -175,18 +175,32 @@ def generar_factura_para_venta(
             raise RuntimeError(f"AFIP devolvió un error: {error_msg}")
 
     except requests.exceptions.HTTPError as e:
-        error_detalle = "Sin detalles adicionales"
+        # Extraer información segura del response si está disponible
+        status_code = None
+        body_text = None
         try:
-            error_detalle = e.response.json().get('detail', e.response.text)
-        except requests.exceptions.JSONDecodeError:
-            error_detalle = e.response.text
+            if e.response is not None:
+                status_code = getattr(e.response, 'status_code', None)
+                try:
+                    body = e.response.json()
+                    # Si body es dict y tiene 'message', úsalo; si no, usa la serialización
+                    if isinstance(body, dict) and 'message' in body:
+                        body_text = body.get('message')
+                    else:
+                        body_text = json.dumps(body, ensure_ascii=False)
+                except ValueError:
+                    body_text = e.response.text
+        except Exception:
+            body_text = str(e)
 
-        print(f"ERROR: El microservicio de facturación rechazó la petición. Status: {e.response.status_code}. Detalle: {error_detalle}")
-        raise RuntimeError(f"Error en el servicio de facturación: {error_detalle}")
+        safe_msg = f"Status: {status_code}. Body: {body_text}"
+        print(f"ERROR: El microservicio de facturación rechazó la petición. {safe_msg}")
+        raise RuntimeError(f"Error en el servicio de facturación: {safe_msg}")
 
     except requests.exceptions.RequestException as e:
-        print(f"ERROR: No se pudo conectar con el microservicio de facturación. Detalle: {e}")
-        raise RuntimeError("El servicio de facturación no está disponible en este momento.")
+        # Request exceptions pueden contener detalles útiles; no intentar subscriptarlos
+        print(f"ERROR: No se pudo conectar con el microservicio de facturación. Detalle: {repr(e)}")
+        raise RuntimeError(f"El servicio de facturación no está disponible en este momento. Detalle: {repr(e)}")
     
     except Exception as e:
         print(f"ERROR: Ocurrió un error inesperado durante la facturación. Detalle: {e}")

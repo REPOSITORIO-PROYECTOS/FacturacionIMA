@@ -6,6 +6,8 @@ import json  # NUEVO
 import base64 # NUEVO
 import qrcode # NUEVO
 from io import BytesIO # NUEVO
+from datetime import datetime, date
+from decimal import Decimal
 
 
 try:
@@ -196,22 +198,75 @@ def process_invoice_batch_for_endpoint(
                     
                     # --- 1. Guardar en la Base de Datos ---
                     try:
+                        # Make a JSON-serializable copy of afip_data (convert datetimes to ISO strings)
+                        def make_json_serializable(obj: Any) -> Any:
+                            # Convierte recursivamente objetos que no son serializables por json.dumps
+                            if isinstance(obj, dict):
+                                return {k: make_json_serializable(v) for k, v in obj.items()}
+                            if isinstance(obj, list):
+                                return [make_json_serializable(x) for x in obj]
+                            if isinstance(obj, (datetime, date)):
+                                return obj.isoformat()
+                            if isinstance(obj, Decimal):
+                                # Convertir Decimal a float si es seguro; si no, a str
+                                try:
+                                    return float(obj)
+                                except Exception:
+                                    return str(obj)
+                            if isinstance(obj, bytes):
+                                return base64.b64encode(obj).decode('utf-8')
+                            return obj
+
+                        serializable_afip = make_json_serializable(afip_data)
+
+                        # Force a round-trip through json to guarantee serializability
+                        try:
+                            raw_json_text = json.dumps(serializable_afip, ensure_ascii=False)
+                            raw_response_final = json.loads(raw_json_text)
+                        except Exception as ser_err:
+                            logger.error(f"[{invoice_id}] Error serializando la respuesta de AFIP: {ser_err}")
+                            # Fallback: store a minimal representation
+                            raw_response_final = {"error_serializing_raw_response": str(ser_err), "original_keys": list(serializable_afip.keys()) if isinstance(serializable_afip, dict) else str(type(serializable_afip))}
+
+                        def _normalize_date_field(value: Any):
+                            # Acepta datetime, date, ISO strings, y devuelve date
+                            if value is None:
+                                return None
+                            if isinstance(value, date) and not isinstance(value, datetime):
+                                return value
+                            if isinstance(value, datetime):
+                                return value.date()
+                            if isinstance(value, str):
+                                # Intenta parsear ISO format (fecha o datetime)
+                                try:
+                                    # date.fromisoformat acepta 'YYYY-MM-DD'
+                                    return date.fromisoformat(value)
+                                except Exception:
+                                    try:
+                                        return datetime.fromisoformat(value).date()
+                                    except Exception:
+                                        return None
+                            return None
+
+                        fecha_comprobante_val = _normalize_date_field(afip_data.get("fecha_comprobante"))
+                        vencimiento_cae_val = _normalize_date_field(afip_data.get("vencimiento_cae"))
+
                         invoice_db = FacturaElectronica(
                             ingreso_id=str(invoice_id),
                             cae=afip_data.get("cae"),
                             numero_comprobante=afip_data.get("numero_comprobante"),
                             punto_venta=afip_data.get("punto_venta"),
                             tipo_comprobante=afip_data.get("tipo_comprobante"),
-                            fecha_comprobante=afip_data.get("fecha_comprobante"),
-                            vencimiento_cae=afip_data.get("vencimiento_cae"),
+                            fecha_comprobante=fecha_comprobante_val,
+                            vencimiento_cae=vencimiento_cae_val,
                             resultado_afip=afip_data.get("resultado"),
                             cuit_emisor=afip_data.get("cuit_emisor"),
                             tipo_doc_receptor=afip_data.get("tipo_doc_receptor"),
                             nro_doc_receptor=afip_data.get("nro_doc_receptor"),
-                            importe_total=afip_data.get("importe_total"),
-                            importe_neto=afip_data.get("neto"),
-                            importe_iva=afip_data.get("iva"),
-                            raw_response=afip_data,
+                            importe_total=(float(afip_data.get("importe_total")) if afip_data.get("importe_total") is not None else None),
+                            importe_neto=(float(afip_data.get("neto")) if afip_data.get("neto") is not None else None),
+                            importe_iva=(float(afip_data.get("iva")) if afip_data.get("iva") is not None else None),
+                            raw_response=raw_response_final,
                             qr_url_afip=qr_url  # NUEVO: Guardar la URL del QR
                         )
                         db.add(invoice_db)
