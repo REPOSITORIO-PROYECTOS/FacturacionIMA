@@ -285,7 +285,13 @@ export default function DashboardPage() {
       <div className="flex-1 flex flex-col">
         <header className="bg-white border-b p-4 flex justify-between items-center">
           <h1 className="text-xl font-bold text-blue-700">Dashboard</h1>
-          <div className="flex items-center gap-3 text-sm">
+          <div className="flex flex-col items-end gap-2 text-sm">
+            {/* Advertencia si falta token o user_info */}
+            {(!token || !userInfo) && (
+              <div className="bg-red-100 text-red-700 px-3 py-1 rounded text-xs font-semibold">
+                ⚠️ No se detecta token o user_info en localStorage. Revisa el login.
+              </div>
+            )}
             {/* Mostrar solo si el usuario es admin, y mostrar mensaje si no hay userInfo */}
             {userInfo?.role === "Admin" ? (
               <Link className="text-blue-600 font-semibold" href="/usuarios">Ir a Usuarios</Link>
