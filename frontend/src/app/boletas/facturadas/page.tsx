@@ -18,6 +18,7 @@ export default function BoletasFacturadasPage() {
     const [items, setItems] = useState<BoletaRecord[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
+    const [search, setSearch] = useState('');
     useEffect(() => {
         let cancel = false;
         async function load() {
@@ -34,26 +35,60 @@ export default function BoletasFacturadasPage() {
         load();
         return () => { cancel = true; };
     }, []);
+
+    // Filtrar items por búsqueda
+    const filteredItems = items.filter((b) => {
+        const razonSocial = (b.cliente || b.nombre || b['Razon Social'] || '').toString().toLowerCase();
+        const repartidor = (b.Repartidor ?? (b as Record<string, unknown>)['repartidor'] ?? '').toString().toLowerCase();
+        const searchText = search.toLowerCase();
+        return razonSocial.includes(searchText) || repartidor.includes(searchText);
+    });
+
     return (
         <div className="p-4 md:p-6 space-y-4">
             <h1 className="text-xl font-bold text-purple-700">Boletas Facturadas</h1>
-            {loading ? <p>Cargando...</p> : error ? <p className="text-red-600">{error}</p> : (
+            <div className="mb-4">
+                <input
+                    type="text"
+                    value={search}
+                    onChange={e => setSearch(e.target.value)}
+                    placeholder="Buscar por razón social o repartidor..."
+                    className="border rounded px-3 py-2 w-full max-w-md"
+                />
+            </div>
+            {loading && <p>Cargando...</p>}
+            {error && <p className="text-red-600">{error}</p>}
+            {!loading && !error && (
                 <div className="overflow-auto border rounded bg-white">
                     <table className="w-full text-sm">
-                        <thead className="bg-purple-50"><tr><th className="p-2">Repartidor</th><th className="p-2">Razón Social</th><th className="p-2">Total</th></tr></thead>
+                        <thead className="bg-purple-50">
+                            <tr>
+                                <th className="p-2">Repartidor</th>
+                                <th className="p-2">Razón Social</th>
+                                <th className="p-2">Total</th>
+                            </tr>
+                        </thead>
                         <tbody>
-                            {items.map((b, i) => {
+                            {filteredItems.map((b, i) => {
                                 const rawTotal = b.total || b.INGRESOS || '';
                                 const totalNum = typeof rawTotal === 'number' ? rawTotal : parseFloat(String(rawTotal).replace(/,/g, ''));
                                 const total = isNaN(totalNum) ? rawTotal : Math.round(totalNum).toString();
                                 const razonSocial = b.cliente || b.nombre || b['Razon Social'] || '';
                                 const id = b['ID Ingresos'] || b.id || i;
                                 const repartidor = (b.Repartidor ?? (b as Record<string, unknown>)['repartidor'] ?? '') as string;
-                                return <tr key={id} className="border-t"><td className="p-2">{repartidor}</td><td className="p-2">{razonSocial}</td><td className="p-2">{total}</td></tr>;
+                                return (
+                                    <tr key={id} className="border-t">
+                                        <td className="p-2">{repartidor}</td>
+                                        <td className="p-2">{razonSocial}</td>
+                                        <td className="p-2">{total}</td>
+                                    </tr>
+                                );
                             })}
                         </tbody>
                     </table>
-                    {items.length === 0 && <div className="p-4 text-gray-500">No hay boletas facturadas</div>}
+                    {filteredItems.length === 0 && (
+                        <div className="p-4 text-gray-500">No hay boletas facturadas</div>
+                    )}
                 </div>
             )}
         </div>
