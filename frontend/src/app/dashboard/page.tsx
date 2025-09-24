@@ -171,6 +171,8 @@ export default function DashboardPage() {
   const [boletasFacturadas, _setBoletasFacturadas] = useState<Boleta[]>([]);
   const [boletasNoFacturadas, _setBoletasNoFacturadas] = useState<Boleta[]>([]);
   const [cargando, setCargando] = useState(false);
+  const [mostrarTodasFacturadas, setMostrarTodasFacturadas] = useState(false);
+  const [mostrarTodasNoFacturadas, setMostrarTodasNoFacturadas] = useState(false);
   // Modal de detalle de boleta
   const [boletaDetalle, setBoletaDetalle] = useState<Boleta | null>(null);
 
@@ -215,6 +217,30 @@ export default function DashboardPage() {
     return true;
   }, [busqueda, filtroRazonSocial, soloFacturables, isFacturable]);
 
+  // Variante para listas rápidas: ignora "solo facturables", pero respeta búsqueda y razón social
+  const aplicaFiltrosParaListas = useCallback((b: Boleta): boolean => {
+    if (filtroRazonSocial) {
+      const rs = (b["cliente"] || b["nombre"] || b["Razon Social"] || "").toString().toLowerCase();
+      if (!rs.includes(filtroRazonSocial.toLowerCase())) return false;
+    }
+    if (busqueda) {
+      const v = (key: string) => String((b as Record<string, unknown>)[key] ?? "").toLowerCase();
+      const texto = busqueda.toLowerCase();
+      const campos: string[] = [
+        "cliente", "nombre", "Razon Social",
+        "cuit", "CUIT", "dni",
+        "Repartidor", "repartidor", "Nombre de Repartidor", "nombre_repartidor",
+        "Tipo Pago", "tipo_pago",
+        "Nro Comprobante", "Comprobante", "NroComp",
+        "Registrado por", "Registrado Por", "registrado por", "registrado_por",
+        "Usuario", "usuario", "Operador", "operador", "Cajero", "cajero",
+      ];
+      const coincide = campos.some((k) => v(k).includes(texto));
+      if (!coincide) return false;
+    }
+    return true;
+  }, [busqueda, filtroRazonSocial]);
+
   // Aplicar filtros globales previos a los específicos de cada tarjeta
   const boletasFacturadasGlobal = useMemo(
     () => boletasFacturadas.filter(aplicaFiltrosGlobales),
@@ -223,6 +249,14 @@ export default function DashboardPage() {
   const boletasNoFacturadasGlobal = useMemo(
     () => boletasNoFacturadas.filter(aplicaFiltrosGlobales),
     [boletasNoFacturadas, aplicaFiltrosGlobales]
+  );
+  const boletasFacturadasListaGlobal = useMemo(
+    () => boletasFacturadas.filter(aplicaFiltrosParaListas),
+    [boletasFacturadas, aplicaFiltrosParaListas]
+  );
+  const boletasNoFacturadasListaGlobal = useMemo(
+    () => boletasNoFacturadas.filter(aplicaFiltrosParaListas),
+    [boletasNoFacturadas, aplicaFiltrosParaListas]
   );
   const boletasFacturadasFiltradas = useMemo(() => {
     if (!filtroFacturadas) return boletasFacturadasGlobal;
@@ -240,6 +274,24 @@ export default function DashboardPage() {
         Object.values(b).some((v) => v?.toString().toLowerCase().includes(filtroNoFacturadas.toLowerCase()));
     });
   }, [boletasNoFacturadasGlobal, filtroNoFacturadas]);
+
+  // Listas para UI rápida (ignoran "solo facturables")
+  const boletasFacturadasFiltradasLista = useMemo(() => {
+    if (!filtroFacturadas) return boletasFacturadasListaGlobal;
+    return boletasFacturadasListaGlobal.filter((b) => {
+      const razonSocial = (b.cliente || b.nombre || b["Razon Social"] || "").toString().toLowerCase();
+      return razonSocial.includes(filtroFacturadas.toLowerCase()) ||
+        Object.values(b).some((v) => v?.toString().toLowerCase().includes(filtroFacturadas.toLowerCase()));
+    });
+  }, [boletasFacturadasListaGlobal, filtroFacturadas]);
+  const boletasNoFacturadasFiltradasLista = useMemo(() => {
+    if (!filtroNoFacturadas) return boletasNoFacturadasListaGlobal;
+    return boletasNoFacturadasListaGlobal.filter((b) => {
+      const razonSocial = (b.cliente || b.nombre || b["Razon Social"] || "").toString().toLowerCase();
+      return razonSocial.includes(filtroNoFacturadas.toLowerCase()) ||
+        Object.values(b).some((v) => v?.toString().toLowerCase().includes(filtroNoFacturadas.toLowerCase()));
+    });
+  }, [boletasNoFacturadasListaGlobal, filtroNoFacturadas]);
   const totalFacturadas = boletasFacturadas.length;
   const totalNoFacturadas = boletasNoFacturadas.length;
   const totalGlobal = totalFacturadas + totalNoFacturadas;
@@ -369,7 +421,7 @@ export default function DashboardPage() {
             <div className="bg-white rounded border overflow-hidden">
               <div className="p-3 font-semibold border-b">
                 <div className="flex justify-between items-center mb-2">
-                  <span>Facturadas (mostrando {boletasFacturadasFiltradas.length} de {boletasFacturadas.length})</span>
+                  <span>Facturadas (mostrando {boletasFacturadasFiltradasLista.length} de {boletasFacturadas.length})</span>
                   <Link href="/boletas/facturadas" className="text-blue-600 text-sm">Ver todas →</Link>
                 </div>
                 <div className="flex gap-2">
@@ -391,35 +443,61 @@ export default function DashboardPage() {
                   )}
                 </div>
               </div>
-              <table className="w-full text-xs">
-                <thead className="bg-blue-50">
-                  <tr><th className="p-1">Razón Social</th><th className="p-1">Total</th></tr>
-                </thead>
-                <tbody>
-                  {boletasFacturadasFiltradas.slice(0, 10).map((b) => {
-                    const id = String(b['ID Ingresos'] || b['id'] || '');
-                    const razonSocial = b['cliente'] || b['nombre'] || b['Razon Social'] || '';
-                    const total = b['total'] || b['INGRESOS'] || '';
-                    return (
-                      <tr key={id} className="border-t">
-                        <td className="p-1 truncate max-w-[180px]">
-                          <button className="text-blue-700 hover:underline" onClick={() => setBoletaDetalle(b)} title="Ver boleta">
-                            {String(razonSocial)}
-                          </button>
-                        </td>
-                        <td className="p-1">{String(total)}</td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
+              {/* Mobile list */}
+              <div className="md:hidden divide-y">
+                {(mostrarTodasFacturadas ? boletasFacturadasFiltradasLista : boletasFacturadasFiltradasLista.slice(0, 10)).map((b) => {
+                  const id = String(b['ID Ingresos'] || b['id'] || '');
+                  const razonSocial = b['cliente'] || b['nombre'] || b['Razon Social'] || '';
+                  const total = b['total'] || b['INGRESOS'] || '';
+                  return (
+                    <div key={id} className="px-3 py-2 flex items-center justify-between gap-3">
+                      <button className="text-blue-700 text-left hover:underline truncate" onClick={() => setBoletaDetalle(b)} title="Ver boleta">
+                        {String(razonSocial)}
+                      </button>
+                      <div className="text-xs">{String(total)}</div>
+                    </div>
+                  );
+                })}
+              </div>
+              {/* Desktop table */}
+              <div className="hidden md:block">
+                <table className="w-full text-xs">
+                  <thead className="bg-blue-50">
+                    <tr><th className="p-1">Razón Social</th><th className="p-1">Total</th></tr>
+                  </thead>
+                  <tbody>
+                    {(mostrarTodasFacturadas ? boletasFacturadasFiltradasLista : boletasFacturadasFiltradasLista.slice(0, 10)).map((b) => {
+                      const id = String(b['ID Ingresos'] || b['id'] || '');
+                      const razonSocial = b['cliente'] || b['nombre'] || b['Razon Social'] || '';
+                      const total = b['total'] || b['INGRESOS'] || '';
+                      return (
+                        <tr key={id} className="border-t">
+                          <td className="p-1 truncate max-w-[180px]">
+                            <button className="text-blue-700 hover:underline" onClick={() => setBoletaDetalle(b)} title="Ver boleta">
+                              {String(razonSocial)}
+                            </button>
+                          </td>
+                          <td className="p-1">{String(total)}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+              <div className="p-2 border-t bg-white/60 flex justify-center">
+                {boletasFacturadasFiltradasLista.length > 10 && (
+                  <button className="text-xs text-blue-700 hover:underline" onClick={() => setMostrarTodasFacturadas((v) => !v)}>
+                    {mostrarTodasFacturadas ? 'Mostrar menos' : 'Mostrar todas'}
+                  </button>
+                )}
+              </div>
             </div>
 
             {/* Tarjeta: No facturadas */}
             <div className="bg-white rounded border overflow-hidden">
               <div className="p-3 font-semibold border-b">
                 <div className="flex justify-between items-center mb-2">
-                  <span>No facturadas (mostrando {boletasNoFacturadasFiltradas.length} de {boletasNoFacturadas.length})</span>
+                  <span>No facturadas (mostrando {boletasNoFacturadasFiltradasLista.length} de {boletasNoFacturadas.length})</span>
                   <Link href="/boletas/no-facturadas" className="text-blue-600 text-sm">Ver todas →</Link>
                 </div>
                 <div className="flex gap-2">
@@ -441,37 +519,90 @@ export default function DashboardPage() {
                   )}
                 </div>
               </div>
-              <table className="w-full text-xs">
-                <thead className="bg-blue-50">
-                  <tr><th className="p-1">Razón Social</th><th className="p-1">Total</th></tr>
-                </thead>
-                <tbody>
-                  {boletasNoFacturadasFiltradas.slice(0, 10).map((b) => {
-                    const id = String(b['ID Ingresos'] || b['id'] || '');
-                    const razonSocial = b['cliente'] || b['nombre'] || b['Razon Social'] || '';
-                    const total = b['total'] || b['INGRESOS'] || '';
-                    return (
-                      <tr key={id} className="border-t">
-                        <td className="p-1 truncate max-w-[180px]">
-                          <div className="flex items-center gap-2">
-                            <button className="text-blue-700 hover:underline" onClick={() => setBoletaDetalle(b)} title="Ver boleta">
-                              {String(razonSocial || '— Sin razón social —')}
-                            </button>
-                            {isFacturable(b) ? (
-                              <button className="text-xs bg-blue-600 text-white rounded px-2 py-0.5 hover:bg-blue-700" onClick={() => facturarBoleta(b)} title="Facturar">
-                                Facturar
+              {/* Mobile list */}
+              <div className="md:hidden divide-y">
+                {(mostrarTodasNoFacturadas ? boletasNoFacturadasFiltradasLista : boletasNoFacturadasFiltradasLista.slice(0, 10)).map((b) => {
+                  const id = String(b['ID Ingresos'] || b['id'] || '');
+                  const razonSocial = b['cliente'] || b['nombre'] || b['Razon Social'] || '';
+                  const total = b['total'] || b['INGRESOS'] || '';
+                  return (
+                    <div key={id} className="px-3 py-2 flex items-center justify-between gap-3">
+                      <div className="min-w-0 flex-1">
+                        <button className="text-blue-700 text-left hover:underline truncate" onClick={() => setBoletaDetalle(b)} title="Ver boleta">
+                          {String(razonSocial || '— Sin razón social —')}
+                        </button>
+                        <div className="text-[11px] text-gray-500">Total: {String(total)}</div>
+                      </div>
+                      <div className="flex items-center gap-2 shrink-0">
+                        {isFacturable(b) ? (
+                          <button className="text-xs bg-blue-600 text-white rounded px-2 py-0.5 hover:bg-blue-700" onClick={() => facturarBoleta(b)} title="Facturar">
+                            Facturar
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            className="text-[10px] px-1.5 py-0.5 rounded bg-gray-200 text-gray-600 hover:bg-gray-300 cursor-pointer"
+                            title="No facturable"
+                            aria-label="No facturable: ver motivo"
+                            onClick={() => toast.info("No facturable", motivoNoFacturable(b))}
+                          >
+                            No facturable
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+              {/* Desktop table */}
+              <div className="hidden md:block">
+                <table className="w-full text-xs">
+                  <thead className="bg-blue-50">
+                    <tr><th className="p-1">Razón Social</th><th className="p-1">Total</th></tr>
+                  </thead>
+                  <tbody>
+                    {(mostrarTodasNoFacturadas ? boletasNoFacturadasFiltradasLista : boletasNoFacturadasFiltradasLista.slice(0, 10)).map((b) => {
+                      const id = String(b['ID Ingresos'] || b['id'] || '');
+                      const razonSocial = b['cliente'] || b['nombre'] || b['Razon Social'] || '';
+                      const total = b['total'] || b['INGRESOS'] || '';
+                      return (
+                        <tr key={id} className="border-t">
+                          <td className="p-1 truncate max-w-[180px]">
+                            <div className="flex items-center gap-2">
+                              <button className="text-blue-700 hover:underline" onClick={() => setBoletaDetalle(b)} title="Ver boleta">
+                                {String(razonSocial || '— Sin razón social —')}
                               </button>
-                            ) : (
-                              <span className="text-[10px] px-1.5 py-0.5 rounded bg-gray-200 text-gray-600" title="No facturable">No facturable</span>
-                            )}
-                          </div>
-                        </td>
-                        <td className="p-1">{String(total)}</td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
+                              {isFacturable(b) ? (
+                                <button className="text-xs bg-blue-600 text-white rounded px-2 py-0.5 hover:bg-blue-700" onClick={() => facturarBoleta(b)} title="Facturar">
+                                  Facturar
+                                </button>
+                              ) : (
+                                <button
+                                  type="button"
+                                  className="text-[10px] px-1.5 py-0.5 rounded bg-gray-200 text-gray-600 hover:bg-gray-300 cursor-pointer"
+                                  title="No facturable"
+                                  aria-label="No facturable: ver motivo"
+                                  onClick={() => toast.info("No facturable", motivoNoFacturable(b))}
+                                >
+                                  No facturable
+                                </button>
+                              )}
+                            </div>
+                          </td>
+                          <td className="p-1">{String(total)}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+              <div className="p-2 border-t bg-white/60 flex justify-center">
+                {boletasNoFacturadasFiltradasLista.length > 10 && (
+                  <button className="text-xs text-blue-700 hover:underline" onClick={() => setMostrarTodasNoFacturadas((v) => !v)}>
+                    {mostrarTodasNoFacturadas ? 'Mostrar menos' : 'Mostrar todas'}
+                  </button>
+                )}
+              </div>
             </div>
           </div>
 

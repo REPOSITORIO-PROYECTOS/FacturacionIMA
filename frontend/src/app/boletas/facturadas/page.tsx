@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useState } from 'react';
+import { LoadingSpinner } from "../../components/LoadingSpinner";
 
 interface BoletaRecord {
     id?: number | string;
@@ -70,49 +71,90 @@ export default function BoletasFacturadasPage() {
                     className="border rounded px-3 py-2 w-full max-w-md"
                 />
             </div>
-            {loading && <p>Cargando...</p>}
+            {loading && (
+                <div className="flex items-center justify-center py-12">
+                    <LoadingSpinner label="Cargando boletas facturadas…" />
+                </div>
+            )}
             {error && <p className="text-red-600">{error}</p>}
             {!loading && !error && (
                 <div className="overflow-auto border rounded bg-white">
-                    <table className="w-full text-sm">
-                        <thead className="bg-purple-50">
-                            <tr>
-                                <th className="p-2">Repartidor</th>
-                                <th className="p-2">Razón Social</th>
-                                <th className="p-2">Total</th>
-                                <th className="p-2">Acciones</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {filteredItems.map((b, i) => {
-                                const rawTotal = b.total || b.INGRESOS || '';
-                                const totalNum = typeof rawTotal === 'number' ? rawTotal : parseFloat(String(rawTotal).replace(/,/g, ''));
-                                const total = isNaN(totalNum) ? rawTotal : Math.round(totalNum).toString();
-                                const razonSocial = b.cliente || b.nombre || b['Razon Social'] || '';
-                                const id = b['ID Ingresos'] || b.id || i;
-                                const repartidor = (b.Repartidor ?? (b as Record<string, unknown>)['repartidor'] ?? '') as string;
-                                return (
-                                    <tr key={id} className="border-t">
-                                        <td className="p-2">{repartidor}</td>
-                                        <td className="p-2">{razonSocial}</td>
-                                        <td className="p-2">{total}</td>
-                                        <td className="p-2 flex gap-2">
+                    {/* Mobile list */}
+                    <div className="md:hidden divide-y">
+                        {filteredItems.map((b, i) => {
+                            const rawTotal = b.total || b.INGRESOS || '';
+                            const totalNum = typeof rawTotal === 'number' ? rawTotal : parseFloat(String(rawTotal).replace(/,/g, ''));
+                            const total = isNaN(totalNum) ? rawTotal : Math.round(totalNum).toString();
+                            const razonSocial = b.cliente || b.nombre || b['Razon Social'] || '';
+                            const id = b['ID Ingresos'] || b.id || i;
+                            const repartidor = (b.Repartidor ?? (b as Record<string, unknown>)['repartidor'] ?? '') as string;
+                            return (
+                                <div key={id} className="px-3 py-2 flex items-center justify-between gap-3">
+                                    <div className="min-w-0">
+                                        <div className="font-medium truncate">{razonSocial}</div>
+                                        <div className="text-[11px] text-gray-600">Repartidor: {repartidor || '-'}</div>
+                                        <div className="text-[11px] text-gray-600">Total: {String(total)}</div>
+                                    </div>
+                                    <div className="shrink-0 flex gap-2">
+                                        <button
+                                            className="text-xs text-blue-700 hover:underline"
+                                            onClick={() => abrirDetalle(b)}
+                                        >Detalles</button>
+                                        {!(b['Nro Comprobante']) && (
                                             <button
-                                                className="bg-blue-500 text-white px-2 py-1 rounded hover:bg-blue-600 transition"
-                                                onClick={() => abrirDetalle(b)}
-                                            >Ver detalles</button>
-                                            {!(b['Nro Comprobante']) && (
+                                                className="text-xs bg-green-600 text-white px-2 py-1 rounded hover:bg-green-700"
+                                                onClick={() => facturarBoleta(b)}
+                                            >Facturar</button>
+                                        )}
+                                    </div>
+                                </div>
+                            );
+                        })}
+                    </div>
+
+                    {/* Desktop table */}
+                    <div className="hidden md:block">
+                        <table className="w-full text-sm">
+                            <thead className="bg-purple-50">
+                                <tr>
+                                    <th className="p-2">Repartidor</th>
+                                    <th className="p-2">Razón Social</th>
+                                    <th className="p-2">Total</th>
+                                    <th className="p-2">Acciones</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {filteredItems.map((b, i) => {
+                                    const rawTotal = b.total || b.INGRESOS || '';
+                                    const totalNum = typeof rawTotal === 'number' ? rawTotal : parseFloat(String(rawTotal).replace(/,/g, ''));
+                                    const total = isNaN(totalNum) ? rawTotal : Math.round(totalNum).toString();
+                                    const razonSocial = b.cliente || b.nombre || b['Razon Social'] || '';
+                                    const id = b['ID Ingresos'] || b.id || i;
+                                    const repartidor = (b.Repartidor ?? (b as Record<string, unknown>)['repartidor'] ?? '') as string;
+                                    return (
+                                        <tr key={id} className="border-t">
+                                            <td className="p-2">{repartidor}</td>
+                                            <td className="p-2">{razonSocial}</td>
+                                            <td className="p-2">{total}</td>
+                                            <td className="p-2 flex gap-2">
                                                 <button
-                                                    className="bg-green-500 text-white px-2 py-1 rounded hover:bg-green-600 transition"
-                                                    onClick={() => facturarBoleta(b)}
-                                                >Facturar</button>
-                                            )}
-                                        </td>
-                                    </tr>
-                                );
-                            })}
-                        </tbody>
-                    </table>
+                                                    className="bg-blue-500 text-white px-2 py-1 rounded hover:bg-blue-600 transition"
+                                                    onClick={() => abrirDetalle(b)}
+                                                >Ver detalles</button>
+                                                {!(b['Nro Comprobante']) && (
+                                                    <button
+                                                        className="bg-green-500 text-white px-2 py-1 rounded hover:bg-green-600 transition"
+                                                        onClick={() => facturarBoleta(b)}
+                                                    >Facturar</button>
+                                                )}
+                                            </td>
+                                        </tr>
+                                    );
+                                })}
+                            </tbody>
+                        </table>
+                    </div>
+
                     {filteredItems.length === 0 && (
                         <div className="p-4 text-gray-500">No hay boletas facturadas</div>
                     )}
