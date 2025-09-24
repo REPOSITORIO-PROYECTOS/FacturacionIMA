@@ -233,6 +233,48 @@ def obtener_usuario_por_token(token: str) -> Optional[dict]:
     
     return sqlite_auth.obtener_usuario_por_username(token_data["username"])
 
+def obtener_usuarios_sqlite() -> list:
+    """Obtener lista de usuarios"""
+    return sqlite_auth.listar_usuarios()
+
+def actualizar_usuario_sqlite(username: str, datos: dict) -> bool:
+    """Actualizar datos de usuario (rol, activo, etc)"""
+    try:
+        with sqlite3.connect(sqlite_auth.db_path) as conn:
+            cursor = conn.cursor()
+            campos = []
+            valores = []
+            if "rol_nombre" in datos:
+                cursor.execute("SELECT id FROM roles WHERE nombre = ?", (datos["rol_nombre"],))
+                rol = cursor.fetchone()
+                if rol:
+                    campos.append("rol_id = ?")
+                    valores.append(rol[0])
+            if "activo" in datos:
+                campos.append("activo = ?")
+                valores.append(int(bool(datos["activo"])))
+            if not campos:
+                return False
+            valores.append(username)
+            cursor.execute(f"UPDATE usuarios SET {', '.join(campos)} WHERE nombre_usuario = ?", valores)
+            conn.commit()
+            return cursor.rowcount > 0
+    except Exception as e:
+        print(f"Error actualizando usuario: {e}")
+        return False
+
+def desactivar_usuario_sqlite(username: str) -> bool:
+    """Desactivar usuario"""
+    try:
+        with sqlite3.connect(sqlite_auth.db_path) as conn:
+            cursor = conn.cursor()
+            cursor.execute("UPDATE usuarios SET activo = 0 WHERE nombre_usuario = ?", (username,))
+            conn.commit()
+            return cursor.rowcount > 0
+    except Exception as e:
+        print(f"Error desactivando usuario: {e}")
+        return False
+
 if __name__ == "__main__":
     # Test del sistema
     print("=== Test del sistema de autenticación SQLite ===")
