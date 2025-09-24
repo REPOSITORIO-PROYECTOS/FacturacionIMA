@@ -455,3 +455,6 @@ debug_*.js
 # Variables de entorno locales
 .env.local.*
 local_config.*
+
+# Local demo virtualenv
+.venv_demo/

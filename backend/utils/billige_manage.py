@@ -3,8 +3,12 @@ from typing import List, Dict, Any
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import requests
 import json  # NUEVO
+from .json_utils import default_json
 import base64 # NUEVO
-import qrcode # NUEVO
+try:
+    import qrcode  # NUEVO
+except Exception:
+    qrcode = None
 from io import BytesIO # NUEVO
 from datetime import datetime, date
 from decimal import Decimal
@@ -18,10 +22,31 @@ try:
     from backend.database import SessionLocal  # Asume que tienes un `database.py` que crea la sesión
     from backend.modelos import FacturaElectronica  # Asume que tienes un `models.py` con tu tabla de facturas
 except ImportError as e:
-    logging.critical(f"ERROR CRÍTICO: No se pudo importar un módulo necesario (afipTools, tablasHandler, database, o models): {e}")
-    raise
+    # Algunos módulos son opcionales en entornos de demo; registrar y seguir adelante
+    logging.critical(f"No se pudieron importar algunos módulos opcionales: {e} — continuando en modo degradado.")
+    # Marcar objetos faltantes como None para no romper la importación del módulo.
+    try:
+        generar_factura_para_venta
+    except NameError:
+        generar_factura_para_venta = None
+    try:
+        ReceptorData
+    except NameError:
+        ReceptorData = None
+    try:
+        TablasHandler
+    except NameError:
+        TablasHandler = None
+    try:
+        SessionLocal
+    except NameError:
+        SessionLocal = None
+    try:
+        FacturaElectronica
+    except NameError:
+        FacturaElectronica = None
 
-# --- Importación de Tenacity ---
+# --- Importación de Tenacity (reintentos en caso de errores de conexión transitorios) ---
 from tenacity import (
     retry,
     stop_after_attempt,
@@ -54,9 +79,21 @@ def generar_qr_afip(afip_data: Dict[str, Any]) -> tuple[str | None, str | None]:
     """
     try:
         # 1. Armar el objeto JSON con los datos requeridos por AFIP
+        # fecha_comprobante puede ser str ISO o datetime/date
+        fecha_val = afip_data.get("fecha_comprobante")
+        if isinstance(fecha_val, str):
+            try:
+                fecha_str = fecha_val.split("T")[0]
+            except Exception:
+                fecha_str = fecha_val
+        elif isinstance(fecha_val, (datetime, date)):
+            fecha_str = fecha_val.strftime("%Y-%m-%d")
+        else:
+            fecha_str = datetime.now().strftime("%Y-%m-%d")
+
         datos_para_qr = {
             "ver": 1,
-            "fecha": afip_data["fecha_comprobante"].strftime("%Y-%m-%d"),
+            "fecha": fecha_str,
             "cuit": int(afip_data["cuit_emisor"]),
             "ptoVta": int(afip_data["punto_venta"]),
             "tipoCmp": int(afip_data["tipo_comprobante"]),
@@ -71,20 +108,23 @@ def generar_qr_afip(afip_data: Dict[str, Any]) -> tuple[str | None, str | None]:
         }
 
         # 2. Convertir a JSON string y luego a Base64
-        json_string = json.dumps(datos_para_qr)
+        json_string = json.dumps(datos_para_qr, default=default_json)
         datos_base64 = base64.b64encode(json_string.encode('utf-8')).decode('utf-8')
 
         # 3. Armar la URL final de AFIP
         url_para_qr = f"https://www.afip.gob.ar/fe/qr/?p={datos_base64}"
 
-        # 4. Generar la imagen del QR y convertirla a Data URL
-        img = qrcode.make(url_para_qr)
-        buffered = BytesIO()
-        img.save(buffered, format="PNG")
-        img_str = base64.b64encode(buffered.getvalue()).decode('utf-8')
-        qr_data_url = f"data:image/png;base64,{img_str}"
-
-        return url_para_qr, qr_data_url
+        # 4. Generar la imagen del QR y convertirla a Data URL (si la dependencia está disponible)
+        if qrcode is not None:
+            img = qrcode.make(url_para_qr)
+            buffered = BytesIO()
+            img.save(buffered, format="PNG")
+            img_str = base64.b64encode(buffered.getvalue()).decode('utf-8')
+            qr_data_url = f"data:image/png;base64,{img_str}"
+            return url_para_qr, qr_data_url
+        else:
+            # qrcode no está instalado; devolver solo la URL
+            return url_para_qr, None
 
     except (KeyError, TypeError) as e:
         logger.error(f"Error generando QR: Faltan datos en la respuesta de AFIP. Error: {e}", exc_info=True)
@@ -95,8 +135,8 @@ def generar_qr_afip(afip_data: Dict[str, Any]) -> tuple[str | None, str | None]:
 # ==============================================================================
 
 @retry(
-    stop=stop_after_attempt(3),
-    wait=wait_exponential(multiplier=1, min=2, max=10),
+    stop=stop_after_attempt(5),
+    wait=wait_exponential(multiplier=1, min=2, max=20),
     before=before_log(logger, logging.DEBUG),
     after=after_log(logger, logging.WARNING),
     retry=(
@@ -106,11 +146,25 @@ def generar_qr_afip(afip_data: Dict[str, Any]) -> tuple[str | None, str | None]:
     ),
     reraise=True
 )
-def _attempt_generate_invoice(total: float, cliente_data: ReceptorData, invoice_id: str) -> Dict[str, Any]:
+def _attempt_generate_invoice(total: float, cliente_data: ReceptorData, invoice_id: str, emisor_cuit: str | None = None) -> Dict[str, Any]:
     logger.debug(f"[{invoice_id}] Intentando facturar (Total: {total}, CUIT/DNI: {cliente_data.cuit_o_dni})...")
-    afip_result = generar_factura_para_venta(total=total, cliente_data=cliente_data)
-    logger.info(f"[{invoice_id}] Factura generada exitosamente. CAE: {afip_result.get('cae')}")
-    return afip_result
+    try:
+        afip_result = generar_factura_para_venta(total=total, cliente_data=cliente_data, emisor_cuit=emisor_cuit)
+        logger.info(f"[{invoice_id}] Factura generada exitosamente. CAE: {afip_result.get('cae')}")
+        return afip_result
+    except Exception as e:
+        # Si el error contiene indicios de problemas con AFIP/SSL/ConnectionReset, tratar como transitorio
+        try:
+            msg = str(e).lower()
+            if any(x in msg for x in ("error interno del servidor", "connectionreset", "connection reset", "ssl", "unexpected eof", "ssLError".lower(), "sslexception")):
+                logger.warning(f"[{invoice_id}] Error detectado como transitorio (AFIP/SSL) - provocando retry: {e}")
+                # Lanzar ConnectionError para que tenacity reintente
+                raise requests.exceptions.ConnectionError(e)
+        except Exception:
+            pass
+        # No es un error transitorio que debamos reintentar: propagar
+        logger.error(f"[{invoice_id}] Error no transitorio al facturar: {e}")
+        raise
 
 def process_invoice_batch_for_endpoint(
     invoices_payload: List[Dict[str, Any]],
@@ -165,7 +219,8 @@ def process_invoice_batch_for_endpoint(
                     })
                     continue
 
-                future = executor.submit(_attempt_generate_invoice, total, cliente_data, invoice_id)
+                emisor_cuit = original_invoice_data.get('emisor_cuit')
+                future = executor.submit(_attempt_generate_invoice, total, cliente_data, invoice_id, emisor_cuit)
                 futures_map[future] = {"id": invoice_id, "original_data": original_invoice_data}
 
             for future in as_completed(futures_map):
@@ -221,7 +276,7 @@ def process_invoice_batch_for_endpoint(
 
                         # Force a round-trip through json to guarantee serializability
                         try:
-                            raw_json_text = json.dumps(serializable_afip, ensure_ascii=False)
+                            raw_json_text = json.dumps(serializable_afip, ensure_ascii=False, default=default_json)
                             raw_response_final = json.loads(raw_json_text)
                         except Exception as ser_err:
                             logger.error(f"[{invoice_id}] Error serializando la respuesta de AFIP: {ser_err}")
@@ -251,29 +306,82 @@ def process_invoice_batch_for_endpoint(
                         fecha_comprobante_val = _normalize_date_field(afip_data.get("fecha_comprobante"))
                         vencimiento_cae_val = _normalize_date_field(afip_data.get("vencimiento_cae"))
 
-                        invoice_db = FacturaElectronica(
-                            ingreso_id=str(invoice_id),
-                            cae=afip_data.get("cae"),
-                            numero_comprobante=afip_data.get("numero_comprobante"),
-                            punto_venta=afip_data.get("punto_venta"),
-                            tipo_comprobante=afip_data.get("tipo_comprobante"),
-                            fecha_comprobante=fecha_comprobante_val,
-                            vencimiento_cae=vencimiento_cae_val,
-                            resultado_afip=afip_data.get("resultado"),
-                            cuit_emisor=afip_data.get("cuit_emisor"),
-                            tipo_doc_receptor=afip_data.get("tipo_doc_receptor"),
-                            nro_doc_receptor=afip_data.get("nro_doc_receptor"),
-                            importe_total=(float(afip_data.get("importe_total")) if afip_data.get("importe_total") is not None else None),
-                            importe_neto=(float(afip_data.get("neto")) if afip_data.get("neto") is not None else None),
-                            importe_iva=(float(afip_data.get("iva")) if afip_data.get("iva") is not None else None),
-                            raw_response=raw_response_final,
-                            qr_url_afip=qr_url  # NUEVO: Guardar la URL del QR
+                        # Serializar raw_response a texto JSON con un encoder robusto
+                        # Usamos `default_json` importado desde backend.utils.json_utils
+                        # para convertir datetimes, Decimals y bytes a representaciones JSON-friendly.
+
+                        try:
+                            raw_response_text = json.dumps(afip_data, ensure_ascii=False, default=default_json)
+                        except Exception as ser_err:
+                            logger.error(f"[{invoice_id}] Error serializando la respuesta de AFIP (final fallback): {ser_err}")
+                            raw_response_text = json.dumps({"error_serializing_raw_response": str(ser_err), "original_type": str(type(afip_data))}, ensure_ascii=False, default=default_json)
+
+                        # Insertar usando SQLAlchemy Core para controlar exactamente los valores
+                        from sqlalchemy import insert as sa_insert
+                        # Normalizar y preparar valores para el INSERT
+                        try:
+                            punto_venta_val = int(afip_data.get("punto_venta")) if afip_data.get("punto_venta") is not None else None
+                        except Exception:
+                            punto_venta_val = None
+                        try:
+                            tipo_comprobante_val = int(afip_data.get("tipo_comprobante")) if afip_data.get("tipo_comprobante") is not None else None
+                        except Exception:
+                            tipo_comprobante_val = None
+                        try:
+                            cuit_emisor_val = str(afip_data.get("cuit_emisor")) if afip_data.get("cuit_emisor") is not None else None
+                        except Exception:
+                            cuit_emisor_val = None
+
+                        insert_values = {
+                            "ingreso_id": str(invoice_id),
+                            "cae": afip_data.get("cae"),
+                            "numero_comprobante": afip_data.get("numero_comprobante"),
+                            "punto_venta": punto_venta_val,
+                            "tipo_comprobante": tipo_comprobante_val,
+                            "fecha_comprobante": fecha_comprobante_val,
+                            "vencimiento_cae": vencimiento_cae_val,
+                            "resultado_afip": afip_data.get("resultado"),
+                            "cuit_emisor": cuit_emisor_val,
+                            "tipo_doc_receptor": afip_data.get("tipo_doc_receptor"),
+                            "nro_doc_receptor": afip_data.get("nro_doc_receptor"),
+                            "importe_total": (float(afip_data.get("importe_total")) if afip_data.get("importe_total") is not None else None),
+                            "importe_neto": (float(afip_data.get("neto")) if afip_data.get("neto") is not None else None),
+                            "importe_iva": (float(afip_data.get("iva")) if afip_data.get("iva") is not None else None),
+                            "raw_response": raw_response_text,
+                            "qr_url_afip": qr_url,
+                            # Not including created_at/updated_at so DB server defaults apply
+                        }
+
+                        # Usar una inserción SQL explícita (text) para controlar exactamente
+                        # las columnas que enviamos y evitar pasar created_at/updated_at
+                        from sqlalchemy import text as sa_text
+                        sql = sa_text(
+                            "INSERT INTO facturas_electronicas (ingreso_id, cae, numero_comprobante, punto_venta, tipo_comprobante, fecha_comprobante, vencimiento_cae, resultado_afip, cuit_emisor, tipo_doc_receptor, nro_doc_receptor, importe_total, importe_neto, importe_iva, raw_response, qr_url_afip) VALUES (:ingreso_id, :cae, :numero_comprobante, :punto_venta, :tipo_comprobante, :fecha_comprobante, :vencimiento_cae, :resultado_afip, :cuit_emisor, :tipo_doc_receptor, :nro_doc_receptor, :importe_total, :importe_neto, :importe_iva, :raw_response, :qr_url_afip)"
                         )
-                        db.add(invoice_db)
+                        try:
+                            # DEBUG: log types to detect non-serializable values
+                            try:
+                                type_map = {k: type(v).__name__ for k, v in insert_values.items()}
+                                logger.debug(f"[{invoice_id}] insert_values types: {type_map}")
+                            except Exception:
+                                logger.debug(f"[{invoice_id}] insert_values preview failed")
+
+                            result = db.execute(sql, insert_values)
+                            # Intentar obtener lastrowid si el driver lo expone
+                            try:
+                                new_id = int(result.lastrowid) if hasattr(result, 'lastrowid') and result.lastrowid is not None else None
+                            except Exception:
+                                new_id = None
+                        except Exception:
+                            # En caso de fallo, reintentar con el Core insert como fallback
+                            table_obj = FacturaElectronica.__table__
+                            stmt = sa_insert(table_obj).values(**insert_values)
+                            result = db.execute(stmt)
+                            new_id = None
+
                         db.commit()
-                        db.refresh(invoice_db)
                         single_invoice_result["db_save_status"] = "SUCCESS"
-                        logger.info(f"[{invoice_id}] Factura guardada en la base de datos con ID: {invoice_db.id}")
+                        logger.info(f"[{invoice_id}] Factura insertada en la base de datos. ID (si disponible): {new_id}")
 
                     except Exception as db_error:
                         db.rollback()

@@ -4,9 +4,9 @@ from datetime import datetime, date
 from decimal import Decimal
 from typing import Any, Dict, List, Optional
 from sqlmodel import Field, Relationship, SQLModel, JSON, Column
-from sqlalchemy import DECIMAL, TIMESTAMP, BigInteger, Date, UniqueConstraint, func
+from sqlalchemy import DECIMAL, TIMESTAMP, BigInteger, Date, UniqueConstraint, func, Text
 from sqlmodel import Column  # Importante
-from sqlalchemy import String,JSON   # Importante
+from sqlalchemy import String   # Importante
 # ===================================================================
 # === MODELOS DE ENTIDADES PRINCIPALES
 # ===================================================================
@@ -418,7 +418,9 @@ class FacturaElectronica(SQLModel, table=True):
     importe_total: Decimal = Field(sa_column=Column(DECIMAL(15, 2)))
     importe_neto: Decimal = Field(sa_column=Column(DECIMAL(15, 2)))
     importe_iva: Decimal = Field(sa_column=Column(DECIMAL(15, 2)))
-    raw_response: Optional[Dict[str, Any]] = Field(default=None, sa_column=Column(JSON))
+    # Almacenar raw_response como texto (JSON string) para evitar problemas
+    # de serialización cuando la respuesta contenga objetos complejos.
+    raw_response: Optional[str] = Field(default=None, sa_column=Column(Text))
     qr_url_afip: Optional[str] = Field(default=None, sa_column=Column(String(512)))
     created_at: Optional[datetime] = Field(
         default_factory=datetime.utcnow,

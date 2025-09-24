@@ -2,6 +2,8 @@ from dataclasses import dataclass
 from datetime import datetime
 import os
 import requests
+import json
+from .json_utils import default_json
 from dotenv import load_dotenv
 from typing import Dict, Any, Optional
 from enum import Enum
@@ -27,6 +29,62 @@ if not (FACTURACION_API_URL):
     raise SystemExit(
         "ERROR CRÍTICO: falta FACTURACION_API_URL."
     )
+
+# Intentar resolver credenciales desde variables de entorno primero,
+# y si no existen, intentar leerlas desde la bóveda temporal (boveda_afip_temporal)
+try:
+    from backend.utils import afip_tools_manager
+    import os as _os
+except Exception:
+    afip_tools_manager = None
+
+def _resolve_afip_credentials(emisor_cuit: str | None = None):
+    """Devuelve (cuit, certificado_pem, clave_privada_pem, fuente)
+    Fuente puede ser 'env', 'boveda' o 'none'. Si emisor_cuit se pasa,
+    intentará primero localizar el certificado de ese CUIT en la bóveda.
+    """
+    # 1) Si se indicó un emisor específico, preferir su certificado en la bóveda
+    try:
+        if afip_tools_manager:
+            if emisor_cuit:
+                try:
+                    cfg = afip_tools_manager.obtener_configuracion_emisor(emisor_cuit)
+                except Exception:
+                    cfg = {}
+                if cfg.get('existe'):
+                    cert_path = _os.path.join(afip_tools_manager.BOVEDA_TEMPORAL_PATH, f"{emisor_cuit}.crt")
+                    key_path = _os.path.join(afip_tools_manager.BOVEDA_TEMPORAL_PATH, f"{emisor_cuit}.key")
+                    if _os.path.exists(cert_path) and _os.path.exists(key_path):
+                        with open(cert_path, 'r', encoding='utf-8') as f:
+                            cert_pem = f.read()
+                        with open(key_path, 'r', encoding='utf-8') as f:
+                            key_pem = f.read()
+                        return emisor_cuit, cert_pem, key_pem, 'boveda'
+
+            # 2) Si no se pidió un CUIT específico (o no está disponible), intentar variables de entorno
+            if AFIP_CUIT and AFIP_CERT and AFIP_KEY:
+                return AFIP_CUIT, AFIP_CERT, AFIP_KEY, 'env'
+
+            # 3) Si no hay variables de entorno, buscar cualquiera disponible en la bóveda
+            disponibles = afip_tools_manager.listar_certificados_disponibles()
+            if disponibles:
+                for item in disponibles:
+                    if item.get('tiene_clave'):
+                        cuit = item.get('cuit')
+                        cert_path = item.get('certificado_path')
+                        key_path = _os.path.join(afip_tools_manager.BOVEDA_TEMPORAL_PATH, f"{cuit}.key")
+                        try:
+                            with open(cert_path, 'r', encoding='utf-8') as f:
+                                cert_pem = f.read()
+                            with open(key_path, 'r', encoding='utf-8') as f:
+                                key_pem = f.read()
+                            return cuit, cert_pem, key_pem, 'boveda'
+                        except Exception:
+                            continue
+    except Exception:
+        pass
+
+    return None, None, None, 'none'
 
 @dataclass 
 class ReceptorData():
@@ -69,20 +127,27 @@ def determinar_datos_factura_segun_iva(
 
 
 
+
 def generar_factura_para_venta(
-    total: float, 
+    total: float,
     cliente_data: ReceptorData,
+    emisor_cuit: str | None = None,
 ) -> Dict[str, Any]:
     
-    print(f"Iniciando proceso de facturación para Emisor CUIT: {AFIP_CUIT}")
+    print(f"Iniciando proceso de facturación (emisor solicitado: {emisor_cuit})")
 
-    if not (AFIP_CUIT and AFIP_CERT and AFIP_KEY):
-        raise ValueError("Faltan credenciales críticas de AFIP (CUIT, Certificado, o Clave Privada).")
+    # Resolver credenciales dando preferencia al emisor solicitado (si se proporcionó)
+    cuit_res, cert_res, key_res, fuente = _resolve_afip_credentials(emisor_cuit)
+
+    print(f"Credenciales resueltas: cuit={cuit_res} (fuente={fuente})")
+
+    if not (cuit_res and cert_res and key_res):
+        raise ValueError("Faltan credenciales críticas de AFIP (CUIT, Certificado, o Clave Privada). Revise variables de entorno o bóveda.")
 
     credenciales = {
-        "cuit": AFIP_CUIT,
-        "certificado": AFIP_CERT,
-        "clave_privada": AFIP_KEY
+        "cuit": cuit_res,
+        "certificado": cert_res,
+        "clave_privada": key_res
     }
         
 
@@ -134,16 +199,59 @@ def generar_factura_para_venta(
 
     print(f"Enviando petición al microservicio de facturación en: {FACTURACION_API_URL}")
     try:
+        # Log seguro de credenciales (no imprimir la clave completa)
+        try:
+            safe_cred = {
+                'cuit': cuit_res,
+                'cert_present': bool(cert_res and len(cert_res) > 0),
+                'key_present': bool(key_res and len(key_res) > 0),
+                'cert_preview': (cert_res[:30] + '...') if cert_res and len(cert_res) > 30 else cert_res,
+                'key_preview': ('<private key hidden>' if key_res else None)
+            }
+            print(f"Credenciales (seguras): {safe_cred}")
+        except Exception:
+            print("Credenciales: <no disponible para previsualizar>")
+
         response = requests.post(
             FACTURACION_API_URL,
             json=payload,
             timeout=20,
         )
-        
-        response.raise_for_status() 
-        
+
+        response.raise_for_status()
+
         resultado_afip = response.json()
-        print(f"Respuesta exitosa del microservicio de facturación: {resultado_afip}")
+        print(f"Respuesta del microservicio de facturación: {resultado_afip}")
+
+        # Si el microservicio devuelve un cuerpo JSON con mensajes que parecen
+        # indicar un problema de conexión en el servidor (p. ej. ConnectionResetError),
+        # tratamos eso como un error transitorio y lanzamos una excepción de conexión
+        # para que la capa que llama pueda reintentar.
+        try:
+            if isinstance(resultado_afip, dict):
+                msgs = []
+                for k in ("message", "error", "errores"):
+                    v = resultado_afip.get(k)
+                    if v:
+                        if isinstance(v, str):
+                            msgs.append(v)
+                        else:
+                            # Intentar convertir a string/JSON para inspección
+                            try:
+                                msgs.append(json.dumps(v, ensure_ascii=False, default=default_json))
+                            except Exception:
+                                msgs.append(str(v))
+                joined = " ".join(msgs)
+                # Marcar como transitorio si el body contiene indicios de errores de conexión/SSL
+                if any(x in joined for x in ("ConnectionResetError", "ConnectionReset", "SSLError", "ssl.SSLError", "ssl")):
+                    print(f"Microservicio reportó error transitorio en body: {joined}")
+                    raise requests.exceptions.ConnectionError(f"Microservicio: {joined}")
+        except requests.exceptions.ConnectionError:
+            # Propagar para que el bloque exterior lo capture y/o para que la capa de reintentos funcione
+            raise
+        except Exception:
+            # No crítico; continuar con el flujo normal
+            pass
         if resultado_afip.get("cae"):
             
             # 2. Construimos el diccionario completo que se guardará
@@ -155,9 +263,14 @@ def generar_factura_para_venta(
                 "numero_comprobante": resultado_afip.get("numero_comprobante"),
                 "punto_venta": datos_factura.get("punto_venta"),
                 "tipo_comprobante": datos_factura.get("tipo_afip"),
-                "fecha_comprobante": datetime.now(),
+                # Usar ISO string para evitar problemas de serialización al guardar en BD
+                "fecha_comprobante": datetime.now().isoformat(),
                 "importe_total": total,
-                "cuit_emisor": int(AFIP_CUIT),
+                    # usar el CUIT resuelto para el emisor, no la variable global AFIP_CUIT
+                    "cuit_emisor": int(cuit_res) if cuit_res is not None else None,
+                # DEBUG: indicar qué CUIT y qué fuente de credenciales se usaron (no incluir claves)
+                "debug_cuit_usado": str(cuit_res),
+                "debug_fuente_credenciales": fuente,
                 "tipo_doc_receptor": datos_factura.get("tipo_documento"),
                 "nro_doc_receptor": int(datos_factura.get("documento")),
                 "tipo_documento": datos_factura.get("tipo_documento"),
@@ -187,7 +300,11 @@ def generar_factura_para_venta(
                     if isinstance(body, dict) and 'message' in body:
                         body_text = body.get('message')
                     else:
-                        body_text = json.dumps(body, ensure_ascii=False)
+                        try:
+                            from .json_utils import default_json
+                            body_text = json.dumps(body, ensure_ascii=False, default=default_json)
+                        except Exception:
+                            body_text = json.dumps(body, ensure_ascii=False, default=default_json)
                 except ValueError:
                     body_text = e.response.text
         except Exception:
@@ -195,13 +312,41 @@ def generar_factura_para_venta(
 
         safe_msg = f"Status: {status_code}. Body: {body_text}"
         print(f"ERROR: El microservicio de facturación rechazó la petición. {safe_msg}")
+        # Si el body contiene indicios de SSL/EOF/ConnectionReset, tratar como error de conexión
+        try:
+            joined = (body_text or "").lower()
+            if any(x in joined for x in ("ssl", "unexpected_eof_while_reading", "connectionreseterror", "connectionreset", "ssl.sslerror", "unexpected eof")):
+                print("Detected SSL/EOF/ConnectionReset indicator in microservice body -> raising ConnectionError to allow retry")
+                raise requests.exceptions.ConnectionError(f"Microservicio transient error: {body_text}")
+        except requests.exceptions.ConnectionError:
+            raise
+        except Exception:
+            pass
+
         raise RuntimeError(f"Error en el servicio de facturación: {safe_msg}")
 
     except requests.exceptions.RequestException as e:
         # Request exceptions pueden contener detalles útiles; no intentar subscriptarlos
         print(f"ERROR: No se pudo conectar con el microservicio de facturación. Detalle: {repr(e)}")
+        # Si es un error SSL u otro error de conexión, transformarlo en ConnectionError
+        try:
+            import ssl
+            # Algunos wrappers envuelven la excepción original; intentar detectar ssl.SSLError
+            if isinstance(e, ssl.SSLError) or 'ssl' in repr(e).lower() or 'unexpected eof' in repr(e).lower() or 'connectionreset' in repr(e).lower():
+                print('Transformando excepción SSL/EOF/ConnectionReset en ConnectionError para reintento')
+                raise requests.exceptions.ConnectionError(f"SSL/Connection error: {e}")
+        except Exception:
+            pass
         raise RuntimeError(f"El servicio de facturación no está disponible en este momento. Detalle: {repr(e)}")
     
     except Exception as e:
+        # Algunos errores fatales pueden contener en su mensaje pistas de problemas
+        # con la conexión SSL/EOF/ConnectionReset generados por la librería de AFIP.
+        # Detectarlos y transformarlos en ConnectionError para permitir reintentos.
+        msg = repr(e).lower()
+        if any(x in msg for x in ("ssl", "unexpected eof", "connectionreset", "connection reset", "ssl.sserror", "ssl.sserror")):
+            print(f"Transformando excepción inesperada con indicios SSL/EOF en ConnectionError: {e}")
+            raise requests.exceptions.ConnectionError(f"Transient SSL/Connection error detected: {e}")
+
         print(f"ERROR: Ocurrió un error inesperado durante la facturación. Detalle: {e}")
         raise RuntimeError(f"Error inesperado durante la facturación: {e}")
