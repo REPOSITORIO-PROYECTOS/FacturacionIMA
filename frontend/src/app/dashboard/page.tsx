@@ -1,22 +1,9 @@
 "use client";
 import React, { useEffect, useMemo, useState, useCallback } from "react";
 import Link from "next/link";
-
-type Boleta = Record<string, string | number | boolean | undefined> & {
-  "ID Ingresos"?: string | number;
-  "INGRESOS"?: string | number;
-  tabla?: string;
-  total?: number | string;
-  CUIT?: string | number;
-  dni?: string | number;
-  cuit?: string | number;
-  cliente?: string;
-  nombre?: string;
-  "Razon Social"?: string;
-  "Domicilio"?: string;
-  condicion_iva?: string;
-  "condicion-iva"?: string;
-};
+import type { Boleta } from "@/types/boleta";
+import { MediosPagoResumen } from "@/components/dashboard/MediosPagoResumen";
+import { BoletaDetalleModal } from "@/components/dashboard/BoletaDetalleModal";
 
 export default function DashboardPage() {
   // Estados y funciones
@@ -159,6 +146,8 @@ export default function DashboardPage() {
   const [filtroNoFacturadas, setFiltroNoFacturadas] = useState("");
   const [boletasFacturadas, _setBoletasFacturadas] = useState<Boleta[]>([]);
   const [boletasNoFacturadas, _setBoletasNoFacturadas] = useState<Boleta[]>([]);
+  // Modal de detalle de boleta
+  const [boletaDetalle, setBoletaDetalle] = useState<Boleta | null>(null);
   const boletasFacturadasFiltradas = useMemo(() => {
     if (!filtroFacturadas) return boletasFacturadas;
     return boletasFacturadas.filter((b) => {
@@ -179,6 +168,39 @@ export default function DashboardPage() {
   const totalNoFacturadas = boletasNoFacturadas.length;
   const totalGlobal = totalFacturadas + totalNoFacturadas;
   const porcentajeFacturadas = totalGlobal === 0 ? 0 : Math.round((totalFacturadas / totalGlobal) * 100);
+
+  // Totales monetarios
+  const sumaFacturadas = useMemo(() => boletasFacturadas.reduce((acc, b) => acc + parseMonto(b.total ?? b["INGRESOS"]), 0), [boletasFacturadas]);
+  const sumaNoFacturadas = useMemo(() => boletasNoFacturadas.reduce((acc, b) => acc + parseMonto(b.total ?? b["INGRESOS"]), 0), [boletasNoFacturadas]);
+
+  // Carga de datos para Admin (y para cualquier usuario con token válido)
+  useEffect(() => {
+    if (!token) return;
+    let cancelado = false;
+    const headers = { Authorization: `Bearer ${token}` } as Record<string, string>;
+    const cargar = async () => {
+      try {
+        const [nfRes, fRes] = await Promise.all([
+          fetch(`/api/boletas?tipo=no-facturadas&limit=200`, { headers }),
+          fetch(`/api/boletas?tipo=facturadas&limit=200`, { headers })
+        ]);
+        const [nfData, fData] = await Promise.all([
+          nfRes.json().catch(() => ([])),
+          fRes.json().catch(() => ([]))
+        ]);
+        if (cancelado) return;
+        // Aceptar tanto forma de array directo como {items: []}
+        const arrNF = Array.isArray(nfData) ? nfData : (Array.isArray(nfData?.items) ? nfData.items : []);
+        const arrF = Array.isArray(fData) ? fData : (Array.isArray(fData?.items) ? fData.items : []);
+        _setBoletasNoFacturadas(arrNF as Boleta[]);
+        _setBoletasFacturadas(arrF as Boleta[]);
+      } catch {
+        // Silencio: la tarjeta ya avisa si no hay data
+      }
+    };
+    cargar();
+    return () => { cancelado = true; };
+  }, [token]);
   // Agrupación (se declara después de calcular las listas filtradas)
   const agrupadas = useMemo(() => {
     const grupos: Record<string, { key: string; boletas: Boleta[]; groupType: string; facturado: boolean }> = {};
@@ -233,6 +255,22 @@ export default function DashboardPage() {
             <div className="p-4 rounded border bg-white">
               <div className="text-xs text-gray-500">% Facturadas</div>
               <div className="text-2xl font-bold text-blue-700">{porcentajeFacturadas}%</div>
+            </div>
+          </div>
+
+          {/* Comparador de montos y conteos */}
+          <div className="grid gap-4 grid-cols-1 md:grid-cols-3">
+            <div className="p-4 rounded border bg-white">
+              <div className="text-xs text-gray-500">Importe Facturadas</div>
+              <div className="text-2xl font-bold text-green-700">$ {formatSinCentavos(sumaFacturadas)}</div>
+            </div>
+            <div className="p-4 rounded border bg-white">
+              <div className="text-xs text-gray-500">Importe No Facturadas</div>
+              <div className="text-2xl font-bold text-red-700">$ {formatSinCentavos(sumaNoFacturadas)}</div>
+            </div>
+            <div className="p-4 rounded border bg-white">
+              <div className="text-xs text-gray-500">Diferencia (Fact - No Fact)</div>
+              <div className="text-2xl font-bold text-blue-700">$ {formatSinCentavos(sumaFacturadas - sumaNoFacturadas)}</div>
             </div>
           </div>
 
@@ -330,6 +368,14 @@ export default function DashboardPage() {
               </table>
             </div>
           </div>
+
+          {/* Resumen por medio de pago (conteos y montos) */}
+          <MediosPagoResumen
+            boletasFacturadas={boletasFacturadas}
+            boletasNoFacturadas={boletasNoFacturadas}
+            parseMonto={parseMonto}
+            formatSinCentavos={formatSinCentavos}
+          />
 
           {/* Primera fila de filtros */}
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
@@ -538,7 +584,7 @@ export default function DashboardPage() {
                               >Facturar</button>
                               <button
                                 className="px-2 py-1 rounded-lg text-xs bg-gray-200 hover:bg-gray-300 text-gray-800"
-                                onClick={() => alert(JSON.stringify(b, null, 2))}
+                                onClick={() => setBoletaDetalle(b)}
                               >Ver boleta</button>
                               <button
                                 className="px-2 py-1 rounded-lg text-xs bg-green-600 hover:bg-green-700 text-white"
@@ -555,8 +601,21 @@ export default function DashboardPage() {
               </div>
             </div>
           )}
+
+          {/* Modal de detalle de boleta */}
+          {boletaDetalle && (
+            <BoletaDetalleModal
+              boleta={boletaDetalle}
+              onClose={() => setBoletaDetalle(null)}
+              onFacturar={() => { facturarBoleta(boletaDetalle); }}
+              onImprimir={() => { imprimirBoleta(boletaDetalle); }}
+              formatSinCentavos={formatSinCentavos}
+            />
+          )}
         </main>
       </div >
     </div >
   );
 }
+
+// ----- Componentes auxiliares -----
