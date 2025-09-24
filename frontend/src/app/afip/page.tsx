@@ -65,8 +65,8 @@ export default function AFIPPage() {
                 const data = await res.json();
                 setCondicionesIVA(data.condiciones || []);
             }
-        } catch (error) {
-            console.error("Error cargando condiciones IVA:", error);
+        } catch {
+            console.error("Error cargando condiciones IVA");
         }
     };
 
@@ -80,8 +80,8 @@ export default function AFIPPage() {
                 const data = await res.json();
                 setConfiguracionEmisor(data);
             }
-        } catch (error) {
-            console.error("Error cargando configuración emisor:", error);
+        } catch {
+            console.error("Error cargando configuración emisor");
         }
     };
 
@@ -111,7 +111,7 @@ export default function AFIPPage() {
             } else {
                 setMensaje(`❌ Error: ${data.detail}`);
             }
-        } catch (error) {
+        } catch {
             setMensaje("❌ Error de conexión");
         } finally {
             setLoading(false);
@@ -128,8 +128,8 @@ export default function AFIPPage() {
                 const data = await res.json();
                 setCertificados(data.certificados || []);
             }
-        } catch (error) {
-            console.error("Error cargando certificados:", error);
+        } catch {
+            console.error("Error cargando certificados");
         }
     };
 
@@ -173,7 +173,7 @@ export default function AFIPPage() {
                 const error = await res.json();
                 setMensaje(`❌ Error: ${error.detail}`);
             }
-        } catch (error) {
+        } catch {
             setMensaje("❌ Error de conexión");
         } finally {
             setLoading(false);
@@ -211,7 +211,7 @@ export default function AFIPPage() {
             } else {
                 setMensaje(`❌ Error: ${data.detail}`);
             }
-        } catch (error) {
+        } catch {
             setMensaje("❌ Error de conexión");
         } finally {
             setLoading(false);
@@ -252,7 +252,7 @@ export default function AFIPPage() {
             } else {
                 setMensaje(`❌ Error: ${data.detail}`);
             }
-        } catch (error) {
+        } catch {
             setMensaje("❌ Error procesando archivo");
         } finally {
             setLoading(false);
@@ -269,7 +269,7 @@ export default function AFIPPage() {
                 const data = await res.json();
                 setMensaje(`📋 ${data.mensaje}`);
             }
-        } catch (error) {
+        } catch {
             setMensaje("❌ Error verificando estado");
         }
     };

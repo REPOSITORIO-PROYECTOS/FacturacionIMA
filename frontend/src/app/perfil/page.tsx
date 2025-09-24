@@ -3,17 +3,21 @@ import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 
 export default function PerfilPage() {
-  const router = useRouter();
   const [nombre, setNombre] = useState("");
   const [mensaje, setMensaje] = useState("");
-  const [activeTab, setActiveTab] = useState<"perfil" | "afip">("perfil");
-
-  // Estados AFIP
+  const [activeTab, setActiveTab] = useState("perfil");
   const [cuit, setCuit] = useState("");
   const [razonSocial, setRazonSocial] = useState("");
   const [certificadoPem, setCertificadoPem] = useState("");
-  const [estadoAfip, setEstadoAfip] = useState<{ estado: string; mensaje: string } | null>(null);
   const [loadingAfip, setLoadingAfip] = useState(false);
+  // Define a type for estadoAfip
+  type EstadoAfip = {
+    estado?: string;
+    mensaje?: string;
+  };
+  const [estadoAfip, setEstadoAfip] = useState<EstadoAfip | null>(null);
+
+  const router = useRouter();
 
   useEffect(() => {
     const saved = localStorage.getItem("user_name") || localStorage.getItem("remember_user") || "";
@@ -26,6 +30,25 @@ export default function PerfilPage() {
     setMensaje("Nombre actualizado");
     setTimeout(() => router.push("/dashboard"), 800);
   }
+
+
+  const verificarEstadoAfip = useCallback(async () => {
+    if (!cuit) return;
+
+    try {
+      const token = localStorage.getItem("token");
+      const response = await fetch(`/api/afip?cuit=${cuit}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        setEstadoAfip(data);
+      }
+    } catch {
+      // Silenciar error de red
+    }
+  }, [cuit]);
 
   const generarCSR = useCallback(async () => {
     if (!cuit || !razonSocial) {
@@ -70,7 +93,7 @@ export default function PerfilPage() {
     } finally {
       setLoadingAfip(false);
     }
-  }, [cuit, razonSocial]);
+  }, [cuit, razonSocial, verificarEstadoAfip]);
 
   const subirCertificado = useCallback(async () => {
     if (!cuit || !certificadoPem) {
@@ -106,25 +129,7 @@ export default function PerfilPage() {
     } finally {
       setLoadingAfip(false);
     }
-  }, [cuit, certificadoPem]);
-
-  const verificarEstadoAfip = useCallback(async () => {
-    if (!cuit) return;
-
-    try {
-      const token = localStorage.getItem("token");
-      const response = await fetch(`/api/afip?cuit=${cuit}`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        setEstadoAfip(data);
-      }
-    } catch {
-      // Silenciar error de red
-    }
-  }, [cuit]);
+  }, [cuit, certificadoPem, verificarEstadoAfip]);
 
   useEffect(() => {
     if (cuit && activeTab === "afip") {
@@ -199,8 +204,8 @@ export default function PerfilPage() {
 
               {estadoAfip && (
                 <div className={`p-3 rounded ${estadoAfip.estado === 'completo' ? 'bg-green-100 border-green-300' :
-                    estadoAfip.estado === 'pendiente' ? 'bg-yellow-100 border-yellow-300' :
-                      'bg-gray-100 border-gray-300'
+                  estadoAfip.estado === 'pendiente' ? 'bg-yellow-100 border-yellow-300' :
+                    'bg-gray-100 border-gray-300'
                   }`}>
                   <p className="font-medium">Estado: {estadoAfip.estado}</p>
                   <p className="text-sm">{estadoAfip.mensaje}</p>

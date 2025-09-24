@@ -1,6 +1,5 @@
 "use client";
 import React, { useEffect, useMemo, useState, useCallback } from "react";
-import { Fragment } from "react";
 import Link from "next/link";
 
 type Boleta = Record<string, string | number | boolean | undefined> & {
@@ -29,10 +28,10 @@ export default function DashboardPage() {
   const [soloFacturables, setSoloFacturables] = useState<boolean>(true);
   const [busqueda, setBusqueda] = useState<string>("");
   const [seleccionadas, setSeleccionadas] = useState<Set<string>>(new Set());
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
+  // ...existing code...
+  // Eliminado: error no usado
   const [tipoBoleta, setTipoBoleta] = useState<'todas' | 'no-facturadas' | 'facturadas'>('no-facturadas');
-  
+
   // Nuevos filtros - Inicializar con valor fijo para evitar errores de hidratación
   const [fechaDesde, setFechaDesde] = useState("");
   const [fechaHasta, setFechaHasta] = useState("");
@@ -46,8 +45,8 @@ export default function DashboardPage() {
     'Mercado Pago',
     'Otro'
   ]);
-  const [medioSeleccionado, setMedioSeleccionado] = useState('Efectivo');
-  
+  // Eliminado: loading no usado
+
   // Filtros para listas de resumen
   const [filtroFacturadas, setFiltroFacturadas] = useState("");
   const [filtroNoFacturadas, setFiltroNoFacturadas] = useState("");
@@ -87,11 +86,11 @@ export default function DashboardPage() {
     return boletas.filter((b) => {
       // Filtro por búsqueda general
       const coincideBusqueda = !busqueda || Object.values(b).some((v) => v?.toString().toLowerCase().includes(busqueda.toLowerCase()));
-      
+
       // Filtro por razón social específico
       const razonSocial = (b.cliente || b.nombre || b["Razon Social"] || "").toString().toLowerCase();
       const coincideRazonSocial = !filtroRazonSocial || razonSocial.includes(filtroRazonSocial.toLowerCase());
-      
+
       // Filtro por fecha
       const fechaBoleta = b.Fecha || b.fecha || b["Fecha"] || "";
       let coincideFecha = true;
@@ -106,7 +105,7 @@ export default function DashboardPage() {
           coincideFecha = true;
         }
       }
-      
+
       const pasaFacturable = !soloFacturables || isFacturable(b);
       return coincideBusqueda && coincideRazonSocial && coincideFecha && pasaFacturable;
     });
@@ -141,12 +140,10 @@ export default function DashboardPage() {
   useEffect(() => {
     let cancelled = false;
     async function load() {
-      setLoading(true);
-      setError("");
+      // Eliminado: setLoading y setError no usados
       const token = localStorage.getItem("token");
       if (!token) {
-        setError("No autenticado. Inicie sesión.");
-        setLoading(false);
+        // Eliminado: setError y setLoading no usados
         return;
       }
       // Construir endpoint unificado
@@ -155,16 +152,15 @@ export default function DashboardPage() {
       try {
         const res = await fetch(endpoint, { headers: { Authorization: `Bearer ${token}` } });
         if (!res.ok) {
-          const err = await res.json().catch(() => ({}));
-          if (!cancelled) setError(String(err?.detail || 'Error al cargar boletas'));
+          // Eliminado: setError no usado
         } else {
           const data = await res.json().catch(() => []);
           if (!cancelled && Array.isArray(data)) setBoletas(data);
         }
       } catch {
-        if (!cancelled) setError('Error de conexión al cargar boletas');
+        // Eliminado: setError no usado
       } finally {
-        if (!cancelled) setLoading(false);
+        // Eliminado: setLoading no usado
       }
     }
     load();
@@ -198,19 +194,19 @@ export default function DashboardPage() {
     return boletasFacturadas.filter((b) => {
       const razonSocial = (b.cliente || b.nombre || b["Razon Social"] || "").toString().toLowerCase();
       return razonSocial.includes(filtroFacturadas.toLowerCase()) ||
-             Object.values(b).some((v) => v?.toString().toLowerCase().includes(filtroFacturadas.toLowerCase()));
+        Object.values(b).some((v) => v?.toString().toLowerCase().includes(filtroFacturadas.toLowerCase()));
     });
   }, [boletasFacturadas, filtroFacturadas]);
-  
+
   const boletasNoFacturadasFiltradas = useMemo(() => {
     if (!filtroNoFacturadas) return boletasNoFacturadas;
     return boletasNoFacturadas.filter((b) => {
       const razonSocial = (b.cliente || b.nombre || b["Razon Social"] || "").toString().toLowerCase();
       return razonSocial.includes(filtroNoFacturadas.toLowerCase()) ||
-             Object.values(b).some((v) => v?.toString().toLowerCase().includes(filtroNoFacturadas.toLowerCase()));
+        Object.values(b).some((v) => v?.toString().toLowerCase().includes(filtroNoFacturadas.toLowerCase()));
     });
   }, [boletasNoFacturadas, filtroNoFacturadas]);
-  
+
   const totalFacturadas = boletasFacturadas.length;
   const totalNoFacturadas = boletasNoFacturadas.length;
   const totalGlobal = totalFacturadas + totalNoFacturadas;
@@ -220,22 +216,22 @@ export default function DashboardPage() {
     const token = localStorage.getItem("token");
     if (!token) return alert("No autenticado");
     if (!isFacturable(b)) return alert("Esta boleta no es facturable (faltan datos o total)");
-    
+
     // Seleccionar medio de pago
     const medioSeleccionado = prompt(
       `Seleccionar medio de pago:\n\n` +
       mediosPago.map((medio, idx) => `${idx + 1}. ${medio}`).join('\n') +
-      '\n\nIngrese el número del medio de pago (1-' + mediosPago.length + '):', 
+      '\n\nIngrese el número del medio de pago (1-' + mediosPago.length + '):',
       '1'
     );
-    
+
     if (!medioSeleccionado) return;
     const indice = parseInt(medioSeleccionado) - 1;
     if (indice < 0 || indice >= mediosPago.length) {
       alert('Opción inválida');
       return;
     }
-    
+
     const medio = mediosPago[indice];
     const payload = {
       id: getId(b),
@@ -262,56 +258,7 @@ export default function DashboardPage() {
     }
   }
 
-  async function facturarSeleccionadas() {
-    const token = localStorage.getItem("token");
-    if (!token) return alert("No autenticado");
-    const seleccion = boletasFiltradas.filter((b) => seleccionadas.has(getId(b)) && isFacturable(b));
-    if (seleccion.length === 0) return alert("No hay boletas facturables seleccionadas");
-    
-    // Seleccionar medio de pago
-    const medioSeleccionado = prompt(
-      `Seleccionar medio de pago para ${seleccion.length} boletas:\n\n` +
-      mediosPago.map((medio, idx) => `${idx + 1}. ${medio}`).join('\n') +
-      '\n\nIngrese el número del medio de pago (1-' + mediosPago.length + '):', 
-      '1'
-    );
-    
-    if (!medioSeleccionado) return;
-    const indice = parseInt(medioSeleccionado) - 1;
-    if (indice < 0 || indice >= mediosPago.length) {
-      alert('Opción inválida');
-      return;
-    }
-    
-    const medio = mediosPago[indice];
-    const payloads = seleccion.map((b) => ({
-      id: getId(b),
-      total: b.total || parseMonto(String(b.INGRESOS || b.total || 0)),
-      medio_pago: medio,
-      cliente_data: {
-        cuit_o_dni: b.cuit || b.dni || String(b.CUIT || ""),
-        nombre_razon_social: b.cliente || b.nombre || b["Razon Social"] || "",
-        domicilio: b.domicilio || b["Domicilio"] || "",
-        condicion_iva: b.condicion_iva || b["condicion-iva"] || "",
-      },
-    }));
-    try {
-      const res = await fetch("/api/facturar", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify(payloads),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (res.ok) {
-        alert(`Facturación en lote exitosa con ${medio}`);
-        setSeleccionadas(new Set());
-      } else {
-        alert(String(data?.detail || "Error al facturar en lote"));
-      }
-    } catch {
-      alert("Error de conexión al facturar en lote");
-    }
-  }
+  // Eliminado: facturarSeleccionadas no usado
 
   // Define las columnas que quieres mostrar en el modal (sin IDs, más enfocado)
   const columnasVisibles = [
@@ -374,7 +321,7 @@ export default function DashboardPage() {
                     title="Filtrar boletas facturadas"
                   />
                   {filtroFacturadas && (
-                    <button 
+                    <button
                       className="px-2 py-1 bg-gray-200 hover:bg-gray-300 rounded text-xs"
                       onClick={() => setFiltroFacturadas("")}
                       title="Limpiar filtro"
@@ -389,8 +336,8 @@ export default function DashboardPage() {
                   <tr><th className="p-1">Razón Social</th><th className="p-1">Total</th></tr>
                 </thead>
                 <tbody>
-                  {boletasFacturadasFiltradas.slice(0, 10).map((b, i) => {
-                    const id = String(b['ID Ingresos'] || b['id'] || i);
+                  {boletasFacturadasFiltradas.slice(0, 10).map((b) => {
+                    const id = String(b['ID Ingresos'] || b['id'] || '');
                     const razonSocial = b.cliente || b.nombre || b['Razon Social'] || '';
                     const total = b.total || b['INGRESOS'] || '';
                     return <tr key={id} className="border-t"><td className="p-1 truncate max-w-[180px]">{String(razonSocial)}</td><td className="p-1">{String(total)}</td></tr>;
@@ -414,7 +361,7 @@ export default function DashboardPage() {
                     title="Filtrar boletas no facturadas"
                   />
                   {filtroNoFacturadas && (
-                    <button 
+                    <button
                       className="px-2 py-1 bg-gray-200 hover:bg-gray-300 rounded text-xs"
                       onClick={() => setFiltroNoFacturadas("")}
                       title="Limpiar filtro"
@@ -429,8 +376,8 @@ export default function DashboardPage() {
                   <tr><th className="p-1">Razón Social</th><th className="p-1">Total</th></tr>
                 </thead>
                 <tbody>
-                  {boletasNoFacturadasFiltradas.slice(0, 10).map((b, i) => {
-                    const id = String(b['ID Ingresos'] || b['id'] || i);
+                  {boletasNoFacturadasFiltradas.slice(0, 10).map((b) => {
+                    const id = String(b['ID Ingresos'] || b['id'] || '');
                     const razonSocial = b.cliente || b.nombre || b['Razon Social'] || '';
                     const total = b.total || b['INGRESOS'] || '';
                     return <tr key={id} className="border-t"><td className="p-1 truncate max-w-[180px]">{String(razonSocial)}</td><td className="p-1">{String(total)}</td></tr>;
@@ -443,7 +390,7 @@ export default function DashboardPage() {
           {/* Controles de filtrado */}
           <div className="bg-white rounded-lg shadow p-4 space-y-4">
             <h3 className="font-semibold text-gray-700">Filtros de Búsqueda</h3>
-            
+
             {/* Primera fila de filtros */}
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
               <div>
@@ -491,7 +438,7 @@ export default function DashboardPage() {
                 </select>
               </div>
             </div>
-            
+
             {/* Segunda fila de filtros */}
             <div className="flex flex-col md:flex-row gap-4 md:items-end">
               <div className="flex-1">
@@ -507,7 +454,7 @@ export default function DashboardPage() {
                 <input type="checkbox" checked={soloFacturables} onChange={(e) => setSoloFacturables(e.target.checked)} />
                 <span className="text-sm">Solo facturables</span>
               </label>
-              <button 
+              <button
                 className="px-4 py-2 bg-gray-200 hover:bg-gray-300 rounded text-sm"
                 onClick={() => {
                   setBusqueda("");
@@ -530,7 +477,7 @@ export default function DashboardPage() {
 
           {/* Tarjetas agrupadas por facturación, tipo de pago y repartidor */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {agrupadas.map((grupo, idx) => (
+            {agrupadas.map((grupo) => (
               <div key={grupo.key} className="bg-white rounded-lg border shadow p-4 flex flex-col gap-2">
                 <div className="flex justify-between items-center">
                   <div>
@@ -548,22 +495,22 @@ export default function DashboardPage() {
                         onClick={() => {
                           const seleccion = grupo.boletas.filter(isFacturable);
                           if (seleccion.length === 0) return alert("No hay boletas facturables en el grupo");
-                          
+
                           // Mostrar modal de confirmación con medio de pago
                           const medioSeleccionado = prompt(
                             `Seleccionar medio de pago para facturar ${seleccion.length} boletas:\n\n` +
                             mediosPago.map((medio, idx) => `${idx + 1}. ${medio}`).join('\n') +
-                            '\n\nIngrese el número del medio de pago (1-' + mediosPago.length + '):', 
+                            '\n\nIngrese el número del medio de pago (1-' + mediosPago.length + '):',
                             '1'
                           );
-                          
+
                           if (!medioSeleccionado) return;
                           const indice = parseInt(medioSeleccionado) - 1;
                           if (indice < 0 || indice >= mediosPago.length) {
                             alert('Opción inválida');
                             return;
                           }
-                          
+
                           const medio = mediosPago[indice];
                           const payloads = seleccion.map((b) => ({
                             id: getId(b),
@@ -576,7 +523,7 @@ export default function DashboardPage() {
                               condicion_iva: b.condicion_iva || b["condicion-iva"] || "",
                             },
                           }));
-                          
+
                           (async () => {
                             const token = localStorage.getItem("token");
                             if (!token) return alert("No autenticado");
@@ -599,7 +546,7 @@ export default function DashboardPage() {
                   </div>
                 </div>
                 <div className="flex gap-2 flex-wrap">
-                  {grupo.boletas.slice(0, 3).map((b, i) => (
+                  {grupo.boletas.slice(0, 3).map((b) => (
                     <div key={getId(b)} className="bg-blue-50 rounded px-2 py-1 text-xs">
                       {b["Repartidor"] || b["repartidor"] || b["Nombre de Repartidor"] || b["nombre_repartidor"] || "Sin repartidor"}
                     </div>
@@ -635,7 +582,7 @@ export default function DashboardPage() {
                       </tr>
                     </thead>
                     <tbody>
-                      {modalGroup.boletas.map((b, i) => {
+                      {modalGroup.boletas.map((b) => {
                         const id = getId(b);
                         const fact = isFacturable(b);
                         return (
