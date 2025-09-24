@@ -56,15 +56,16 @@ export default function BoletasFacturadasPage() {
     // Restaurar/persistir fechas
     useEffect(() => {
         try {
-            const fd = localStorage.getItem('facturadas_fecha_desde') || '';
-            const fh = localStorage.getItem('facturadas_fecha_hasta') || '';
+            // Usar las mismas claves que el Dashboard para mantener el mismo contexto
+            const fd = localStorage.getItem('filtro_fecha_desde') || '';
+            const fh = localStorage.getItem('filtro_fecha_hasta') || '';
             if (fd || fh) { setFechaDesde(fd); setFechaHasta(fh); }
         } catch { /* noop */ }
     }, []);
     useEffect(() => {
         try {
-            localStorage.setItem('facturadas_fecha_desde', fechaDesde);
-            localStorage.setItem('facturadas_fecha_hasta', fechaHasta);
+            localStorage.setItem('filtro_fecha_desde', fechaDesde);
+            localStorage.setItem('filtro_fecha_hasta', fechaHasta);
         } catch { /* noop */ }
     }, [fechaDesde, fechaHasta]);
 
@@ -86,7 +87,7 @@ export default function BoletasFacturadasPage() {
 
     const itemsConFecha = items.filter((b) => {
         if (!fechaDesde && !fechaHasta) return true;
-        const fechaRaw = String((b as Record<string, unknown>)['Fecha'] || (b as Record<string, unknown>)['fecha'] || '');
+        const fechaRaw = String((b as Record<string, unknown>)['Fecha'] || (b as Record<string, unknown>)['fecha'] || (b as Record<string, unknown>)['FECHA'] || '');
         const f = normalizaFecha(fechaRaw);
         if (!f) return false;
         if (fechaDesde && f < fechaDesde) return false;
