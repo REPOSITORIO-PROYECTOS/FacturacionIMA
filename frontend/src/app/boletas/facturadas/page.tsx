@@ -376,12 +376,7 @@ export default function BoletasFacturadasPage() {
 
                             <div className="flex items-center justify-between">
                                 <button className="px-3 py-2 bg-blue-600 text-white rounded" onClick={() => imprimirComprobante(boletaDetalle)}>Imprimir comprobante</button>
-                                <button className="px-3 py-2 bg-gray-200 rounded" onClick={() => setShowRaw(s => !s)}>{showRaw ? 'Ocultar JSON' : 'Mostrar JSON'}</button>
                             </div>
-
-                            {showRaw && (
-                                <pre className="text-xs bg-gray-100 p-2 rounded mb-2 overflow-x-auto max-h-64">{JSON.stringify(boletaDetalle, null, 2)}</pre>
-                            )}
                         </div>
 
                         <div className="flex gap-2 justify-end">
