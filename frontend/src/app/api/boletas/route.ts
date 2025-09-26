@@ -22,9 +22,9 @@ export async function GET(request: Request): Promise<Response> {
   const limit = url.searchParams.get("limit") || "50";
   const tipo = url.searchParams.get("tipo") || "no-facturadas";
   const buildEndpoint = (base: string) => {
-    if (tipo === 'no-facturadas') return `${base}/boletas/obtener-no-facturadas?skip=${skip}&limit=${limit}`;
-    if (tipo === 'facturadas') return `${base}/boletas/obtener-facturadas?skip=${skip}&limit=${limit}`;
-    return `${base}/boletas/obtener-todas?skip=${skip}&limit=${limit}`;
+    if (tipo === 'no-facturadas') return `${base}/boletas?tipo=no-facturadas&skip=${skip}&limit=${limit}`;
+    if (tipo === 'facturadas') return `${base}/boletas?tipo=facturadas&skip=${skip}&limit=${limit}`;
+    return `${base}/boletas?skip=${skip}&limit=${limit}`;
   };
   for (const base of boletasBases) {
     const endpoint = buildEndpoint(base);

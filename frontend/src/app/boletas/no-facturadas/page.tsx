@@ -133,7 +133,7 @@ export default function BoletasNoFacturadasPage() {
             const token = localStorage.getItem('token');
             if (!token) { setError('No autenticado'); setLoading(false); return; }
             try {
-                const res = await fetch('/api/boletas?tipo=no-facturadas&skip=0&limit=300', { headers: { Authorization: `Bearer ${token}` } });
+                const res = await fetch('/api/boletas?tipo=no-facturadas&limit=300', { headers: { Authorization: `Bearer ${token}` } });
                 if (!res.ok) { const d = await res.json().catch(() => ({})); if (!cancel) setError(String(d?.detail || 'Error')); }
                 else { const d = await res.json().catch(() => []); if (!cancel && Array.isArray(d)) setItems(d); }
             } catch { if (!cancel) setError('Error de conexión'); }
