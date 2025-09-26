@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Response
+from fastapi import APIRouter, Depends, HTTPException, Response, Request
 from datetime import datetime
 from typing import Any, Dict, List
 from pydantic import BaseModel
@@ -15,6 +15,75 @@ import os
 router = APIRouter(
     prefix="/boletas"
 )
+
+# Endpoint universal para /boletas?tipo=...
+@router.get("")
+async def obtener_boletas_tipo(request: Request, tipo: str = None, skip: int = 0, limit: int = 20, usuario_actual: dict = Depends(obtener_usuario_actual_sqlite)):
+    """
+    Endpoint universal para /boletas?tipo=... que redirige a la lógica correspondiente.
+    """
+    try:
+        if tipo == "facturadas":
+            # Usar la función existente para facturadas
+            conn = None
+            try:
+                conn = get_db_connection()
+                if not conn:
+                    raise HTTPException(status_code=503, detail="No se pudo establecer conexión con la base de datos.")
+                cursor = conn.cursor(dictionary=True)
+                query = """
+                    SELECT * 
+                    FROM facturas_electronicas 
+                    ORDER BY id DESC 
+                    LIMIT %s OFFSET %s
+                """
+                cursor.execute(query, (limit, skip))
+                facturas_guardadas = cursor.fetchall()
+                return facturas_guardadas
+            except Exception as e:
+                raise HTTPException(status_code=500, detail=f"Ocurrió un error inesperado al consultar la base de datos: {e}")
+            finally:
+                if conn and conn.is_connected():
+                    cursor.close()
+                    conn.close()
+        elif tipo == "no-facturadas":
+            # Usar la función existente para no facturadas
+            todas_las_boletas = handler.cargar_ingresos()
+            boletas_filtradas = [
+                boleta for boleta in todas_las_boletas 
+                if "falta facturar" in str(boleta.get("facturacion", "")).lower()
+            ]
+            rol = usuario_actual.get("rol_id", "")
+            if rol != "1":
+                username = usuario_actual.get("nombre_usuario", "")
+                if username:
+                    username_l = str(username).lower()
+                    resultado = []
+                    for bo in boletas_filtradas:
+                        repartidor = (bo.get('Repartidor') or bo.get('repartidor') or '')
+                        if not repartidor:
+                            continue
+                        try:
+                            score = 0
+                            try:
+                                score = fuzz.token_set_ratio(username, repartidor)
+                            except Exception:
+                                score = 0
+                            if score > 80:
+                                resultado.append(bo)
+                                continue
+                            if str(repartidor).strip().lower() == username_l:
+                                resultado.append(bo)
+                                continue
+                        except Exception:
+                            continue
+                    return resultado[skip: skip + limit]
+            return boletas_filtradas[skip : skip + limit]
+        else:
+            # Si no se reconoce el tipo, devolver error
+            raise HTTPException(status_code=400, detail="Parámetro 'tipo' inválido o no soportado.")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Ocurrió un error inesperado al obtener boletas: {e}")
 
 handler = TablasHandler() 
 
@@ -45,7 +114,7 @@ def traer_boletas_no_facturadas(
 
         boletas_filtradas = [
             boleta for boleta in todas_las_boletas 
-            if boleta.get("facturacion") == "falta facturar"
+            if "falta facturar" in str(boleta.get("facturacion", "")).lower()
         ]
 
         # Si no es admin (rol_id != "1"), filtrar por repartidor
