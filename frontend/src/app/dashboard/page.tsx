@@ -359,8 +359,8 @@ export default function DashboardPage() {
       try {
         setCargando(true);
         const [nfRes, fRes] = await Promise.all([
-          fetch(`/api/boletas?tipo=no-facturadas&limit=200`, { headers }),
-          fetch(`/api/boletas?tipo=facturadas&limit=200`, { headers })
+          fetch(`/api/boletas/obtener-no-facturadas?limit=200`, { headers }),
+          fetch(`/api/boletas/obtener-facturadas?limit=200`, { headers })
         ]);
         const [nfData, fData] = await Promise.all([
           nfRes.json().catch(() => ([])),
