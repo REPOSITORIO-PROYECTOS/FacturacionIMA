@@ -61,9 +61,7 @@ export default function BoletasFacturadasPage() {
         const nro = b['Nro Comprobante'] || b.numero_comprobante || (b as Record<string, unknown>)['numero_comprobante'] || '-';
         const cae = parsed?.cae || b.cae || '-';
         const total = b.importe_total ?? b.total ?? b.INGRESOS ?? '';
-        const razon = b.cliente || b.nombre || b['Razon Social'] || '';
-        const qrCandidate = parsed?.qr_code || parsed?.qr || (b as Record<string, unknown>)['qr_url_afip'] as unknown || parsed?.qr_code_data || null;
-        const qr = typeof qrCandidate === 'string' ? qrCandidate : null;
+        const razon = b.razon_social || b.cliente || b.nombre || b['Razon Social'] || '';
 
         const html = `
 <!doctype html>
@@ -88,7 +86,7 @@ export default function BoletasFacturadasPage() {
                 <h2>Comprobante ${String(nro)}</h2>
                 <div class="small">Fecha: ${String(fecha)}</div>
             </div>
-            ${qr ? `<img class="qr" src="${qr}" alt="QR"/>` : ''}
+            <!-- QR oculto: la impresión incluye sólo los datos del comprobante -->
         </div>
         <div class="lines">
             <div><strong>Razón social:</strong> ${String(razon)}</div>
@@ -107,72 +105,49 @@ export default function BoletasFacturadasPage() {
 `;
 
         const w = window.open('', '_blank', 'noopener,noreferrer');
-        if (!w) { alert('No se pudo abrir ventana para imprimir. Revisa el bloqueador de ventanas.'); return; }
+        if (!w) {
+            // Fallback cuando el navegador bloquea popups: abrir la impresión en la pestaña actual
+            try {
+                const blob = new Blob([html], { type: 'text/html' });
+                const url = URL.createObjectURL(blob);
+                // Notificar al usuario y navegar la pestaña actual al contenido imprimible
+                alert('El navegador bloqueó la nueva ventana. Se abrirá la vista de impresión en la pestaña actual.');
+                window.location.href = url;
+                // Dar tiempo para que la página cargue el blob y luego pedir imprimir
+                setTimeout(() => { try { window.print(); } catch { } }, 600);
+                // Revoke el blob después de un tiempo prudente
+                setTimeout(() => { try { URL.revokeObjectURL(url); } catch { } }, 5000);
+            } catch (err) {
+                alert('No se pudo abrir la vista de impresión. Revisa el bloqueador de ventanas o guarda el comprobante manualmente.');
+            }
+            return;
+        }
         w.document.open();
         w.document.write(html);
         w.document.close();
     }
 
-    // Helpers para manejar data URLs (QR) -> permitir descargar/convertir a JPG
-    function dataUrlToBlob(dataUrl: string) {
-        const parts = dataUrl.split(',');
-        const meta = parts[0].match(/data:(.*);base64/);
-        const mime = meta ? meta[1] : 'image/png';
-        const binary = atob(parts[1]);
-        const len = binary.length;
-        const u8 = new Uint8Array(len);
-        for (let i = 0; i < len; i++) u8[i] = binary.charCodeAt(i);
-        return new Blob([u8], { type: mime });
-    }
+    // Removed unused helpers (facturarYImprimir, descargarComprobanteJPG) to avoid eslint warnings
 
-    function downloadBlob(blob: Blob, filename: string) {
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = filename;
-        document.body.appendChild(a);
-        a.click();
-        a.remove();
-        URL.revokeObjectURL(url);
-    }
+    // escapeXml removed: not used in this file
 
-    function downloadDataUrlAsFile(dataUrl: string, filename: string) {
-        try {
-            const blob = dataUrlToBlob(dataUrl);
-            downloadBlob(blob, filename);
-        } catch {
-            alert('No se pudo descargar la imagen');
-        }
-    }
+    // Helpers removed: QR image download/convert helpers were unused after removing QR UI
 
-    function convertPngDataUrlToJpegDataUrl(dataUrl: string, quality = 0.92): Promise<string | null> {
-        return new Promise((resolve) => {
-            const img = document.createElement('img');
-            img.crossOrigin = 'anonymous';
-            img.onload = () => {
-                const canvas = document.createElement('canvas');
-                canvas.width = (img as HTMLImageElement).width;
-                canvas.height = (img as HTMLImageElement).height;
-                const ctx = canvas.getContext('2d');
-                if (!ctx) { resolve(null); return; }
-                // pintar fondo blanco para evitar transparencias
-                ctx.fillStyle = '#fff';
-                ctx.fillRect(0, 0, canvas.width, canvas.height);
-                ctx.drawImage(img as CanvasImageSource, 0, 0);
-                try {
-                    const jpeg = canvas.toDataURL('image/jpeg', quality);
-                    resolve(jpeg);
-                } catch { resolve(null); }
-            };
-            img.onerror = () => resolve(null);
-            img.src = dataUrl;
-        });
+    // Obtener razones sociales asociadas a un repartidor, con coincidencia flexible
+    function getRazonesFor(repartidor: string | undefined): string[] {
+        if (!repartidor || !repartidoresMap) return [];
+        const key = Object.keys(repartidoresMap).find(k => k === repartidor || k.toLowerCase() === String(repartidor).toLowerCase());
+        if (key) return repartidoresMap[key] ?? [];
+        // intentar búsqueda por inclusión
+        const key2 = Object.keys(repartidoresMap).find(k => k.toLowerCase().includes(String(repartidor).toLowerCase()) || String(repartidor).toLowerCase().includes(k.toLowerCase()));
+        return key2 ? (repartidoresMap[key2] ?? []) : [];
     }
     const [items, setItems] = useState<BoletaRecord[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
     const [search, setSearch] = useState('');
     const [repartidoresMap, setRepartidoresMap] = useState<Record<string, string[]> | null>(null);
+    const [showRaw, setShowRaw] = useState(false);
     const [fechaDesde, setFechaDesde] = useState<string>('');
     const [fechaHasta, setFechaHasta] = useState<string>('');
     useEffect(() => {
@@ -205,7 +180,7 @@ export default function BoletasFacturadasPage() {
                     if (rname) map[rname] = razones;
                 }
                 setRepartidoresMap(map);
-            } catch (e) {
+            } catch {
                 // no bloquear la carga de boletas si falla esta llamada
             }
         })();
@@ -324,10 +299,15 @@ export default function BoletasFacturadasPage() {
                             const repartidor = (b.repartidor ?? b.Repartidor ?? '') as string;
                             const nroComp = b['Nro Comprobante'] || b.numero_comprobante || (b as Record<string, unknown>)['numero_comprobante'];
                             return (
-                                <div key={id} className="px-3 py-2 flex items-center justify-between gap-3">
+                                <div key={`${String(id)}-${i}`} className="px-3 py-2 flex items-center justify-between gap-3">
                                     <div className="min-w-0">
                                         <div className="font-medium truncate">{String(razonSocial)}</div>
                                         <div className="text-[11px] text-gray-600">Repartidor: {String(repartidor || '-')}</div>
+                                        {(() => {
+                                            const razones = getRazonesFor(repartidor);
+                                            if (!razones || razones.length === 0) return null;
+                                            return <div className="text-[11px] text-gray-500">Razón: {razones.join(', ')}</div>;
+                                        })()}
                                         <div className="text-[11px] text-gray-600">Fecha: {String(b.fecha_comprobante || b.created_at || '-')}</div>
                                         <div className="text-[11px] text-gray-600">Total: {String(total)}</div>
                                     </div>
@@ -359,7 +339,9 @@ export default function BoletasFacturadasPage() {
                                 <tr>
                                     <th className="p-2">Repartidor</th>
                                     <th className="p-2">Razón Social</th>
+                                    <th className="p-2">Fecha</th>
                                     <th className="p-2">Total</th>
+                                    <th className="p-2">CAE</th>
                                     <th className="p-2">Acciones</th>
                                 </tr>
                             </thead>
@@ -374,9 +356,16 @@ export default function BoletasFacturadasPage() {
                                     const repartidor = (b.Repartidor ?? (b as Record<string, unknown>)['repartidor'] ?? '') as string;
                                     const nroComp = b['Nro Comprobante'] || b.numero_comprobante || (b as Record<string, unknown>)['numero_comprobante'];
                                     return (
-                                        <tr key={id} className="border-t">
-                                            <td className="p-2">{repartidor}</td>
-                                            <td className="p-2">{razonSocial}</td>
+                                        <tr key={`${String(id)}-${i}`} className="border-t">
+                                            <td className="p-2">
+                                                <div>{String(repartidor)}</div>
+                                                {(() => {
+                                                    const razones = getRazonesFor(repartidor);
+                                                    if (!razones || razones.length === 0) return null;
+                                                    return <div className="text-xs text-gray-500">{razones.join(', ')}</div>;
+                                                })()}
+                                            </td>
+                                            <td className="p-2">{String(razonSocial)}</td>
                                             <td className="p-2">{String(b.fecha_comprobante || b.created_at || '-')}</td>
                                             <td className="p-2">{total}</td>
                                             <td className="p-2">{b.cae || '-'}</td>
@@ -408,42 +397,28 @@ export default function BoletasFacturadasPage() {
                 <div className="fixed inset-0 bg-black bg-opacity-40 flex items-center justify-center z-50">
                     <div className="bg-white rounded-lg shadow-lg p-6 w-full max-w-lg">
                         <h3 className="text-xl font-bold mb-4">Detalle de Boleta</h3>
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
-                            <div className="md:col-span-2">
+                        <div className="grid grid-cols-1 gap-4 mb-4">
+                            <div className="space-y-2">
+                                <div className="flex justify-between"><div className="font-medium text-sm">Fecha</div><div className="text-sm text-gray-700">{String(boletaDetalle.fecha || boletaDetalle.fecha_comprobante || boletaDetalle.created_at || boletaDetalle['Fecha'] || '-')}</div></div>
+                                <div className="flex justify-between"><div className="font-medium text-sm">Cliente / Razón social</div><div className="text-sm text-gray-700">{String(boletaDetalle.razon_social || boletaDetalle['Razon Social'] || boletaDetalle.Cliente || boletaDetalle.cliente || '-')}</div></div>
+                                <div className="flex justify-between"><div className="font-medium text-sm">Repartidor</div><div className="text-sm text-gray-700">{String(boletaDetalle.repartidor || boletaDetalle.Repartidor || '-')}</div></div>
+                                <div className="flex justify-between"><div className="font-medium text-sm">Total</div><div className="text-sm text-gray-700">{String(boletaDetalle['Total a Pagar'] ?? boletaDetalle.importe_total ?? boletaDetalle.INGRESOS ?? boletaDetalle.Total ?? '-')}</div></div>
+                                <div className="flex justify-between"><div className="font-medium text-sm">Tipo de pago</div><div className="text-sm text-gray-700">{String(boletaDetalle['Tipo Pago'] ?? boletaDetalle.TipoPago ?? boletaDetalle['Tipo de Pago'] ?? '-')}</div></div>
+                                <div className="flex justify-between"><div className="font-medium text-sm">Nro comprobante</div><div className="text-sm text-gray-700">{String(boletaDetalle['Nro Comprobante'] || boletaDetalle.numero_comprobante || '-')}</div></div>
+                                <div className="flex justify-between"><div className="font-medium text-sm">Estado</div><div className="text-sm text-gray-700">{String(boletaDetalle.Estado ?? boletaDetalle.estado ?? boletaDetalle.facturacion ?? '-')}</div></div>
+                                <div className="flex justify-between"><div className="font-medium text-sm">IDs</div><div className="text-sm text-gray-700">Ingreso: {String(boletaDetalle.id_ingreso ?? boletaDetalle['ID Ingresos'] ?? boletaDetalle.ingreso_id ?? '-')} — Pedido: {String(boletaDetalle['ID Pedido'] ?? boletaDetalle.id_pedido ?? '-')}</div></div>
+                            </div>
+
+                            <div className="flex items-center justify-between">
+                                <button className="px-3 py-2 bg-blue-600 text-white rounded" onClick={() => imprimirComprobante(boletaDetalle)}>Imprimir comprobante</button>
+                                <button className="px-3 py-2 bg-gray-200 rounded" onClick={() => setShowRaw(s => !s)}>{showRaw ? 'Ocultar JSON' : 'Mostrar JSON'}</button>
+                            </div>
+
+                            {showRaw && (
                                 <pre className="text-xs bg-gray-100 p-2 rounded mb-2 overflow-x-auto max-h-64">{JSON.stringify(boletaDetalle, null, 2)}</pre>
-                            </div>
-                            <div className="md:col-span-1 flex flex-col items-center gap-2">
-                                {/* QR preview y acciones */}
-                                {(() => {
-                                    const parsed = parseRawResponse(boletaDetalle) || {};
-                                    const qr = parsed?.qr_code || parsed?.qr || (boletaDetalle as Record<string, unknown>)['qr_url_afip'] as string | undefined || null;
-                                    if (!qr || typeof qr !== 'string') return <div className="text-sm text-gray-500">Sin QR</div>;
-                                    return (
-                                        <div className="w-full flex flex-col items-center">
-                                            {/* data URLs no siempre son optimizables por next/image, usamos img directo para asegurar compatibilidad */}
-                                            <img src={qr} alt="QR" className="w-40 h-40 object-contain bg-white p-2 border" />
-                                            <div className="flex gap-2 mt-2">
-                                                <button className="px-2 py-1 bg-gray-200 rounded" onClick={() => downloadDataUrlAsFile(qr as string, `qr_${boletaDetalle.ingreso_id || boletaDetalle.id || 'comp'}.png`)}>Descargar PNG</button>
-                                                <button className="px-2 py-1 bg-gray-200 rounded" onClick={async () => {
-                                                    const jpeg = await convertPngDataUrlToJpegDataUrl(qr as string);
-                                                    if (!jpeg) { alert('No se pudo convertir a JPEG'); return; }
-                                                    downloadDataUrlAsFile(jpeg, `qr_${boletaDetalle.ingreso_id || boletaDetalle.id || 'comp'}.jpg`);
-                                                }}>Descargar JPG</button>
-                                            </div>
-                                            <button className="mt-2 px-2 py-1 bg-blue-500 text-white rounded" onClick={() => {
-                                                const w = window.open('', '_blank', 'noopener');
-                                                if (!w) return alert('No se pudo abrir ventana');
-                                                w.document.write(`<img src="${qr as string}" onload="setTimeout(()=>window.print(),200)"/>`);
-                                                w.document.close();
-                                            }}>Imprimir QR</button>
-                                        </div>
-                                    );
-                                })()}
-                            </div>
+                            )}
                         </div>
-                        {boletaDetalle['Nro Comprobante'] && (
-                            <div className="bg-green-100 text-green-700 p-2 rounded mb-2">Esta boleta está facturada.<br />Ticket: {boletaDetalle['Nro Comprobante'] || '-'}</div>
-                        )}
+
                         <div className="flex gap-2 justify-end">
                             <button className="bg-gray-300 px-4 py-2 rounded hover:bg-gray-400" onClick={cerrarDetalle}>Cerrar</button>
                         </div>
@@ -453,3 +428,4 @@ export default function BoletasFacturadasPage() {
         </div>
     );
 }
+

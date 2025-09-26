@@ -15,11 +15,23 @@ export function BoletaDetalleModal({
     onImprimir?: () => void;
     formatSinCentavos?: (monto: string | number | undefined) => string;
 }) {
-    const bx = boleta as Record<string, string | number | boolean | undefined>;
-    const totalRaw = boleta.total ?? boleta["INGRESOS"];
-    const s = (v: unknown) => String(v ?? "-");
-    const get = (key: string) => s(bx[key]);
-    const totalFmt = formatSinCentavos ? formatSinCentavos(totalRaw) : String(totalRaw ?? "-");
+    const bx = boleta as Record<string, unknown>;
+    const totalRaw = (bx['total'] ?? bx['INGRESOS'] ?? bx['Total a Pagar'] ?? bx['Total']) as unknown;
+    const getAny = (...keys: string[]) => {
+        for (const k of keys) {
+            if (k in bx) {
+                const v = bx[k];
+                if (v !== undefined && v !== null && String(v) !== '') return String(v);
+            }
+            const lower = Object.keys(bx).find(existing => existing.toLowerCase() === k.toLowerCase());
+            if (lower) {
+                const v = bx[lower];
+                if (v !== undefined && v !== null && String(v) !== '') return String(v);
+            }
+        }
+        return null;
+    };
+    const totalFmt = formatSinCentavos ? formatSinCentavos(totalRaw as string | number | undefined) : (totalRaw !== undefined ? String(totalRaw) : 'No disponible');
 
     return (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
@@ -32,23 +44,23 @@ export function BoletaDetalleModal({
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                         <div>
                             <div className="text-[11px] text-gray-500">Fecha</div>
-                            <div className="font-medium">{get('Fecha') || get('fecha')}</div>
+                            <div className="font-medium">{getAny('Fecha', 'fecha') ?? 'No disponible'}</div>
                         </div>
                         <div>
                             <div className="text-[11px] text-gray-500">Registrado por</div>
-                            <div className="font-medium truncate">{get('registrado por') || get('usuario') || get('operador') || get('cajero')}</div>
+                            <div className="font-medium truncate">{getAny('registrado por', 'usuario', 'operador', 'cajero') ?? 'No disponible'}</div>
                         </div>
                         <div className="md:col-span-2">
                             <div className="text-[11px] text-gray-500">Razón Social / Cliente</div>
-                            <div className="font-medium break-words">{get('cliente') || get('nombre') || get('Razon Social') || '— Sin razón social —'}</div>
+                            <div className="font-medium break-words">{getAny('cliente', 'nombre', 'Razon Social') ?? '— Sin razón social —'}</div>
                         </div>
                         <div>
                             <div className="text-[11px] text-gray-500">Repartidor</div>
-                            <div className="font-medium">{get('Repartidor') || get('repartidor')}</div>
+                            <div className="font-medium">{getAny('Repartidor', 'repartidor') ?? 'No disponible'}</div>
                         </div>
                         <div>
                             <div className="text-[11px] text-gray-500">Medio de pago</div>
-                            <div className="font-medium">{get('medio') || get('Medio de pago') || get('tipo_pago')}</div>
+                            <div className="font-medium">{getAny('medio', 'Medio de pago', 'tipo_pago') ?? 'No disponible'}</div>
                         </div>
                         <div>
                             <div className="text-[11px] text-gray-500">Total</div>
@@ -56,15 +68,15 @@ export function BoletaDetalleModal({
                         </div>
                         <div>
                             <div className="text-[11px] text-gray-500">Condición IVA</div>
-                            <div className="font-medium">{get('Condicion IVA') || get('condicion_iva')}</div>
+                            <div className="font-medium">{getAny('Condicion IVA', 'condicion_iva') ?? 'No disponible'}</div>
                         </div>
                         <div className="md:col-span-2">
                             <div className="text-[11px] text-gray-500">Domicilio</div>
-                            <div className="font-medium break-words">{get('Domicilio') || get('domicilio')}</div>
+                            <div className="font-medium break-words">{getAny('Domicilio', 'domicilio') ?? 'No disponible'}</div>
                         </div>
                         <div className="md:col-span-2">
                             <div className="text-[11px] text-gray-500">Nro Comprobante</div>
-                            <div className="font-medium">{get('Nro Comprobante')}</div>
+                            <div className="font-medium">{getAny('Nro Comprobante', 'numero_comprobante') ?? 'No disponible'}</div>
                         </div>
                     </div>
                     <div className="flex flex-col sm:flex-row sm:justify-end gap-2 pt-2">
