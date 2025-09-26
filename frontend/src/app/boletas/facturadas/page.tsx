@@ -375,11 +375,11 @@ export default function BoletasFacturadasPage() {
                                     const nroComp = b['Nro Comprobante'] || b.numero_comprobante || (b as Record<string, unknown>)['numero_comprobante'];
                                     return (
                                         <tr key={id} className="border-t">
-                                <td className="p-2">{repartidor}</td>
-                                <td className="p-2">{razonSocial}</td>
-                                <td className="p-2">{String(b.fecha_comprobante || b.created_at || '-')}</td>
-                                <td className="p-2">{total}</td>
-                                <td className="p-2">{b.cae || '-'}</td>
+                                            <td className="p-2">{repartidor}</td>
+                                            <td className="p-2">{razonSocial}</td>
+                                            <td className="p-2">{String(b.fecha_comprobante || b.created_at || '-')}</td>
+                                            <td className="p-2">{total}</td>
+                                            <td className="p-2">{b.cae || '-'}</td>
                                             <td className="p-2 flex gap-2">
                                                 <button
                                                     className="bg-blue-500 text-white px-2 py-1 rounded hover:bg-blue-600 transition"
