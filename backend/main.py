@@ -77,3 +77,30 @@ def startup_event():
 @app.get("/saludo")
 def read_root():
     return {"message": "Hola, este es un saludo desde el back"}
+
+
+@app.get("/healthz", tags=["infra"], summary="Health check básico")
+def healthz():
+    """Devuelve el estado básico del servicio para monitoreo / load balancers.
+
+    Incluye:
+    - estado: always 'ok' si entra al handler
+    - version de la app
+    - base de datos: true/false según conexión MySQL
+    - google_sheets: true/false si hay configuración de sheet
+    """
+    db_ok = False
+    try:
+        conn = get_db_connection()
+        if conn:
+            db_ok = True
+            conn.close()
+    except Exception:
+        db_ok = False
+
+    return {
+        "status": "ok",
+        "version": "1.0.0",
+        "database": db_ok,
+        "google_sheets": bool(config.GOOGLE_SHEET_ID),
+    }

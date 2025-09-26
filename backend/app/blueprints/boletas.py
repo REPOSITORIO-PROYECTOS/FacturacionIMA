@@ -12,9 +12,29 @@ from typing import Optional
 from backend.utils.billige_manage import process_invoice_batch_for_endpoint
 import os
 
-router = APIRouter(
-    prefix="/boletas"
-)
+router = APIRouter(prefix="/boletas")
+
+
+def _is_admin(usuario_actual: dict) -> bool:
+    """Determina si el usuario es admin normalizando el rol_id (puede venir como int o str).
+    Rol admin es id=1 en la tabla SQLite.
+    """
+    try:
+        rid = usuario_actual.get("rol_id")
+        if rid is None:
+            return False
+        # Normalizar a entero si es posible
+        if isinstance(rid, str):
+            rid = rid.strip()
+            if rid.isdigit():
+                rid_int = int(rid)
+            else:
+                return False
+        else:
+            rid_int = int(rid)
+        return rid_int == 1
+    except Exception:
+        return False
 
 # Endpoint universal para /boletas?tipo=...
 @router.get("")
@@ -47,46 +67,37 @@ async def obtener_boletas_tipo(request: Request, tipo: str = None, skip: int = 0
                     cursor.close()
                     conn.close()
         elif tipo == "no-facturadas":
-            # Usar la función existente para no facturadas
             todas_las_boletas = handler.cargar_ingresos()
-            # Print temporal para depuración
-            print("Valores de 'facturacion' en boletas:")
-            for boleta in todas_las_boletas:
-                print(str(boleta.get("facturacion", "")).lower())
+            # Filtrar por estado 'falta facturar' (tolerante a mayúsculas / espacios)
+            boletas_filtradas = []
+            for bo in todas_las_boletas:
+                estado_fact = str(bo.get("facturacion", "")).strip().lower()
+                if estado_fact == "falta facturar" or (
+                    "falta" in estado_fact and "facturar" in estado_fact
+                ):
+                    boletas_filtradas.append(bo)
 
-            boletas_filtradas = [
-                boleta for boleta in todas_las_boletas
-                if (
-                    "falta" in str(boleta.get("facturacion", "")).lower() and
-                    "facturar" in str(boleta.get("facturacion", "")).lower()
-                )
-            ]
-            rol = usuario_actual.get("rol_id", "")
-            if rol != "1":
+            if not _is_admin(usuario_actual):
                 username = usuario_actual.get("nombre_usuario", "")
                 if username:
-                    username_l = str(username).lower()
+                    username_l = username.lower()
                     resultado = []
                     for bo in boletas_filtradas:
                         repartidor = (bo.get('Repartidor') or bo.get('repartidor') or '')
                         if not repartidor:
                             continue
                         try:
-                            score = 0
+                            ratio = 0
                             try:
-                                score = fuzz.token_set_ratio(username, repartidor)
+                                ratio = fuzz.token_set_ratio(username, repartidor)
                             except Exception:
-                                score = 0
-                            if score > 80:
+                                ratio = 0
+                            if ratio > 80 or repartidor.strip().lower() == username_l:
                                 resultado.append(bo)
-                                continue
-                            if str(repartidor).strip().lower() == username_l:
-                                resultado.append(bo)
-                                continue
                         except Exception:
                             continue
                     return resultado[skip: skip + limit]
-            return boletas_filtradas[skip : skip + limit]
+            return boletas_filtradas[skip: skip + limit]
         else:
             # Si no se reconoce el tipo, devolver error
             raise HTTPException(status_code=400, detail="Parámetro 'tipo' inválido o no soportado.")
@@ -119,42 +130,34 @@ def traer_boletas_no_facturadas(
     """
     try:
         todas_las_boletas = handler.cargar_ingresos()
+        boletas_filtradas = []
+        for bo in todas_las_boletas:
+            estado_fact = str(bo.get("facturacion", "")).strip().lower()
+            if estado_fact == "falta facturar" or ("falta" in estado_fact and "facturar" in estado_fact):
+                boletas_filtradas.append(bo)
 
-        boletas_filtradas = [
-            boleta for boleta in todas_las_boletas 
-            if "falta facturar" in str(boleta.get("facturacion", "")).lower()
-        ]
-
-        # Si no es admin (rol_id != "1"), filtrar por repartidor
-        rol = usuario_actual.get("rol_id", "")
-        if rol != "1":
+        if not _is_admin(usuario_actual):
             username = usuario_actual.get("nombre_usuario", "")
             if username:
-                username_l = str(username).lower()
+                username_l = username.lower()
                 resultado = []
                 for bo in boletas_filtradas:
                     repartidor = (bo.get('Repartidor') or bo.get('repartidor') or '')
                     if not repartidor:
                         continue
                     try:
-                        # fuzzy match
-                        score = 0
+                        ratio = 0
                         try:
-                            score = fuzz.token_set_ratio(username, repartidor)
+                            ratio = fuzz.token_set_ratio(username, repartidor)
                         except Exception:
-                            score = 0
-                        if score > 80:
+                            ratio = 0
+                        if ratio > 80 or repartidor.strip().lower() == username_l:
                             resultado.append(bo)
-                            continue
-                        # fallback exact-ish match
-                        if str(repartidor).strip().lower() == username_l:
-                            resultado.append(bo)
-                            continue
                     except Exception:
                         continue
                 return resultado[skip: skip + limit]
 
-        return boletas_filtradas[skip : skip + limit]
+        return boletas_filtradas[skip: skip + limit]
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Ocurrió un error inesperado al cargar boletas no facturadas: {e}")
@@ -201,9 +204,7 @@ def traer_todas_por_repartidor(
     try:
 
         username = usuario_actual.get("nombre_usuario", "")
-        rol = usuario_actual.get("rol_id", "")
-
-        if ( rol == "1"):   #si es admin le mando todas
+        if _is_admin(usuario_actual):   # si es admin le mando todas
             try:
                 todas_las_boletas = handler.cargar_ingresos()
 
@@ -247,9 +248,7 @@ def traer_todas_por_razon_social(
     usuario_actual: dict = Depends(obtener_usuario_actual_sqlite) 
 ):
     try:
-        rol = usuario_actual.get("rol_id", "")
-
-        if (rol == "1"):
+        if _is_admin(usuario_actual):
             try:
                 todas_las_boletas = handler.cargar_ingresos()
                 return todas_las_boletas[skip : skip + limit]
@@ -291,9 +290,7 @@ def traer_todas_por_dia(
     usuario_actual: dict = Depends(obtener_usuario_actual_sqlite) 
 ):
     try:
-        rol = usuario_actual.get("rol_id", "")
-
-        if (rol == "1"):
+        if _is_admin(usuario_actual):
             try:
                 todas_las_boletas = handler.cargar_ingresos()
                 return todas_las_boletas[skip : skip + limit]
@@ -356,9 +353,7 @@ def listar_repartidores(
     el usuario autenticado y las razones sociales relacionadas a sus boletas.
     """
     try:
-        rol = usuario_actual.get("rol_id", "")
         username = usuario_actual.get("nombre_usuario", "")
-
         todas_las_boletas = handler.cargar_ingresos()
 
         # Construir mapping repartidor -> set(razon social)
@@ -380,7 +375,7 @@ def listar_repartidores(
 
         results: List[Dict[str, Any]] = []
 
-        if rol == "1":
+        if _is_admin(usuario_actual):
             # Admin: devolver todos
             for r, razones in mapping.items():
                 results.append({"repartidor": r, "razones_sociales": list(razones)})
@@ -402,6 +397,105 @@ def listar_repartidores(
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Ocurrió un error inesperado al listar repartidores: {e}")
+
+
+@router.get("/debug/no-facturadas")
+def debug_no_facturadas(usuario_actual: dict = Depends(obtener_usuario_actual_sqlite)):
+    """Endpoint de diagnóstico: muestra conteos y ejemplos de estados de facturación.
+    No dejar en producción permanente; usar para verificar por qué front no recibe datos.
+    """
+    try:
+        todas = handler.cargar_ingresos()
+        estados = []
+        no_fact = []
+        for b in todas:
+            estado_fact = str(b.get("facturacion", "")).strip().lower()
+            if estado_fact:
+                estados.append(estado_fact)
+            if estado_fact == "falta facturar" or ("falta" in estado_fact and "facturar" in estado_fact):
+                no_fact.append(b)
+        # Contar ocurrencias de cada estado
+        from collections import Counter
+        top_estados = Counter(estados).most_common(20)
+        return {
+            "total_boletas": len(todas),
+            "total_no_facturadas_detectadas": len(no_fact),
+            "primeros_estados": top_estados,
+            "muestra_no_facturadas": no_fact[:5],
+            "es_admin": _is_admin(usuario_actual)
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error debug no-facturadas: {e}")
+
+
+@router.get("/resumen-no-facturadas")
+def resumen_no_facturadas(usuario_actual: dict = Depends(obtener_usuario_actual_sqlite)):
+    """Devuelve un resumen agrupado de boletas 'falta facturar'.
+    Estructura:
+    {
+      total_boletas: int,
+      total_repartidores: int,
+      repartidores: [ { repartidor, cantidad, ids, razones_sociales } ]
+    }
+    - Admin ve todo.
+    - No admin: sólo su repartidor (fuzzy) como en la lógica previa.
+    """
+    try:
+        todas = handler.cargar_ingresos()
+        # Filtrar no facturadas
+        no_fact = []
+        for b in todas:
+            estado_fact = str(b.get("facturacion", "")).strip().lower()
+            if estado_fact == "falta facturar" or ("falta" in estado_fact and "facturar" in estado_fact):
+                no_fact.append(b)
+
+        es_admin = _is_admin(usuario_actual)
+        username = usuario_actual.get("nombre_usuario", "") if not es_admin else ""
+        username_l = username.lower()
+
+        from collections import defaultdict
+        agrupado = defaultdict(lambda: {"ids": [], "razones": set()})
+
+        for b in no_fact:
+            repart = b.get('Repartidor') or b.get('repartidor') or ''
+            if not repart:
+                continue
+            # Filtrar para no admin
+            if not es_admin:
+                try:
+                    ratio = 0
+                    try:
+                        ratio = fuzz.token_set_ratio(username, repart)
+                    except Exception:
+                        ratio = 0
+                    if ratio <= 80 and repart.strip().lower() != username_l:
+                        continue
+                except Exception:
+                    continue
+            rid = str(b.get('ID Ingresos') or b.get('ingreso_id') or b.get('id') or '')
+            if rid:
+                agrupado[repart]["ids"].append(rid)
+            razon = b.get('Razon Social') or b.get('razon_social') or b.get('Cliente') or b.get('cliente') or ''
+            if razon:
+                agrupado[repart]["razones"].add(str(razon))
+
+        respuesta = []
+        for repart, data in agrupado.items():
+            respuesta.append({
+                "repartidor": repart,
+                "cantidad": len(data["ids"]),
+                "ids": data["ids"],
+                "razones_sociales": list(data["razones"])
+            })
+        respuesta.sort(key=lambda x: x["repartidor"].lower())
+        return {
+            "total_boletas": len(no_fact) if es_admin else sum(r["cantidad"] for r in respuesta),
+            "total_repartidores": len(respuesta),
+            "repartidores": respuesta,
+            "es_admin": es_admin
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error en resumen no-facturadas: {e}")
 
 
 def build_imprimible_html(boleta: Dict[str, Any], afip_result: Optional[Dict[str, Any]] = None) -> str:

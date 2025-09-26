@@ -76,13 +76,19 @@ FACTURACION_API_URL: str = os.getenv("FACTURACION_API_URL", "http://localhost:80
 
 CONFIG_DIR = Path(__file__).resolve().parent 
 # Ruta completa y absoluta al archivo .json
+DEV_MODE = os.getenv('DEV_MODE', '0') == '1'
+
 CREDENTIALS_FILE_PATH = CONFIG_DIR / GOOGLE_SERVICE_ACCOUNT_FILE
 
 if not CREDENTIALS_FILE_PATH.exists():
-    raise FileNotFoundError(
+    msg = (
         f"CRÍTICO: Archivo de credenciales '{CREDENTIALS_FILE_PATH}' no encontrado. "
-        f"Verifica el valor en tu .env y la existencia del archivo en la misma carpeta que config.py."
+        "Verifica GOOGLE_SERVICE_ACCOUNT_FILE en .env."
     )
+    if DEV_MODE:
+        print("⚠️  AVISO (DEV_MODE=1): " + msg + " Continuando sin abortar.")
+    else:
+        raise FileNotFoundError(msg + " (Establece DEV_MODE=1 para no abortar en desarrollo).")
 # ===== FIN DE LA MODIFICACIÓN =====
 
 print(f"DEBUG_CFG: Configuración cargada. Usando GOOGLE_SERVICE_ACCOUNT_FILE='{GOOGLE_SERVICE_ACCOUNT_FILE}'")

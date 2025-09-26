@@ -69,12 +69,12 @@ export default function BoletasNoFacturadasPage() {
         const razon = b['Razon Social'] || b.cliente || b.nombre || '';
         const ingreso = String(b['ID Ingresos'] ?? b.id ?? '');
 
-    // Produce an image that is 58mm wide.
-    // 1 mm ≈ 3.7795275591 px at 96dpi. Multiply by devicePixelRatio for sharper output on high-dpi screens.
-    const pxPerMm = 3.7795275591 * (window.devicePixelRatio || 1);
-    const width = Math.max(1, Math.round(58 * pxPerMm)); // 58mm target width
-    const lineHeight = Math.round(7 * (window.devicePixelRatio || 1));
-    const padding = Math.round(6 * (window.devicePixelRatio || 1));
+        // Produce an image that is 58mm wide.
+        // 1 mm ≈ 3.7795275591 px at 96dpi. Multiply by devicePixelRatio for sharper output on high-dpi screens.
+        const pxPerMm = 3.7795275591 * (window.devicePixelRatio || 1);
+        const width = Math.max(1, Math.round(58 * pxPerMm)); // 58mm target width
+        const lineHeight = Math.round(7 * (window.devicePixelRatio || 1));
+        const padding = Math.round(6 * (window.devicePixelRatio || 1));
         const lines = [
             `Comprobante: ${String(nro)}`,
             `Fecha: ${String(fecha)}`,
@@ -126,42 +126,77 @@ export default function BoletasNoFacturadasPage() {
     const [search, setSearch] = useState('');
     const [fechaDesde, setFechaDesde] = useState<string>('');
     const [fechaHasta, setFechaHasta] = useState<string>('');
+    // Tick para controlar refrescos manuales / programados sin recargar al seleccionar checkboxes
+    const [refreshTick, setRefreshTick] = useState(0);
+
+    // Cargar boletas y repartidores una sola vez o cuando se solicite refresco explícito
     useEffect(() => {
         let cancel = false;
-        async function load() {
+        (async () => {
             setLoading(true); setError('');
             const token = localStorage.getItem('token');
-            if (!token) { setError('No autenticado'); setLoading(false); return; }
+            if (!token) { if (!cancel) { setError('No autenticado'); setLoading(false); } return; }
             try {
-                const res = await fetch('/api/boletas?tipo=no-facturadas&limit=300', { headers: { Authorization: `Bearer ${token}` } });
-                if (!res.ok) { const d = await res.json().catch(() => ({})); if (!cancel) setError(String(d?.detail || 'Error')); }
-                else { const d = await res.json().catch(() => []); if (!cancel && Array.isArray(d)) setItems(d); }
-            } catch { if (!cancel) setError('Error de conexión'); }
-            finally { if (!cancel) setLoading(false); }
-        }
-        load();
-        (async function loadRepartidores() {
-            try {
-                const token = localStorage.getItem('token');
-                if (!token) return;
-                const r = await fetch('/api/boletas/repartidores', { headers: { Authorization: `Bearer ${token}` } });
-                if (!r.ok) return;
-                const data = await r.json().catch(() => []);
-                if (!Array.isArray(data)) return;
-                const map: Record<string, string[]> = {};
-                for (const row of data) {
-                    const rname = String(row.repartidor || '').trim();
-                    const razones = Array.isArray(row.razones_sociales) ? row.razones_sociales.map(String) : [];
-                    if (rname) map[rname] = razones;
+                // Ejecutar en paralelo para menor latencia acumulada
+                const [resBoletas, resReps] = await Promise.all([
+                    fetch('/api/boletas?tipo=no-facturadas&limit=300', { headers: { Authorization: `Bearer ${token}` } }),
+                    fetch('/api/boletas/repartidores', { headers: { Authorization: `Bearer ${token}` } })
+                ]);
+
+                if (!resBoletas.ok) {
+                    const d: unknown = await resBoletas.json().catch(() => ({}));
+                    let detalle: string | undefined;
+                    if (d && typeof d === 'object' && 'detail' in d) {
+                        const val = (d as Record<string, unknown>).detail;
+                        if (typeof val === 'string') detalle = val; else if (val != null) detalle = JSON.stringify(val);
+                    }
+                    if (!cancel) setError(detalle || 'Error cargando boletas');
+                } else {
+                    let dRaw: unknown;
+                    try { dRaw = await resBoletas.json(); } catch { dRaw = []; }
+                    if (!Array.isArray(dRaw)) {
+                        console.warn('[no-facturadas] Respuesta no es array', dRaw);
+                    } else {
+                        const arr = dRaw as BoletaRecord[];
+                        console.log('[no-facturadas] Boletas recibidas (crudas):', arr.length);
+                        if (arr.length > 0) {
+                            console.log('[no-facturadas] Claves ejemplo primer registro:', Object.keys(arr[0] as Record<string, unknown>));
+                            console.log('[no-facturadas] Estado facturacion primeros 5:', arr.slice(0,5).map(x => (x as Record<string, unknown>)['facturacion'] || (x as Record<string, unknown>)['Facturacion'] || (x as Record<string, unknown>)['estado'] || (x as Record<string, unknown>)['Estado']));
+                        }
+                        if (!cancel) setItems(arr);
+                    }
                 }
-                setRepartidoresMap(map);
+
+                if (resReps.ok) {
+                    const data = await resReps.json().catch(() => []);
+                    if (Array.isArray(data) && !cancel) {
+                        const map: Record<string, string[]> = {};
+                        for (const row of data) {
+                            const rname = String(row.repartidor || '').trim();
+                            const razones = Array.isArray(row.razones_sociales) ? row.razones_sociales.map(String) : [];
+                            if (rname) map[rname] = razones;
+                        }
+                        setRepartidoresMap(map);
+                    }
+                }
             } catch {
-                // ignore
+                if (!cancel) setError('Error de conexión');
+            } finally {
+                if (!cancel) setLoading(false);
             }
         })();
         return () => { cancel = true; };
-    }, [selectedIds]);
+    }, [refreshTick]);
 
+    // Refrescar automáticamente cada 2 minutos (opcional). Se puede ajustar o eliminar.
+    useEffect(() => {
+        const id = setInterval(() => {
+            setRefreshTick(t => t + 1);
+        }, 120000); // 120s
+        return () => clearInterval(id);
+    }, []);
+
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     useEffect(() => {
         // reset selection when items change
         const map: Record<string, boolean> = {};
@@ -223,6 +258,27 @@ export default function BoletasNoFacturadasPage() {
         const estado = String(b.facturacion ?? b.Estado ?? b.estado ?? '').toLowerCase();
         return estado.includes('falta facturar') || estado.includes('no facturada');
     });
+
+    // Resumen por repartidor obtenido desde backend
+    interface ResumenRepartidor { repartidor: string; cantidad: number; ids: string[]; razones_sociales: string[]; }
+    const [resumen, setResumen] = useState<ResumenRepartidor[] | null>(null);
+    const [resumenTotales, setResumenTotales] = useState<{total_boletas:number; total_repartidores:number} | null>(null);
+
+    useEffect(() => {
+        (async () => {
+            const token = localStorage.getItem('token');
+            if (!token) return;
+            try {
+                const r = await fetch('/api/boletas/resumen-no-facturadas', { headers: { Authorization: `Bearer ${token}` } });
+                if (!r.ok) return;
+                const data = await r.json();
+                if (data && Array.isArray(data.repartidores)) {
+                    setResumen(data.repartidores as ResumenRepartidor[]);
+                    setResumenTotales({ total_boletas: data.total_boletas ?? 0, total_repartidores: data.total_repartidores ?? data.repartidores.length });
+                }
+            } catch { /* ignore */ }
+        })();
+    }, [refreshTick]);
 
     // Filtrar items por búsqueda
     const filteredItems = itemsNoFacturadas.filter((b) => {
@@ -286,8 +342,8 @@ export default function BoletasNoFacturadasPage() {
                 success++;
                 // Small delay between downloads to reduce chance of browser blocking
                 await new Promise((r) => setTimeout(r, 600));
-                } catch {
-                    failed++;
+            } catch {
+                failed++;
             }
         }
 
@@ -327,6 +383,37 @@ export default function BoletasNoFacturadasPage() {
         <div className="p-4 md:p-6 space-y-4">
             <h1 className="text-xl font-bold text-purple-700">Boletas No Facturadas</h1>
             <div className="flex flex-col gap-3 mb-4">
+                                {resumen && resumenTotales && (
+                                    <div className="text-xs bg-purple-50 border border-purple-200 rounded p-2 space-y-1">
+                                        <div className="font-semibold text-purple-800">Resumen (No Facturadas)</div>
+                                        <div className="flex flex-wrap gap-x-4 gap-y-1">
+                                            <span>Total boletas: <strong>{resumenTotales.total_boletas}</strong></span>
+                                            <span>Repartidores: <strong>{resumenTotales.total_repartidores}</strong></span>
+                                        </div>
+                                        <div className="overflow-x-auto">
+                                            <table className="min-w-full text-[11px]">
+                                                <thead>
+                                                    <tr className="text-left text-purple-700">
+                                                        <th className="pr-3 py-1">Repartidor</th>
+                                                        <th className="pr-3 py-1">Cantidad</th>
+                                                        <th className="pr-3 py-1">Razones Sociales</th>
+                                                        <th className="py-1">Primeros IDs</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody>
+                                                    {resumen.map(r => (
+                                                        <tr key={r.repartidor} className="border-t border-purple-100">
+                                                            <td className="pr-3 py-1 font-medium">{r.repartidor}</td>
+                                                            <td className="pr-3 py-1">{r.cantidad}</td>
+                                                            <td className="pr-3 py-1 truncate max-w-[240px]">{r.razones_sociales.slice(0,4).join(', ')}{r.razones_sociales.length>4?'…':''}</td>
+                                                            <td className="py-1 text-gray-600">{r.ids.slice(0,5).join(', ')}{r.ids.length>5?'…':''}</td>
+                                                        </tr>
+                                                    ))}
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    </div>
+                                )}
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 max-w-3xl">
                     <div>
                         <label className="block text-sm text-gray-600 mb-1">Fecha desde</label>
@@ -358,9 +445,11 @@ export default function BoletasNoFacturadasPage() {
             {error && <p className="text-red-600">{error}</p>}
             {!loading && !error && (
                 <div className="overflow-auto border rounded bg-white">
-                    <div className="p-2 flex items-center gap-2">
-                        <button className="px-3 py-2 bg-indigo-600 text-white rounded" onClick={descargarPackSeleccionado}>Descargar imágenes (ZIP)</button>
-                        <button className="px-3 py-2 bg-yellow-500 text-white rounded" onClick={testImagenesSeleccionadas}>Test imágenes</button>
+                    <div className="p-2 flex flex-wrap items-center gap-2 sticky top-0 bg-white z-10 border-b">
+                        <button className="px-3 py-2 bg-indigo-600 text-white rounded text-xs" onClick={descargarPackSeleccionado}>Descargar imágenes</button>
+                        <button className="px-3 py-2 bg-blue-500 text-white rounded text-xs" onClick={() => setRefreshTick(t => t + 1)}>Refrescar</button>
+                        <button className="px-3 py-2 bg-yellow-500 text-white rounded text-xs" onClick={testImagenesSeleccionadas}>Test imágenes</button>
+                        <span className="ml-auto text-[11px] text-gray-500">Mostrando {filteredItems.length} / {itemsNoFacturadas.length}</span>
                     </div>
                     {/* Mobile list */}
                     <div className="md:hidden divide-y">

@@ -39,21 +39,6 @@ export default function BoletasFacturadasPage() {
     function facturarBoleta(boleta: BoletaRecord) {
         alert(`Facturar boleta: ${boleta['ID Ingresos'] || boleta.id}`);
     }
-    function parseRawResponse(b: BoletaRecord): Record<string, unknown> | null {
-        const raw = (b.raw_response ?? (b as Record<string, unknown>)['raw_response']);
-        if (!raw) return null;
-        if (typeof raw === 'object') return raw as Record<string, unknown>;
-        try {
-            return JSON.parse(String(raw));
-        } catch {
-            // a veces el backend ya devuelve string escapado; intentar reemplazos básicos
-            try {
-                return JSON.parse(String(raw).replace(/\\\"/g, '"'));
-            } catch {
-                return null;
-            }
-        }
-    }
 
     function imprimirComprobante(b: BoletaRecord) {
         // Descarga directa de la imagen del comprobante usando el endpoint /api/impresion/{id}
@@ -112,7 +97,6 @@ export default function BoletasFacturadasPage() {
     const [error, setError] = useState('');
     const [search, setSearch] = useState('');
     const [repartidoresMap, setRepartidoresMap] = useState<Record<string, string[]> | null>(null);
-    const [showRaw, setShowRaw] = useState(false);
     const [fechaDesde, setFechaDesde] = useState<string>('');
     const [fechaHasta, setFechaHasta] = useState<string>('');
     useEffect(() => {
