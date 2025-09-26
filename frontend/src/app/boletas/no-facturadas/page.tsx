@@ -218,8 +218,14 @@ export default function BoletasNoFacturadasPage() {
         return true;
     });
 
+    // Filtrar solo boletas no facturadas
+    const itemsNoFacturadas = itemsConFecha.filter((b) => {
+        const estado = String(b.facturacion ?? b.Estado ?? b.estado ?? '').toLowerCase();
+        return estado.includes('falta facturar') || estado.includes('no facturada');
+    });
+
     // Filtrar items por búsqueda
-    const filteredItems = itemsConFecha.filter((b) => {
+    const filteredItems = itemsNoFacturadas.filter((b) => {
         const razonSocial = (b.cliente || b.nombre || b['Razon Social'] || '').toString().toLowerCase();
         const repartidor = (b.Repartidor ?? (b as Record<string, unknown>)['repartidor'] ?? '').toString().toLowerCase();
         const searchText = search.toLowerCase();
