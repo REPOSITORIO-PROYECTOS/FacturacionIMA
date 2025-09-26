@@ -26,7 +26,7 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
                 return;
             }
             setChecked(true);
-        } catch (err) {
+        } catch {
             // If accessing localStorage fails, treat as unauthenticated
             router.replace(`/login?from=${encodeURIComponent(pathname ?? '/')}`);
         }

@@ -7,6 +7,7 @@ import { useEffect, useState } from "react";
 
 export default function Navbar() {
   const [userName, setUserName] = useState<string>("");
+  const [userRole, setUserRole] = useState<string>("");
   const [open, setOpen] = useState<boolean>(false);
   // Forzar siempre tema claro y cargar nombre (tema único)
   useEffect(() => {
@@ -14,6 +15,12 @@ export default function Navbar() {
     document.body.classList.remove('fixed-theme');
     const saved = localStorage.getItem("user_name") || localStorage.getItem("remember_user") || "";
     setUserName(saved);
+    try {
+      const info = JSON.parse(localStorage.getItem("user_info") || "{}");
+      let role = info.role || info.rol_nombre || info.rol || "";
+      if (role === "Vendedor") role = "Cajero";
+      setUserRole(role);
+    } catch { setUserRole(""); }
   }, []);
 
   // Abrir automáticamente en mobile despues de login (cuando hay token)
@@ -91,7 +98,7 @@ export default function Navbar() {
             </div>
             <div className="flex-1 min-w-0">
               <div className="text-sm font-medium text-gray-900 truncate">{userName || 'Usuario'}</div>
-              <div className="text-xs text-gray-500">En línea</div>
+              <div className="text-xs text-gray-500">{userRole ? userRole : 'Sin rol'}</div>
             </div>
           </div>
 

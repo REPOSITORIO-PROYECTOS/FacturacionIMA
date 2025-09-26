@@ -19,7 +19,21 @@ export default function BoletasNoFacturadasPage() {
     const [detalleOpen, setDetalleOpen] = useState(false);
     const [boletaDetalle, setBoletaDetalle] = useState<BoletaRecord | null>(null);
     const [showRaw, setShowRaw] = useState(false);
+    const [userRole, setUserRole] = useState<string | null>(null);
     const [repartidoresMap, setRepartidoresMap] = useState<Record<string, string[]> | null>(null);
+    const [selectedIds, setSelectedIds] = useState<Record<string, boolean>>({});
+    // Estado para el modal de test imágenes
+    const [testModalOpen, setTestModalOpen] = useState(false);
+    interface TestResult {
+        id?: string | number;
+        ok?: boolean;
+        size?: number;
+        media_type?: string;
+        error?: string;
+        detail?: string;
+    }
+    const [testResults, setTestResults] = useState<TestResult[] | null>(null);
+    const [testLoading, setTestLoading] = useState(false);
 
     function abrirDetalle(boleta: BoletaRecord) {
         setBoletaDetalle(boleta);
@@ -55,9 +69,12 @@ export default function BoletasNoFacturadasPage() {
         const razon = b['Razon Social'] || b.cliente || b.nombre || '';
         const ingreso = String(b['ID Ingresos'] ?? b.id ?? '');
 
-        const width = 1000;
-        const lineHeight = 28;
-        const padding = 24;
+    // Produce an image that is 58mm wide.
+    // 1 mm ≈ 3.7795275591 px at 96dpi. Multiply by devicePixelRatio for sharper output on high-dpi screens.
+    const pxPerMm = 3.7795275591 * (window.devicePixelRatio || 1);
+    const width = Math.max(1, Math.round(58 * pxPerMm)); // 58mm target width
+    const lineHeight = Math.round(7 * (window.devicePixelRatio || 1));
+    const padding = Math.round(6 * (window.devicePixelRatio || 1));
         const lines = [
             `Comprobante: ${String(nro)}`,
             `Fecha: ${String(fecha)}`,
@@ -143,6 +160,21 @@ export default function BoletasNoFacturadasPage() {
             }
         })();
         return () => { cancel = true; };
+    }, [selectedIds]);
+
+    useEffect(() => {
+        // reset selection when items change
+        const map: Record<string, boolean> = {};
+        items.forEach((b) => { const id = String((b as Record<string, unknown>)['ID Ingresos'] || b.id || ''); if (id) map[id] = !!selectedIds[id]; });
+        setSelectedIds(map);
+    }, [items]);
+
+    // Leer rol de usuario desde localStorage para controlar visibilidad de botones (Mostrar JSON sólo para Admin/Soporte)
+    useEffect(() => {
+        try {
+            const ui = JSON.parse(localStorage.getItem('user_info') || '{}');
+            setUserRole(ui?.role || ui?.rol_nombre || ui?.rol || null);
+        } catch { setUserRole(null); }
     }, []);
 
     // Restaurar/persistir fechas
@@ -202,6 +234,89 @@ export default function BoletasNoFacturadasPage() {
         return key2 ? (repartidoresMap[key2] ?? []) : [];
     }
 
+    async function descargarPackSeleccionado() {
+        // ...existing code...
+        const token = localStorage.getItem('token');
+        if (!token) { alert('No autenticado'); return; }
+        const ids = Object.keys(selectedIds).filter(k => selectedIds[k]);
+        if (ids.length === 0) { alert('No hay boletas seleccionadas'); return; }
+
+        if (!confirm(`Vas a descargar ${ids.length} imagen(es) una por una. Continuar?`)) return;
+
+        let success = 0;
+        let failed = 0;
+
+        for (let i = 0; i < ids.length; i++) {
+            const id = ids[i];
+            try {
+                // Call the proxy that triggers facturación+imagen and returns image/jpeg
+                const res = await fetch(`/api/impresion/${encodeURIComponent(id)}`, { method: 'POST', headers: { Authorization: `Bearer ${token}` } });
+                if (!res.ok) {
+                    const txt = await res.text().catch(() => res.statusText || 'Error');
+                    console.error(`Error al descargar ID ${id}:`, txt);
+                    failed++;
+                    continue;
+                }
+                const blob = await res.blob();
+                // Try to infer filename from headers; fallback to comprobante_{id}.jpg
+                let filename = `comprobante_${String(id)}.jpg`;
+                try {
+                    const cd = res.headers.get('content-disposition') || '';
+                    const m = cd.match(/filename\*?=([^;]+)/i);
+                    if (m && m[1]) {
+                        filename = decodeURIComponent(m[1].replace(/UTF-8''/, '').replace(/^\"'|\"'$/g, ''));
+                    }
+                } catch (e) { /* ignore */ }
+
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = filename;
+                document.body.appendChild(a);
+                a.click();
+                a.remove();
+                // Revoke URL after a short delay to ensure download started
+                setTimeout(() => { try { URL.revokeObjectURL(url); } catch { } }, 5000);
+                success++;
+                // Small delay between downloads to reduce chance of browser blocking
+                await new Promise((r) => setTimeout(r, 600));
+                } catch {
+                    failed++;
+            }
+        }
+
+        alert(`Descarga finalizada: ${success} correctas, ${failed} errores.`);
+    }
+
+    // Test imágenes: llama al endpoint de diagnóstico y muestra resultados en modal
+    async function testImagenesSeleccionadas() {
+        const token = localStorage.getItem('token');
+        if (!token) { alert('No autenticado'); return; }
+        const ids = Object.keys(selectedIds).filter(k => selectedIds[k]);
+        if (ids.length === 0) { alert('No hay boletas seleccionadas'); return; }
+        setTestLoading(true);
+        setTestModalOpen(true);
+        setTestResults(null);
+        try {
+            const res = await fetch('/api/impresion/test-imagenes', {
+                method: 'POST',
+                headers: { 'content-type': 'application/json', Authorization: `Bearer ${token}` },
+                body: JSON.stringify(ids)
+            });
+            if (!res.ok) {
+                const txt = await res.text().catch(() => 'Error');
+                setTestResults([{ error: txt }]);
+                return;
+            }
+            const data = await res.json();
+            setTestResults(data.results || []);
+        } catch (e) {
+            setTestResults([{ error: String(e) }]);
+        } finally {
+            setTestLoading(false);
+        }
+    }
+
     return (
         <div className="p-4 md:p-6 space-y-4">
             <h1 className="text-xl font-bold text-purple-700">Boletas No Facturadas</h1>
@@ -209,11 +324,11 @@ export default function BoletasNoFacturadasPage() {
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 max-w-3xl">
                     <div>
                         <label className="block text-sm text-gray-600 mb-1">Fecha desde</label>
-                        <input type="date" className="border rounded px-3 py-2 w-full" value={fechaDesde} onChange={(e) => setFechaDesde(e.target.value)} />
+                        <input aria-label="Fecha desde" type="date" className="border rounded px-3 py-2 w-full" value={fechaDesde} onChange={(e) => setFechaDesde(e.target.value)} />
                     </div>
                     <div>
                         <label className="block text-sm text-gray-600 mb-1">Fecha hasta</label>
-                        <input type="date" className="border rounded px-3 py-2 w-full" value={fechaHasta} onChange={(e) => setFechaHasta(e.target.value)} />
+                        <input aria-label="Fecha hasta" type="date" className="border rounded px-3 py-2 w-full" value={fechaHasta} onChange={(e) => setFechaHasta(e.target.value)} />
                     </div>
                     <div className="flex items-end gap-2">
                         <button className="px-3 py-2 border rounded text-sm hover:bg-gray-50" onClick={() => { const t = new Date().toISOString().split('T')[0]; setFechaDesde(t); setFechaHasta(t); }}>Hoy</button>
@@ -237,6 +352,10 @@ export default function BoletasNoFacturadasPage() {
             {error && <p className="text-red-600">{error}</p>}
             {!loading && !error && (
                 <div className="overflow-auto border rounded bg-white">
+                    <div className="p-2 flex items-center gap-2">
+                        <button className="px-3 py-2 bg-indigo-600 text-white rounded" onClick={descargarPackSeleccionado}>Descargar imágenes (ZIP)</button>
+                        <button className="px-3 py-2 bg-yellow-500 text-white rounded" onClick={testImagenesSeleccionadas}>Test imágenes</button>
+                    </div>
                     {/* Mobile list */}
                     <div className="md:hidden divide-y">
                         {filteredItems.map((b, i) => {
@@ -248,6 +367,7 @@ export default function BoletasNoFacturadasPage() {
                             const repartidor = (b.Repartidor ?? (b as Record<string, unknown>)['repartidor'] ?? '') as string;
                             return (
                                 <div key={`${String(id)}-${i}`} className="px-3 py-2 flex items-center justify-between gap-3">
+                                    <input aria-label={`Seleccionar boleta ${String(id)}`} type="checkbox" checked={!!selectedIds[String(id)]} onChange={(e) => setSelectedIds(s => ({ ...s, [String(id)]: e.target.checked }))} />
                                     <div className="min-w-0">
                                         <div className="font-medium truncate">{razonSocial || '— Sin razón social —'}</div>
                                         <div className="text-[11px] text-gray-600">Repartidor: {repartidor || '-'}</div>
@@ -280,6 +400,7 @@ export default function BoletasNoFacturadasPage() {
                         <table className="w-full text-sm">
                             <thead className="bg-purple-50">
                                 <tr>
+                                    <th className="p-2"><input aria-label="Seleccionar todas" type="checkbox" onChange={(e) => { const v = e.target.checked; const m: Record<string, boolean> = {}; filteredItems.forEach(b => { const id = String((b as Record<string, unknown>)['ID Ingresos'] || b.id || ''); if (id) m[id] = v; }); setSelectedIds(m); }} /></th>
                                     <th className="p-2">Repartidor</th>
                                     <th className="p-2">Razón Social</th>
                                     <th className="p-2">Total</th>
@@ -296,6 +417,7 @@ export default function BoletasNoFacturadasPage() {
                                     const repartidor = (b.Repartidor ?? (b as Record<string, unknown>)['repartidor'] ?? '') as string;
                                     return (
                                         <tr key={`${String(id)}-${i}`} className="border-t">
+                                            <td className="p-2"><input aria-label={`Seleccionar boleta ${String(id)}`} type="checkbox" checked={!!selectedIds[String(id)]} onChange={(e) => setSelectedIds(s => ({ ...s, [String(id)]: e.target.checked }))} /></td>
                                             <td className="p-2">{repartidor}</td>
                                             <td className="p-2">{razonSocial}</td>
                                             <td className="p-2">{total}</td>
@@ -321,6 +443,44 @@ export default function BoletasNoFacturadasPage() {
                     {filteredItems.length === 0 && (
                         <div className="p-4 text-gray-500">No hay boletas</div>
                     )}
+                </div>
+            )}
+            {/* Modal de test imágenes */}
+            {testModalOpen && (
+                <div className="fixed inset-0 bg-black bg-opacity-40 flex items-center justify-center z-50">
+                    <div className="bg-white rounded-lg shadow-lg p-6 w-full max-w-2xl">
+                        <h3 className="text-xl font-bold mb-4">Test de generación de imágenes</h3>
+                        {testLoading && <div className="py-4 text-center">Cargando…</div>}
+                        {!testLoading && testResults && (
+                            <div className="overflow-x-auto max-h-[60vh]">
+                                <table className="w-full text-sm border">
+                                    <thead className="bg-gray-100">
+                                        <tr>
+                                            <th className="p-2">ID</th>
+                                            <th className="p-2">OK</th>
+                                            <th className="p-2">Tamaño</th>
+                                            <th className="p-2">Media type</th>
+                                            <th className="p-2">Error</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {testResults.map((r, i) => (
+                                            <tr key={String(r.id || i)} className={r.ok ? '' : 'bg-red-50'}>
+                                                <td className="p-2">{String(r.id || '')}</td>
+                                                <td className="p-2">{r.ok ? '✔️' : '❌'}</td>
+                                                <td className="p-2">{r.size ?? ''}</td>
+                                                <td className="p-2">{r.media_type ?? ''}</td>
+                                                <td className="p-2 text-xs text-red-600">{r.error || r.detail || ''}</td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+                        )}
+                        <div className="flex gap-2 justify-end mt-4">
+                            <button className="bg-gray-300 px-4 py-2 rounded hover:bg-gray-400" onClick={() => setTestModalOpen(false)}>Cerrar</button>
+                        </div>
+                    </div>
                 </div>
             )}
             {/* Modal de detalles de boleta */}
@@ -349,24 +509,31 @@ export default function BoletasNoFacturadasPage() {
                                             const ingreso = String(bx['ingreso_id'] ?? bx['ID Ingresos'] ?? bx['id'] ?? '');
                                             if (!ingreso) { alert('ID no disponible'); return; }
                                             try {
+                                                // Call backend to facturar and receive HTML; then open and print/download automatically
                                                 const res = await fetch(`/api/boletas/imprimir/${encodeURIComponent(ingreso)}`, { method: 'POST', headers: { Authorization: `Bearer ${token}` } });
                                                 const text = await res.text();
                                                 if (!res.ok) { alert(text || 'Error en facturar e imprimir'); return; }
-                                                const w = window.open('', '_blank', 'noopener,noreferrer');
+                                                // Open in new tab and trigger print automatically
+                                                const blob = new Blob([text], { type: 'text/html' });
+                                                const url = URL.createObjectURL(blob);
+                                                const w = window.open(url, '_blank');
                                                 if (!w) {
-                                                    const blob = new Blob([text], { type: 'text/html' });
-                                                    const url = URL.createObjectURL(blob);
+                                                    // Fallback: navigate current window to printable HTML then trigger print
                                                     window.location.href = url;
                                                     setTimeout(() => { try { window.print(); } catch { } }, 600);
                                                     setTimeout(() => { try { URL.revokeObjectURL(url); } catch { } }, 5000);
                                                     return;
                                                 }
-                                                w.document.open(); w.document.write(text); w.document.close();
+                                                // Optionally trigger print after a short delay
+                                                setTimeout(() => { try { w.print(); } catch { } }, 800);
                                             } catch (e) { alert('Error al facturar e imprimir: ' + String(e)); }
                                         })();
                                     }}>Facturar y imprimir</button>
                                 </div>
-                                <button className="px-3 py-2 bg-gray-200 rounded" onClick={() => setShowRaw(s => !s)}>{showRaw ? 'Ocultar JSON' : 'Mostrar JSON'}</button>
+                                {/* Mostrar JSON sólo si el rol es Admin o Soporte */}
+                                {['Admin', 'Soporte'].includes(String(userRole || '')) && (
+                                    <button className="px-3 py-2 bg-gray-200 rounded" onClick={() => setShowRaw(s => !s)}>{showRaw ? 'Ocultar JSON' : 'Mostrar JSON'}</button>
+                                )}
                             </div>
 
                             {showRaw && (

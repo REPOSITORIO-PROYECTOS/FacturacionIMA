@@ -56,75 +56,40 @@ export default function BoletasFacturadasPage() {
     }
 
     function imprimirComprobante(b: BoletaRecord) {
-        const parsed = parseRawResponse(b) || {};
-        const fecha = (b.fecha_comprobante || b.created_at || '') as string;
-        const nro = b['Nro Comprobante'] || b.numero_comprobante || (b as Record<string, unknown>)['numero_comprobante'] || '-';
-        const cae = parsed?.cae || b.cae || '-';
-        const total = b.importe_total ?? b.total ?? b.INGRESOS ?? '';
-        const razon = b.razon_social || b.cliente || b.nombre || b['Razon Social'] || '';
-
-        const html = `
-<!doctype html>
-<html>
-<head>
-    <meta charset="utf-8" />
-    <title>Comprobante ${String(nro)}</title>
-    <style>
-        body { font-family: Arial, sans-serif; padding: 20px; color: #111 }
-        .card { border: 1px solid #ddd; padding: 18px; max-width: 720px; margin: 0 auto }
-        .header { display:flex; justify-content:space-between; align-items:center }
-        .qr { max-width:160px }
-        .lines { margin-top:12px }
-        .lines div { margin-bottom:8px }
-        .small { color:#666; font-size:0.9em }
-    </style>
-</head>
-<body>
-    <div class="card">
-        <div class="header">
-            <div>
-                <h2>Comprobante ${String(nro)}</h2>
-                <div class="small">Fecha: ${String(fecha)}</div>
-            </div>
-            <!-- QR oculto: la impresión incluye sólo los datos del comprobante -->
-        </div>
-        <div class="lines">
-            <div><strong>Razón social:</strong> ${String(razon)}</div>
-            <div><strong>Importe:</strong> ${String(total)}</div>
-            <div><strong>CAe:</strong> ${String(cae)}</div>
-            <div><strong>Ingreso ID:</strong> ${String(b.ingreso_id ?? b['ID Ingresos'] ?? '')}</div>
-        </div>
-        <hr />
-        <pre style="white-space:pre-wrap;background:#f8f8f8;padding:8px;border-radius:6px">${JSON.stringify(parsed || {}, null, 2)}</pre>
-    </div>
-    <script>
-        setTimeout(()=>{ window.print(); }, 300);
-    </script>
-</body>
-</html>
-`;
-
-        const w = window.open('', '_blank', 'noopener,noreferrer');
-        if (!w) {
-            // Fallback cuando el navegador bloquea popups: abrir la impresión en la pestaña actual
+        // Descarga directa de la imagen del comprobante usando el endpoint /api/impresion/{id}
+        (async () => {
+            const token = localStorage.getItem('token');
+            if (!token) { alert('No autenticado'); return; }
+            const id = b.ingreso_id || b['ID Ingresos'] || b.id;
+            if (!id) { alert('ID no disponible'); return; }
             try {
-                const blob = new Blob([html], { type: 'text/html' });
+                const res = await fetch(`/api/impresion/${encodeURIComponent(String(id))}`, { method: 'POST', headers: { Authorization: `Bearer ${token}` } });
+                if (!res.ok) {
+                    const txt = await res.text().catch(() => res.statusText || 'Error');
+                    alert(`Error al descargar comprobante: ${txt}`);
+                    return;
+                }
+                const blob = await res.blob();
+                let filename = `comprobante_${String(id)}.jpg`;
+                try {
+                    const cd = res.headers.get('content-disposition') || '';
+                    const m = cd.match(/filename\*?=([^;]+)/i);
+                    if (m && m[1]) {
+                        filename = decodeURIComponent(m[1].replace(/UTF-8''/, '').replace(/^"'|"'$/g, ''));
+                    }
+                } catch {}
                 const url = URL.createObjectURL(blob);
-                // Notificar al usuario y navegar la pestaña actual al contenido imprimible
-                alert('El navegador bloqueó la nueva ventana. Se abrirá la vista de impresión en la pestaña actual.');
-                window.location.href = url;
-                // Dar tiempo para que la página cargue el blob y luego pedir imprimir
-                setTimeout(() => { try { window.print(); } catch { } }, 600);
-                // Revoke el blob después de un tiempo prudente
-                setTimeout(() => { try { URL.revokeObjectURL(url); } catch { } }, 5000);
-            } catch (err) {
-                alert('No se pudo abrir la vista de impresión. Revisa el bloqueador de ventanas o guarda el comprobante manualmente.');
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = filename;
+                document.body.appendChild(a);
+                a.click();
+                a.remove();
+                setTimeout(() => { try { URL.revokeObjectURL(url); } catch {} }, 5000);
+            } catch (error) {
+                alert('Error al descargar comprobante: ' + String(error));
             }
-            return;
-        }
-        w.document.open();
-        w.document.write(html);
-        w.document.close();
+        })();
     }
 
     // Removed unused helpers (facturarYImprimir, descargarComprobanteJPG) to avoid eslint warnings
@@ -251,11 +216,11 @@ export default function BoletasFacturadasPage() {
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 max-w-3xl">
                     <div>
                         <label className="block text-sm text-gray-600 mb-1">Fecha desde</label>
-                        <input type="date" className="border rounded px-3 py-2 w-full" value={fechaDesde} onChange={(e) => setFechaDesde(e.target.value)} />
+                        <input aria-label="Fecha desde" type="date" className="border rounded px-3 py-2 w-full" value={fechaDesde} onChange={(e) => setFechaDesde(e.target.value)} />
                     </div>
                     <div>
                         <label className="block text-sm text-gray-600 mb-1">Fecha hasta</label>
-                        <input type="date" className="border rounded px-3 py-2 w-full" value={fechaHasta} onChange={(e) => setFechaHasta(e.target.value)} />
+                        <input aria-label="Fecha hasta" type="date" className="border rounded px-3 py-2 w-full" value={fechaHasta} onChange={(e) => setFechaHasta(e.target.value)} />
                     </div>
                     <div className="flex items-end gap-2">
                         <button

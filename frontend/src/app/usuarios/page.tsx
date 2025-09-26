@@ -243,8 +243,9 @@ export default function UsuariosPage() {
                 />
               </div>
               <div>
-                <label className="block text-gray-700 mb-1">Rol</label>
+                <label htmlFor="modalRolSelect" className="block text-gray-700 mb-1">Rol</label>
                 <select
+                  id="modalRolSelect"
                   className="border px-3 py-2 rounded w-full"
                   value={modalRol}
                   onChange={e => setModalRol(e.target.value)}

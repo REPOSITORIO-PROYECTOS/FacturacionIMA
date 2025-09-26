@@ -487,87 +487,89 @@ export default function DashboardPage() {
 
           {/* Listas resumen */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {/* Tarjeta: Facturadas */}
-            <div className="bg-white rounded border overflow-hidden">
-              <div className="p-3 font-semibold border-b">
-                <div className="flex justify-between items-center mb-2">
-                  <span>Facturadas (mostrando {boletasFacturadasFiltradasLista.length} de {boletasFacturadas.length})</span>
-                  <Link href="/boletas/facturadas" className="text-blue-600 text-sm">Ver todas →</Link>
+            {/* Tarjeta: Facturadas (solo si no es vendedor) */}
+            {userInfo?.role !== "Vendedor" && (
+              <div className="bg-white rounded border overflow-hidden">
+                <div className="p-3 font-semibold border-b">
+                  <div className="flex justify-between items-center mb-2">
+                    <span>Facturadas (mostrando {Math.min(boletasFacturadasFiltradasLista.length, 5)} de {boletasFacturadas.length})</span>
+                    <Link href="/boletas/facturadas" className="text-blue-600 text-sm">Ver todas →</Link>
+                  </div>
+                  <div className="flex gap-2">
+                    <input
+                      className="flex-1 border rounded px-2 py-1 text-xs"
+                      placeholder="Filtrar facturadas..."
+                      value={filtroFacturadas}
+                      onChange={(e) => setFiltroFacturadas(e.target.value)}
+                      title="Filtrar boletas facturadas"
+                    />
+                    {filtroFacturadas && (
+                      <button
+                        className="px-2 py-1 bg-gray-200 hover:bg-gray-300 rounded text-xs"
+                        onClick={() => setFiltroFacturadas("")}
+                        title="Limpiar filtro"
+                      >
+                        ✕
+                      </button>
+                    )}
+                  </div>
                 </div>
-                <div className="flex gap-2">
-                  <input
-                    className="flex-1 border rounded px-2 py-1 text-xs"
-                    placeholder="Filtrar facturadas..."
-                    value={filtroFacturadas}
-                    onChange={(e) => setFiltroFacturadas(e.target.value)}
-                    title="Filtrar boletas facturadas"
-                  />
-                  {filtroFacturadas && (
-                    <button
-                      className="px-2 py-1 bg-gray-200 hover:bg-gray-300 rounded text-xs"
-                      onClick={() => setFiltroFacturadas("")}
-                      title="Limpiar filtro"
-                    >
-                      ✕
+                {/* Mobile list */}
+                <div className="md:hidden divide-y">
+                  {(mostrarTodasFacturadas ? boletasFacturadasFiltradasLista : boletasFacturadasFiltradasLista.slice(0, 5)).map((b) => {
+                    const id = String(b['ID Ingresos'] || b['id'] || '');
+                    const razonSocial = b['cliente'] || b['nombre'] || b['Razon Social'] || '';
+                    const total = b['total'] || b['INGRESOS'] || '';
+                    return (
+                      <div key={id} className="px-3 py-2 flex items-center justify-between gap-3">
+                        <button className="text-blue-700 text-left hover:underline truncate" onClick={() => setBoletaDetalle(b)} title="Ver boleta">
+                          {String(razonSocial)}
+                        </button>
+                        <div className="text-xs">{String(total)}</div>
+                      </div>
+                    );
+                  })}
+                </div>
+                {/* Desktop table */}
+                <div className="hidden md:block">
+                  <table className="w-full text-xs">
+                    <thead className="bg-blue-50">
+                      <tr><th className="p-1">Razón Social</th><th className="p-1">Total</th></tr>
+                    </thead>
+                    <tbody>
+                      {(mostrarTodasFacturadas ? boletasFacturadasFiltradasLista : boletasFacturadasFiltradasLista.slice(0, 5)).map((b) => {
+                        const id = String(b['ID Ingresos'] || b['id'] || '');
+                        const razonSocial = b['cliente'] || b['nombre'] || b['Razon Social'] || '';
+                        const total = b['total'] || b['INGRESOS'] || '';
+                        return (
+                          <tr key={id} className="border-t">
+                            <td className="p-1 truncate max-w-[180px]">
+                              <button className="text-blue-700 hover:underline" onClick={() => setBoletaDetalle(b)} title="Ver boleta">
+                                {String(razonSocial)}
+                              </button>
+                            </td>
+                            <td className="p-1">{String(total)}</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+                <div className="p-2 border-t bg-white/60 flex justify-center">
+                  {boletasFacturadasFiltradasLista.length > 5 && (
+                    <button className="text-xs text-blue-700 hover:underline" onClick={() => setMostrarTodasFacturadas((v) => !v)}>
+                      {mostrarTodasFacturadas ? 'Mostrar menos' : 'Mostrar todas'}
                     </button>
                   )}
                 </div>
               </div>
-              {/* Mobile list */}
-              <div className="md:hidden divide-y">
-                {(mostrarTodasFacturadas ? boletasFacturadasFiltradasLista : boletasFacturadasFiltradasLista.slice(0, 10)).map((b) => {
-                  const id = String(b['ID Ingresos'] || b['id'] || '');
-                  const razonSocial = b['cliente'] || b['nombre'] || b['Razon Social'] || '';
-                  const total = b['total'] || b['INGRESOS'] || '';
-                  return (
-                    <div key={id} className="px-3 py-2 flex items-center justify-between gap-3">
-                      <button className="text-blue-700 text-left hover:underline truncate" onClick={() => setBoletaDetalle(b)} title="Ver boleta">
-                        {String(razonSocial)}
-                      </button>
-                      <div className="text-xs">{String(total)}</div>
-                    </div>
-                  );
-                })}
-              </div>
-              {/* Desktop table */}
-              <div className="hidden md:block">
-                <table className="w-full text-xs">
-                  <thead className="bg-blue-50">
-                    <tr><th className="p-1">Razón Social</th><th className="p-1">Total</th></tr>
-                  </thead>
-                  <tbody>
-                    {(mostrarTodasFacturadas ? boletasFacturadasFiltradasLista : boletasFacturadasFiltradasLista.slice(0, 10)).map((b) => {
-                      const id = String(b['ID Ingresos'] || b['id'] || '');
-                      const razonSocial = b['cliente'] || b['nombre'] || b['Razon Social'] || '';
-                      const total = b['total'] || b['INGRESOS'] || '';
-                      return (
-                        <tr key={id} className="border-t">
-                          <td className="p-1 truncate max-w-[180px]">
-                            <button className="text-blue-700 hover:underline" onClick={() => setBoletaDetalle(b)} title="Ver boleta">
-                              {String(razonSocial)}
-                            </button>
-                          </td>
-                          <td className="p-1">{String(total)}</td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-              <div className="p-2 border-t bg-white/60 flex justify-center">
-                {boletasFacturadasFiltradasLista.length > 10 && (
-                  <button className="text-xs text-blue-700 hover:underline" onClick={() => setMostrarTodasFacturadas((v) => !v)}>
-                    {mostrarTodasFacturadas ? 'Mostrar menos' : 'Mostrar todas'}
-                  </button>
-                )}
-              </div>
-            </div>
+            )}
 
             {/* Tarjeta: No facturadas */}
             <div className="bg-white rounded border overflow-hidden">
               <div className="p-3 font-semibold border-b">
                 <div className="flex justify-between items-center mb-2">
-                  <span>No facturadas (mostrando {boletasNoFacturadasFiltradasLista.length} de {boletasNoFacturadas.length})</span>
+                  <span>No facturadas (mostrando {Math.min(boletasNoFacturadasFiltradasLista.length, 5)} de {boletasNoFacturadas.length})</span>
                   <Link href="/boletas/no-facturadas" className="text-blue-600 text-sm">Ver todas →</Link>
                 </div>
                 <div className="flex gap-2">
@@ -591,7 +593,7 @@ export default function DashboardPage() {
               </div>
               {/* Mobile list */}
               <div className="md:hidden divide-y">
-                {(mostrarTodasNoFacturadas ? boletasNoFacturadasFiltradasLista : boletasNoFacturadasFiltradasLista.slice(0, 10)).map((b) => {
+                {(mostrarTodasNoFacturadas ? boletasNoFacturadasFiltradasLista : boletasNoFacturadasFiltradasLista.slice(0, 5)).map((b) => {
                   const id = String(b['ID Ingresos'] || b['id'] || '');
                   const razonSocial = b['cliente'] || b['nombre'] || b['Razon Social'] || '';
                   const total = b['total'] || b['INGRESOS'] || '';
@@ -631,7 +633,7 @@ export default function DashboardPage() {
                     <tr><th className="p-1">Razón Social</th><th className="p-1">Total</th></tr>
                   </thead>
                   <tbody>
-                    {(mostrarTodasNoFacturadas ? boletasNoFacturadasFiltradasLista : boletasNoFacturadasFiltradasLista.slice(0, 10)).map((b) => {
+                    {(mostrarTodasNoFacturadas ? boletasNoFacturadasFiltradasLista : boletasNoFacturadasFiltradasLista.slice(0, 5)).map((b) => {
                       const id = String(b['ID Ingresos'] || b['id'] || '');
                       const razonSocial = b['cliente'] || b['nombre'] || b['Razon Social'] || '';
                       const total = b['total'] || b['INGRESOS'] || '';
@@ -667,7 +669,7 @@ export default function DashboardPage() {
                 </table>
               </div>
               <div className="p-2 border-t bg-white/60 flex justify-center">
-                {boletasNoFacturadasFiltradasLista.length > 10 && (
+                {boletasNoFacturadasFiltradasLista.length > 5 && (
                   <button className="text-xs text-blue-700 hover:underline" onClick={() => setMostrarTodasNoFacturadas((v) => !v)}>
                     {mostrarTodasNoFacturadas ? 'Mostrar menos' : 'Mostrar todas'}
                   </button>
