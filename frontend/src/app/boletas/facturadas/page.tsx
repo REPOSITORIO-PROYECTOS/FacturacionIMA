@@ -62,7 +62,7 @@ export default function BoletasFacturadasPage() {
                     if (m && m[1]) {
                         filename = decodeURIComponent(m[1].replace(/UTF-8''/, '').replace(/^"'|"'$/g, ''));
                     }
-                } catch {}
+                } catch { }
                 const url = URL.createObjectURL(blob);
                 const a = document.createElement('a');
                 a.href = url;
@@ -70,7 +70,7 @@ export default function BoletasFacturadasPage() {
                 document.body.appendChild(a);
                 a.click();
                 a.remove();
-                setTimeout(() => { try { URL.revokeObjectURL(url); } catch {} }, 5000);
+                setTimeout(() => { try { URL.revokeObjectURL(url); } catch { } }, 5000);
             } catch (error) {
                 alert('Error al descargar comprobante: ' + String(error));
             }

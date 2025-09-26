@@ -161,7 +161,7 @@ export default function BoletasNoFacturadasPage() {
                         console.log('[no-facturadas] Boletas recibidas (crudas):', arr.length);
                         if (arr.length > 0) {
                             console.log('[no-facturadas] Claves ejemplo primer registro:', Object.keys(arr[0] as Record<string, unknown>));
-                            console.log('[no-facturadas] Estado facturacion primeros 5:', arr.slice(0,5).map(x => (x as Record<string, unknown>)['facturacion'] || (x as Record<string, unknown>)['Facturacion'] || (x as Record<string, unknown>)['estado'] || (x as Record<string, unknown>)['Estado']));
+                            console.log('[no-facturadas] Estado facturacion primeros 5:', arr.slice(0, 5).map(x => (x as Record<string, unknown>)['facturacion'] || (x as Record<string, unknown>)['Facturacion'] || (x as Record<string, unknown>)['estado'] || (x as Record<string, unknown>)['Estado']));
                         }
                         if (!cancel) setItems(arr);
                     }
@@ -262,7 +262,7 @@ export default function BoletasNoFacturadasPage() {
     // Resumen por repartidor obtenido desde backend
     interface ResumenRepartidor { repartidor: string; cantidad: number; ids: string[]; razones_sociales: string[]; }
     const [resumen, setResumen] = useState<ResumenRepartidor[] | null>(null);
-    const [resumenTotales, setResumenTotales] = useState<{total_boletas:number; total_repartidores:number} | null>(null);
+    const [resumenTotales, setResumenTotales] = useState<{ total_boletas: number; total_repartidores: number } | null>(null);
 
     useEffect(() => {
         (async () => {
@@ -383,37 +383,37 @@ export default function BoletasNoFacturadasPage() {
         <div className="p-4 md:p-6 space-y-4">
             <h1 className="text-xl font-bold text-purple-700">Boletas No Facturadas</h1>
             <div className="flex flex-col gap-3 mb-4">
-                                {resumen && resumenTotales && (
-                                    <div className="text-xs bg-purple-50 border border-purple-200 rounded p-2 space-y-1">
-                                        <div className="font-semibold text-purple-800">Resumen (No Facturadas)</div>
-                                        <div className="flex flex-wrap gap-x-4 gap-y-1">
-                                            <span>Total boletas: <strong>{resumenTotales.total_boletas}</strong></span>
-                                            <span>Repartidores: <strong>{resumenTotales.total_repartidores}</strong></span>
-                                        </div>
-                                        <div className="overflow-x-auto">
-                                            <table className="min-w-full text-[11px]">
-                                                <thead>
-                                                    <tr className="text-left text-purple-700">
-                                                        <th className="pr-3 py-1">Repartidor</th>
-                                                        <th className="pr-3 py-1">Cantidad</th>
-                                                        <th className="pr-3 py-1">Razones Sociales</th>
-                                                        <th className="py-1">Primeros IDs</th>
-                                                    </tr>
-                                                </thead>
-                                                <tbody>
-                                                    {resumen.map(r => (
-                                                        <tr key={r.repartidor} className="border-t border-purple-100">
-                                                            <td className="pr-3 py-1 font-medium">{r.repartidor}</td>
-                                                            <td className="pr-3 py-1">{r.cantidad}</td>
-                                                            <td className="pr-3 py-1 truncate max-w-[240px]">{r.razones_sociales.slice(0,4).join(', ')}{r.razones_sociales.length>4?'…':''}</td>
-                                                            <td className="py-1 text-gray-600">{r.ids.slice(0,5).join(', ')}{r.ids.length>5?'…':''}</td>
-                                                        </tr>
-                                                    ))}
-                                                </tbody>
-                                            </table>
-                                        </div>
-                                    </div>
-                                )}
+                {resumen && resumenTotales && (
+                    <div className="text-xs bg-purple-50 border border-purple-200 rounded p-2 space-y-1">
+                        <div className="font-semibold text-purple-800">Resumen (No Facturadas)</div>
+                        <div className="flex flex-wrap gap-x-4 gap-y-1">
+                            <span>Total boletas: <strong>{resumenTotales.total_boletas}</strong></span>
+                            <span>Repartidores: <strong>{resumenTotales.total_repartidores}</strong></span>
+                        </div>
+                        <div className="overflow-x-auto">
+                            <table className="min-w-full text-[11px]">
+                                <thead>
+                                    <tr className="text-left text-purple-700">
+                                        <th className="pr-3 py-1">Repartidor</th>
+                                        <th className="pr-3 py-1">Cantidad</th>
+                                        <th className="pr-3 py-1">Razones Sociales</th>
+                                        <th className="py-1">Primeros IDs</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {resumen.map(r => (
+                                        <tr key={r.repartidor} className="border-t border-purple-100">
+                                            <td className="pr-3 py-1 font-medium">{r.repartidor}</td>
+                                            <td className="pr-3 py-1">{r.cantidad}</td>
+                                            <td className="pr-3 py-1 truncate max-w-[240px]">{r.razones_sociales.slice(0, 4).join(', ')}{r.razones_sociales.length > 4 ? '…' : ''}</td>
+                                            <td className="py-1 text-gray-600">{r.ids.slice(0, 5).join(', ')}{r.ids.length > 5 ? '…' : ''}</td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                )}
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 max-w-3xl">
                     <div>
                         <label className="block text-sm text-gray-600 mb-1">Fecha desde</label>
