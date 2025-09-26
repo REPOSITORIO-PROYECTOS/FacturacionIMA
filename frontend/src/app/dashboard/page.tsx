@@ -126,7 +126,7 @@ export default function DashboardPage() {
       const res = await fetch("/api/facturar", {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify(payload),
+        body: JSON.stringify([payload]),
       });
       const data = await res.json().catch(() => ({}));
       if (res.ok) toast.success(`Facturación exitosa`, `Medio: ${medio}`);
@@ -152,7 +152,7 @@ export default function DashboardPage() {
 
   // Más estados para filtros y agrupación
   const [soloFacturables, setSoloFacturables] = useState(true);
-  const [fechasInicializadas, _setFechasInicializadas] = useState(false);
+  const [, _setFechasInicializadas] = useState(false);
   const [modalOpen, setModalOpen] = useState(false);
   const [modalGroup, setModalGroup] = useState<{ key: string; boletas: Boleta[]; groupType: string; facturado: boolean } | null>(null);
   // Estado de selección en el modal
@@ -771,10 +771,6 @@ export default function DashboardPage() {
                 onChange={(e) => setBusqueda(e.target.value)}
               />
             </div>
-            <label className="inline-flex items-center gap-2">
-              <input type="checkbox" checked={soloFacturables} onChange={(e) => setSoloFacturables(e.target.checked)} />
-              <span className="text-sm">Solo facturables</span>
-            </label>
             <button
               className="px-4 py-2 bg-gray-200 hover:bg-gray-300 rounded text-sm"
               onClick={() => {

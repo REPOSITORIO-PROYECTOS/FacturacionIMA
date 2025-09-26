@@ -209,12 +209,7 @@ export default function BoletasFacturadasPage() {
                                                     className="bg-blue-500 text-white px-2 py-1 rounded hover:bg-blue-600 transition"
                                                     onClick={() => abrirDetalle(b)}
                                                 >Ver detalles</button>
-                                                {!(b['Nro Comprobante']) && (
-                                                    <button
-                                                        className="bg-green-500 text-white px-2 py-1 rounded hover:bg-green-600 transition"
-                                                        onClick={() => facturarBoleta(b)}
-                                                    >Facturar</button>
-                                                )}
+                                                {!(b['Nro Comprobante'])}
                                             </td>
                                         </tr>
                                     );
