@@ -51,21 +51,30 @@ class TablasHandler:
                             # preferir no sobreescribir si ya existe una clave canónica
                             if not new.get('repartidor'):
                                 new['repartidor'] = v
+                                # also provide capitalized variant for older code that expects 'Repartidor'
+                                if not new.get('Repartidor'):
+                                    new['Repartidor'] = v
 
                         # Razón social / nombre del receptor (cliente)
                         if key_compact in ('razonsocial', 'razonsocialreceptor', 'razonsocialcliente', 'nombre', 'nombrecliente', 'nombre_razonsocial'):
                             if not new.get('razon_social'):
                                 new['razon_social'] = v
+                                if not new.get('Razon Social'):
+                                    new['Razon Social'] = v
 
                         # Fecha en formatos variados
                         if key_compact in ('fecha', 'fechadeingreso', 'date'):
                             if not new.get('fecha'):
                                 new['fecha'] = v
+                                if not new.get('Fecha'):
+                                    new['Fecha'] = v
 
                         # ID Ingresos
                         if key_compact in ('idingresos', 'id', 'id_ingreso'):
                             if not new.get('id_ingreso'):
                                 new['id_ingreso'] = v
+                                if not new.get('ID Ingresos'):
+                                    new['ID Ingresos'] = v
 
                     return new
 

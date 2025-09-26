@@ -5,11 +5,12 @@ from pydantic import BaseModel
 from backend.sqlite_security import obtener_usuario_actual_sqlite
 from backend.utils.mysql_handler import get_db_connection
 from backend.utils.tablasHandler import TablasHandler
-from thefuzz import fuzz 
+from thefuzz import fuzz  # type: ignore
 import json
 import html as _html
 from typing import Optional
 from backend.utils.billige_manage import process_invoice_batch_for_endpoint
+import os
 
 router = APIRouter(
     prefix="/boletas"
@@ -31,16 +32,50 @@ def traer_todas_las_boletas(skip: int = 0, limit: int = 20):
 
 
 @router.get("/obtener-no-facturadas", response_model=List[Dict[str, Any]])
-def traer_boletas_no_facturadas(skip: int = 0, limit: int = 20):
-
+def traer_boletas_no_facturadas(
+    skip: int = 0,
+    limit: int = 20,
+    usuario_actual: dict = Depends(obtener_usuario_actual_sqlite)
+):
+    """Devuelve boletas que faltan facturar. Si el usuario no es admin, se filtra
+    por repartidor asociado al usuario (fuzzy match o comparación case-insensitive).
+    """
     try:
-
         todas_las_boletas = handler.cargar_ingresos()
 
         boletas_filtradas = [
             boleta for boleta in todas_las_boletas 
             if boleta.get("facturacion") == "falta facturar"
         ]
+
+        # Si no es admin (rol_id != "1"), filtrar por repartidor
+        rol = usuario_actual.get("rol_id", "")
+        if rol != "1":
+            username = usuario_actual.get("nombre_usuario", "")
+            if username:
+                username_l = str(username).lower()
+                resultado = []
+                for bo in boletas_filtradas:
+                    repartidor = (bo.get('Repartidor') or bo.get('repartidor') or '')
+                    if not repartidor:
+                        continue
+                    try:
+                        # fuzzy match
+                        score = 0
+                        try:
+                            score = fuzz.token_set_ratio(username, repartidor)
+                        except Exception:
+                            score = 0
+                        if score > 80:
+                            resultado.append(bo)
+                            continue
+                        # fallback exact-ish match
+                        if str(repartidor).strip().lower() == username_l:
+                            resultado.append(bo)
+                            continue
+                    except Exception:
+                        continue
+                return resultado[skip: skip + limit]
 
         return boletas_filtradas[skip : skip + limit]
 
@@ -340,43 +375,112 @@ def build_imprimible_html(boleta: Dict[str, Any], afip_result: Optional[Dict[str
         else:
             qr_html = f"<div style='margin-top:12px'><a href='{_html.escape(str(qr_data_url))}' target='_blank' rel='noopener noreferrer'>Ver QR</a></div>"
 
-    html = f"""<!doctype html>
+        # Emisor: intentar leer del diccionario o caer en variables de entorno
+        emisor_cuit = boleta.get('emisor_cuit') or boleta.get('CUIT') or os.environ.get('EMISOR_CUIT', '')
+        emisor_razon = boleta.get('emisor_razon_social') or boleta.get('Emisor') or os.environ.get('EMISOR_RAZON_SOCIAL', '')
+        emisor_domicilio = boleta.get('emisor_domicilio') or boleta.get('domicilio_emisor') or os.environ.get('EMISOR_DOMICILIO', '')
+        emisor_iva = boleta.get('emisor_condicion_iva') or os.environ.get('EMISOR_CONDICION_IVA', '')
+
+        # Comprobante: tipo y fechas (si vienen en otros campos, incluirlos)
+        tipo_comprobante = boleta.get('tipo_comprobante') or boleta.get('Tipo') or boleta.get('tipo') or ''
+        nro_comprobante = nro
+        fecha_emision = fecha
+
+        # Receptor / cliente
+        receptor_nombre = boleta.get('cliente') or boleta.get('nombre') or boleta.get('razon_social') or ''
+        receptor_doc = boleta.get('cuit') or boleta.get('nro_doc_receptor') or boleta.get('documento') or ''
+        receptor_iva = boleta.get('condicion_iva') or ''
+
+        # Items: buscar una lista en boleta['items'] o boleta['detalle'] (si existe)
+        items = boleta.get('items') or boleta.get('detalle') or []
+
+        # Leyendas obligatorias
+        leyendas = []
+        leyendas.append('Comprobante autorizado por AFIP')
+        # Añadir información del régimen si se tiene
+        regimen = boleta.get('regimen_emision') or boleta.get('regimen') or 'Factura Electrónica'
+        leyendas.append(regimen)
+
+        # Preparar tabla de items (si hay list)
+        items_html = ''
+        if isinstance(items, list) and len(items) > 0:
+                rows = []
+                for it in items:
+                        desc = _html.escape(str(it.get('descripcion') or it.get('descripcion_producto') or it.get('detalle') or ''))
+                        qty = _html.escape(str(it.get('cantidad') or it.get('qty') or ''))
+                        price = _html.escape(str(it.get('precio_unitario') or it.get('precio') or it.get('unit_price') or ''))
+                        subtotal = _html.escape(str(it.get('subtotal') or it.get('importe') or ''))
+                        rows.append(f"<tr><td>{desc}</td><td style='text-align:right'>{qty}</td><td style='text-align:right'>{price}</td><td style='text-align:right'>{subtotal}</td></tr>")
+                items_html = f"<table style='width:100%; border-collapse:collapse; margin-top:8px'><thead><tr><th style='text-align:left'>Descripción</th><th style='text-align:right'>Cant.</th><th style='text-align:right'>P.Unit</th><th style='text-align:right'>Subtotal</th></tr></thead><tbody>{''.join(rows)}</tbody></table>"
+        else:
+                detalle_text = _html.escape(str(boleta.get('descripcion') or boleta.get('detalle_text') or boleta.get('detalle') or ''))
+                if detalle_text:
+                        items_html = f"<div style='margin-top:8px'>{detalle_text}</div>"
+
+        cae_vto = ''
+        if afip_result:
+                try:
+                        cae_vto = afip_result.get('cae_vto') or afip_result.get('cae_vencimiento') or ''
+                except Exception:
+                        cae_vto = ''
+
+        # Construir HTML con layout más cercano a un ticket
+        html = f"""<!doctype html>
 <html>
 <head>
-  <meta charset='utf-8'/>
-  <title>Comprobante {esc(nro)}</title>
-  <style>
-    body {{ font-family: Arial, Helvetica, sans-serif; padding:20px; color:#111 }}
-    .card {{ border:1px solid #ddd; padding:18px; max-width:720px; margin:0 auto }}
-    .header {{ display:flex; justify-content:space-between; align-items:center }}
-    .lines {{ margin-top:12px }}
-    .lines div {{ margin-bottom:8px }}
-    .small {{ color:#666; font-size:0.9em }}
-    pre {{ white-space:pre-wrap; background:#f8f8f8; padding:8px; border-radius:6px }}
-  </style>
+    <meta charset='utf-8'/>
+    <title>Comprobante {esc(nro_comprobante)}</title>
+    <style>
+        body {{ font-family: Arial, Helvetica, sans-serif; padding:8px; color:#111; font-size:12px }}
+        .card {{ border:0; padding:0; max-width:320px; margin:0 auto }}
+        .header {{ text-align:center }}
+        .small {{ color:#666; font-size:0.9em }}
+        .meta {{ margin-top:8px; font-size:11px }}
+        .totals {{ margin-top:10px; font-weight:bold }}
+        table.items td, table.items th {{ border-bottom:1px solid #eee; padding:4px 0 }}
+        .qr {{ margin-top:10px; text-align:center }}
+        .leyendas {{ margin-top:8px; font-size:10px; color:#333 }}
+        pre {{ white-space:pre-wrap; background:#f8f8f8; padding:8px; border-radius:6px; font-size:10px }}
+    </style>
 </head>
 <body>
-  <div class='card'>
-    <div class='header'>
-      <div>
-        <h2>Comprobante {esc(nro)}</h2>
-        <div class='small'>Fecha: {esc(fecha)}</div>
-      </div>
-    </div>
-        <div class='lines'>
-      <div><strong>Razón social:</strong> {esc(razon)}</div>
-      <div><strong>Importe:</strong> {esc(total)}</div>
-            <div><strong>CAE:</strong> {esc(cae)}</div>
-      <div><strong>Ingreso ID:</strong> {esc(ingreso)}</div>
-    </div>
-        {qr_html}
-        <hr />
+    <div class='card'>
+        <div class='header'>
+            <div style='font-weight:bold'>{_html.escape(str(emisor_razon))}</div>
+            <div class='small'>CUIT: {_html.escape(str(emisor_cuit))} · { _html.escape(str(emisor_iva)) }</div>
+            <div class='small'>{_html.escape(str(emisor_domicilio))}</div>
+            <hr/>
+            <h3>Comprobante {esc(tipo_comprobante)} {esc(nro_comprobante)}</h3>
+            <div class='small'>Fecha: {esc(fecha_emision)}</div>
+        </div>
+
+        <div class='meta'>
+            <div><strong>Receptor:</strong> { _html.escape(str(receptor_nombre)) }</div>
+            <div class='small'>Doc: { _html.escape(str(receptor_doc)) } · Cond. IVA: { _html.escape(str(receptor_iva)) }</div>
+        </div>
+
+        {items_html}
+
+        <div class='totals'>
+            <div>Total: {esc(total)}</div>
+            <div class='small'>CAE: {esc(cae)} { ('(Vto: ' + _html.escape(str(cae_vto)) + ')') if cae_vto else '' }</div>
+        </div>
+
+        <div class='qr'>
+            {qr_html}
+        </div>
+
+        <div class='leyendas'>
+            { '<br/>'.join(_html.escape(l) for l in leyendas) }
+        </div>
+
+        <hr/>
         <pre>{_html.escape(json.dumps(boleta.get('raw_response') or {}, indent=2, ensure_ascii=False))}</pre>
-  </div>
+    </div>
 </body>
 </html>
 """
-    return html
+        return html
 
 
 @router.get("/{ingreso_id}/imprimir-html")
@@ -408,79 +512,13 @@ def imprimir_html_por_ingreso(
         if not target:
             raise HTTPException(status_code=404, detail='No se encontró la boleta con ese ingreso_id')
 
-        html = build_imprimible_html(target)
-        return Response(content=html, media_type='text/html')
+        # Este endpoint deja la generación de HTML básica; la conversión a imagen
+        # y la facturación+impresión quedan centralizadas en el blueprint 'impresion'.
+        # Para compatibilidad, devolvemos un HTML mínimo con los datos principales.
+        simple_html = f"<html><body><h1>Comprobante {_html.escape(str(target.get('Nro Comprobante') or ''))}</h1><div>Fecha: {_html.escape(str(target.get('Fecha') or target.get('fecha') or ''))}</div></body></html>"
+        return Response(content=simple_html, media_type='text/html')
 
     except HTTPException:
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error al generar el HTML imprimible: {e}")
-
-
-@router.post("/{ingreso_id}/facturar-e-imprimir")
-def facturar_e_imprimir(
-    ingreso_id: str,
-    usuario_actual: dict = Depends(obtener_usuario_actual_sqlite)
-):
-    """Intentar facturar la boleta identificada por ingreso_id y devolver el HTML imprimible con QR si se generó.
-    Este endpoint orquesta la facturación (invocando `process_invoice_batch_for_endpoint`) y luego devuelve el HTML.
-    """
-    try:
-        todas = handler.cargar_ingresos()
-        target = None
-        for b in todas:
-            candidates = [b.get('ID Ingresos'), b.get('ingreso_id'), b.get('id'), b.get('ID')]
-            for c in candidates:
-                if c is None:
-                    continue
-                try:
-                    if str(c) == str(ingreso_id):
-                        target = b
-                        break
-                except Exception:
-                    continue
-            if target:
-                break
-
-        if not target:
-            raise HTTPException(status_code=404, detail='No se encontró la boleta con ese ingreso_id')
-
-        # Armar payload mínimo para facturar
-        try:
-            total_raw = target.get('importe_total') or target.get('total') or target.get('INGRESOS')
-            if total_raw is None:
-                raise HTTPException(status_code=400, detail='No se encontró el total para facturar en la boleta')
-            total = float(total_raw)
-        except ValueError:
-            raise HTTPException(status_code=400, detail='El campo total no es numérico')
-
-        cliente_data = {
-            'cuit_o_dni': str(target.get('nro_doc_receptor') or target.get('nro_doc') or target.get('documento') or '0'),
-            'nombre_razon_social': str(target.get('Razon Social') or target.get('razon_social') or target.get('cliente') or target.get('nombre') or ''),
-            'domicilio': target.get('domicilio') or None,
-            'condicion_iva': target.get('condicion_iva') or 'CONSUMIDOR_FINAL'
-        }
-
-        payload = [{
-            'id': str(ingreso_id),
-            'total': total,
-            'cliente_data': cliente_data
-        }]
-
-        # Ejecutar facturación (lote de 1)
-        results = process_invoice_batch_for_endpoint(invoices_payload=payload, max_workers=1)
-        if not results or not isinstance(results, list):
-            raise HTTPException(status_code=500, detail='La facturación no devolvió resultados válidos')
-
-        res0 = results[0]
-        status = res0.get('status')
-        afip_result = res0.get('result') if status == 'SUCCESS' else None
-
-        # Construir HTML incluyendo la info de afip_result (si existe)
-        html = build_imprimible_html(target, afip_result=afip_result)
-        return Response(content=html, media_type='text/html')
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error al facturar e imprimir: {e}")
