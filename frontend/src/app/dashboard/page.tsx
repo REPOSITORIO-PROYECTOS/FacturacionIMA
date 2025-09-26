@@ -826,7 +826,6 @@ export default function DashboardPage() {
                                 headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
                                 body: JSON.stringify(invoices),
                               });
-                              type LoteResultado = { ok?: boolean } | Record<string, unknown>;
                               const dataText = await res.text();
                               const isJson = dataText.trim().startsWith("{") || dataText.trim().startsWith("[");
                               const data: unknown = isJson ? JSON.parse(dataText) : dataText;

@@ -15,7 +15,7 @@ export async function GET(request: Request): Promise<Response> {
             status: res.status,
             headers: { "Content-Type": res.headers.get("content-type") || "application/json" }
         });
-    } catch (err) {
+    } catch {
         return new Response(JSON.stringify({ detail: "Error al conectar con backend" }), {
             status: 500,
             headers: { "Content-Type": "application/json" }
