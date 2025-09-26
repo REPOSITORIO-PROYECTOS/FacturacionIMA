@@ -39,7 +39,38 @@ class TablasHandler:
                 sheet = self.client.open_by_key(self.google_sheet_id)
                 worksheet = sheet.worksheet("INGRESOS") 
                 datos_clientes = worksheet.get_all_records()
-                return datos_clientes
+                # Normalizar claves comunes para evitar ambigüedades entre variantes
+                def normalize_row(row: dict) -> dict:
+                    new = dict(row)  # copiar valores originales
+                    # construir mapa de keys compactas para detección
+                    for k, v in list(row.items()):
+                        key_compact = k.lower().replace(' ', '').replace('_', '')
+
+                        # Repartidor (emisor/operador que llevó la boleta)
+                        if key_compact in ('repartidor', 'repartidornombre', 'nombredelempleado'):
+                            # preferir no sobreescribir si ya existe una clave canónica
+                            if not new.get('repartidor'):
+                                new['repartidor'] = v
+
+                        # Razón social / nombre del receptor (cliente)
+                        if key_compact in ('razonsocial', 'razonsocialreceptor', 'razonsocialcliente', 'nombre', 'nombrecliente', 'nombre_razonsocial'):
+                            if not new.get('razon_social'):
+                                new['razon_social'] = v
+
+                        # Fecha en formatos variados
+                        if key_compact in ('fecha', 'fechadeingreso', 'date'):
+                            if not new.get('fecha'):
+                                new['fecha'] = v
+
+                        # ID Ingresos
+                        if key_compact in ('idingresos', 'id', 'id_ingreso'):
+                            if not new.get('id_ingreso'):
+                                new['id_ingreso'] = v
+
+                    return new
+
+                normalized = [normalize_row(r) for r in datos_clientes]
+                return normalized
             except gspread.exceptions.WorksheetNotFound:
                 print("❌ ERROR: La hoja de cálculo no tiene una pestaña llamada 'INGRESOS'.")
             except Exception as e:

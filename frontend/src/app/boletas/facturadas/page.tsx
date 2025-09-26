@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useState } from 'react';
-import Image from 'next/image';
+// Image import removed because data-URL QR previews use plain <img>
 import { LoadingSpinner } from "../../components/LoadingSpinner";
 
 interface BoletaRecord {
@@ -172,6 +172,7 @@ export default function BoletasFacturadasPage() {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
     const [search, setSearch] = useState('');
+    const [repartidoresMap, setRepartidoresMap] = useState<Record<string, string[]> | null>(null);
     const [fechaDesde, setFechaDesde] = useState<string>('');
     const [fechaHasta, setFechaHasta] = useState<string>('');
     useEffect(() => {
@@ -188,6 +189,26 @@ export default function BoletasFacturadasPage() {
             finally { if (!cancel) setLoading(false); }
         }
         load();
+        // Cargar mapping de repartidores -> razones sociales
+        (async function loadRepartidores() {
+            try {
+                const token = localStorage.getItem('token');
+                if (!token) return;
+                const r = await fetch('/api/boletas/repartidores', { headers: { Authorization: `Bearer ${token}` } });
+                if (!r.ok) return;
+                const data = await r.json().catch(() => []);
+                if (!Array.isArray(data)) return;
+                const map: Record<string, string[]> = {};
+                for (const row of data) {
+                    const rname = String(row.repartidor || '').trim();
+                    const razones = Array.isArray(row.razones_sociales) ? row.razones_sociales.map(String) : [];
+                    if (rname) map[rname] = razones;
+                }
+                setRepartidoresMap(map);
+            } catch (e) {
+                // no bloquear la carga de boletas si falla esta llamada
+            }
+        })();
         return () => { cancel = true; };
     }, []);
 
@@ -298,15 +319,15 @@ export default function BoletasFacturadasPage() {
                             const rawTotal = b.importe_total || b.total || b.INGRESOS || '';
                             const totalNum = typeof rawTotal === 'number' ? rawTotal : parseFloat(String(rawTotal).replace(/,/g, ''));
                             const total = isNaN(totalNum) ? rawTotal : Math.round(totalNum).toString();
-                            const razonSocial = b.cliente || b.nombre || b['Razon Social'] || '';
+                            const razonSocial = b.razon_social || b.cliente || b.nombre || b['Razon Social'] || '';
                             const id = b.ingreso_id || b['ID Ingresos'] || b.id || i;
-                            const repartidor = (b.Repartidor ?? (b as Record<string, unknown>)['repartidor'] ?? '') as string;
+                            const repartidor = (b.repartidor ?? b.Repartidor ?? '') as string;
                             const nroComp = b['Nro Comprobante'] || b.numero_comprobante || (b as Record<string, unknown>)['numero_comprobante'];
                             return (
                                 <div key={id} className="px-3 py-2 flex items-center justify-between gap-3">
                                     <div className="min-w-0">
-                                        <div className="font-medium truncate">{razonSocial}</div>
-                                        <div className="text-[11px] text-gray-600">Repartidor: {repartidor || '-'}</div>
+                                        <div className="font-medium truncate">{String(razonSocial)}</div>
+                                        <div className="text-[11px] text-gray-600">Repartidor: {String(repartidor || '-')}</div>
                                         <div className="text-[11px] text-gray-600">Fecha: {String(b.fecha_comprobante || b.created_at || '-')}</div>
                                         <div className="text-[11px] text-gray-600">Total: {String(total)}</div>
                                     </div>
@@ -354,11 +375,11 @@ export default function BoletasFacturadasPage() {
                                     const nroComp = b['Nro Comprobante'] || b.numero_comprobante || (b as Record<string, unknown>)['numero_comprobante'];
                                     return (
                                         <tr key={id} className="border-t">
-                                            <td className="p-2">{repartidor}</td>
-                                            <td className="p-2">{razonSocial}</td>
-                                            <td className="p-2">{String(b.fecha_comprobante || b.created_at || '-')}</td>
-                                            <td className="p-2">{total}</td>
-                                            <td className="p-2">{b.cae || '-'}</td>
+                                <td className="p-2">{repartidor}</td>
+                                <td className="p-2">{razonSocial}</td>
+                                <td className="p-2">{String(b.fecha_comprobante || b.created_at || '-')}</td>
+                                <td className="p-2">{total}</td>
+                                <td className="p-2">{b.cae || '-'}</td>
                                             <td className="p-2 flex gap-2">
                                                 <button
                                                     className="bg-blue-500 text-white px-2 py-1 rounded hover:bg-blue-600 transition"

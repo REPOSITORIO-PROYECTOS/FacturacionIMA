@@ -222,3 +222,67 @@ def traer_todas_por_dia(
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Ocurrió un error inesperado al buscar boletas por día: {e}")
+
+
+
+@router.get("/repartidores", response_model=List[Dict[str, Any]])
+def listar_repartidores(
+    skip: int = 0,
+    limit: int = 1000,
+    usuario_actual: dict = Depends(obtener_usuario_actual_sqlite)
+):
+    """
+    Devuelve una lista de repartidores y las razones sociales asociadas.
+    - Si el usuario es admin (rol_id == "1"), devuelve todos los repartidores encontrados.
+    - Si no es admin, intenta devolver únicamente el repartidor asociado al usuario
+      (se usa fuzzy matching sobre el campo 'Repartidor').
+    Esto permite obtener desde el frontend el nombre de repartidor "seguro" según
+    el usuario autenticado y las razones sociales relacionadas a sus boletas.
+    """
+    try:
+        rol = usuario_actual.get("rol_id", "")
+        username = usuario_actual.get("nombre_usuario", "")
+
+        todas_las_boletas = handler.cargar_ingresos()
+
+        # Construir mapping repartidor -> set(razon social)
+        mapping: Dict[str, set] = {}
+        for boleta in todas_las_boletas:
+            repartidor = boleta.get("Repartidor") or boleta.get("repartidor") or ""
+            razon = (
+                boleta.get("Razon Social")
+                or boleta.get("razon_social")
+                or boleta.get("Razon social")
+                or ""
+            )
+            if not repartidor:
+                continue
+            if repartidor not in mapping:
+                mapping[repartidor] = set()
+            if razon:
+                mapping[repartidor].add(razon)
+
+        results: List[Dict[str, Any]] = []
+
+        if rol == "1":
+            # Admin: devolver todos
+            for r, razones in mapping.items():
+                results.append({"repartidor": r, "razones_sociales": list(razones)})
+            return results[skip: skip + limit]
+
+        # No admin: intentar filtrar por el usuario autenticado
+        if not username:
+            raise HTTPException(status_code=400, detail="No se pudo obtener el nombre de usuario.")
+
+        for r, razones in mapping.items():
+            try:
+                ratio = fuzz.token_set_ratio(username, r)
+            except Exception:
+                ratio = 0
+            if ratio > 80:
+                results.append({"repartidor": r, "razones_sociales": list(razones)})
+
+        return results[skip: skip + limit]
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Ocurrió un error inesperado al listar repartidores: {e}")
