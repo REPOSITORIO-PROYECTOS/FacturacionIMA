@@ -50,8 +50,11 @@ async def obtener_boletas_tipo(request: Request, tipo: str = None, skip: int = 0
             # Usar la función existente para no facturadas
             todas_las_boletas = handler.cargar_ingresos()
             boletas_filtradas = [
-                boleta for boleta in todas_las_boletas 
-                if "falta facturar" in str(boleta.get("facturacion", "")).lower()
+                boleta for boleta in todas_las_boletas
+                if (
+                    "falta" in str(boleta.get("facturacion", "")).lower() and
+                    "facturar" in str(boleta.get("facturacion", "")).lower()
+                )
             ]
             rol = usuario_actual.get("rol_id", "")
             if rol != "1":
