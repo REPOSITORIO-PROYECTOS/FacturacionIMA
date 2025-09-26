@@ -49,6 +49,11 @@ async def obtener_boletas_tipo(request: Request, tipo: str = None, skip: int = 0
         elif tipo == "no-facturadas":
             # Usar la función existente para no facturadas
             todas_las_boletas = handler.cargar_ingresos()
+            # Print temporal para depuración
+            print("Valores de 'facturacion' en boletas:")
+            for boleta in todas_las_boletas:
+                print(str(boleta.get("facturacion", "")).lower())
+
             boletas_filtradas = [
                 boleta for boleta in todas_las_boletas
                 if (
