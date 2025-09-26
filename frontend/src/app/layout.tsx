@@ -7,6 +7,7 @@ import MainContent from "./components/MainContent";
 import React from 'react';
 import "./globals.css";
 import { ToastProvider } from "./components/ToastProvider";
+import AuthGuard from './components/AuthGuard';
 
 // 2. Metadatos significativos y específicos del proyecto
 export const metadata: Metadata = {
@@ -28,10 +29,12 @@ export default function RootLayout({ children }: RootLayoutProps) {
       </head>
       <body className={clsx(geistSans.variable, geistMono.variable, "antialiased")}>
         <ToastProvider>
-          <div className="flex min-h-screen">
-            <NavbarVisible />
-            <MainContent>{children}</MainContent>
-          </div>
+          <AuthGuard>
+            <div className="flex min-h-screen">
+              <NavbarVisible />
+              <MainContent>{children}</MainContent>
+            </div>
+          </AuthGuard>
         </ToastProvider>
       </body>
     </html>
