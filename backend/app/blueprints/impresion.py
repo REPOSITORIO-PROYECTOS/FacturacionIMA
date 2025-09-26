@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, Response
+from pydantic import BaseModel
 from backend.sqlite_security import obtener_usuario_actual_sqlite
 from backend.app.blueprints import boletas
 from typing import List
@@ -38,7 +39,7 @@ def facturar_e_imprimir_img(ingreso_id: str, usuario_actual: dict = Depends(obte
         raise HTTPException(status_code=500, detail=str(e))
 
 
-class PackRequest(BaseModel := None):
+class PackRequest(BaseModel):
     pass
 
 
