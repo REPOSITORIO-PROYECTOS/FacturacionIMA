@@ -7,7 +7,18 @@ from .json_utils import default_json
 from dotenv import load_dotenv
 from typing import Dict, Any, Optional
 from enum import Enum
-from backend.config import AFIP_KEY, AFIP_CERT, AFIP_CUIT, AFIP_COND_EMISOR,AFIP_PUNTO_VENTA
+from backend.config import (
+    AFIP_KEY,
+    AFIP_CERT,
+    AFIP_CUIT,
+    AFIP_COND_EMISOR,
+    AFIP_PUNTO_VENTA,
+    # puede no existir si versión vieja; usamos getattr defensivo
+)
+try:
+    from backend.config import AFIP_ENABLE_ENV_CREDS  # type: ignore
+except Exception:
+    AFIP_ENABLE_ENV_CREDS = False
 
 from typing import Dict, Any
 
@@ -40,12 +51,14 @@ except Exception:
 
 def _resolve_afip_credentials(emisor_cuit: str | None = None):
     """Devuelve (cuit, certificado_pem, clave_privada_pem, fuente)
-    Fuente puede ser 'env', 'boveda' o 'none'. Si emisor_cuit se pasa,
-    intentará primero localizar el certificado de ese CUIT en la bóveda.
+    Fuente: 'boveda', 'env', 'none'. Prioridad:
+      1) CUIT solicitado en bóveda
+      2) Cualquier certificado disponible en bóveda
+      3) Entorno (solo si AFIP_ENABLE_ENV_CREDS True y hay cert+key)
     """
-    # 1) Si se indicó un emisor específico, preferir su certificado en la bóveda
     try:
         if afip_tools_manager:
+            # 1) Bóveda para CUIT específico
             if emisor_cuit:
                 try:
                     cfg = afip_tools_manager.obtener_configuracion_emisor(emisor_cuit)
@@ -55,33 +68,43 @@ def _resolve_afip_credentials(emisor_cuit: str | None = None):
                     cert_path = _os.path.join(afip_tools_manager.BOVEDA_TEMPORAL_PATH, f"{emisor_cuit}.crt")
                     key_path = _os.path.join(afip_tools_manager.BOVEDA_TEMPORAL_PATH, f"{emisor_cuit}.key")
                     if _os.path.exists(cert_path) and _os.path.exists(key_path):
-                        with open(cert_path, 'r', encoding='utf-8') as f:
-                            cert_pem = f.read()
-                        with open(key_path, 'r', encoding='utf-8') as f:
-                            key_pem = f.read()
-                        return emisor_cuit, cert_pem, key_pem, 'boveda'
-
-            # 2) Si no se pidió un CUIT específico (o no está disponible), intentar variables de entorno
-            if AFIP_CUIT and AFIP_CERT and AFIP_KEY:
-                return AFIP_CUIT, AFIP_CERT, AFIP_KEY, 'env'
-
-            # 3) Si no hay variables de entorno, buscar cualquiera disponible en la bóveda
-            disponibles = afip_tools_manager.listar_certificados_disponibles()
-            if disponibles:
-                for item in disponibles:
-                    if item.get('tiene_clave'):
-                        cuit = item.get('cuit')
-                        cert_path = item.get('certificado_path')
-                        key_path = _os.path.join(afip_tools_manager.BOVEDA_TEMPORAL_PATH, f"{cuit}.key")
                         try:
                             with open(cert_path, 'r', encoding='utf-8') as f:
                                 cert_pem = f.read()
                             with open(key_path, 'r', encoding='utf-8') as f:
                                 key_pem = f.read()
-                            return cuit, cert_pem, key_pem, 'boveda'
+                            return emisor_cuit, cert_pem, key_pem, 'boveda'
                         except Exception:
-                            continue
+                            pass
+
+            # 2) Cualquier certificado en bóveda (iterar)
+            try:
+                disponibles = afip_tools_manager.listar_certificados_disponibles()
+            except Exception:
+                disponibles = []
+            if disponibles:
+                for item in disponibles:
+                    if not item.get('tiene_clave'):
+                        continue
+                    cuit = item.get('cuit')
+                    cert_path = item.get('certificado_path')
+                    key_path = _os.path.join(afip_tools_manager.BOVEDA_TEMPORAL_PATH, f"{cuit}.key")
+                    if not (_os.path.exists(cert_path) and _os.path.exists(key_path)):
+                        continue
+                    try:
+                        with open(cert_path, 'r', encoding='utf-8') as f:
+                            cert_pem = f.read()
+                        with open(key_path, 'r', encoding='utf-8') as f:
+                            key_pem = f.read()
+                        return cuit, cert_pem, key_pem, 'boveda'
+                    except Exception:
+                        continue
+
+            # 3) Entorno (solo si flag habilita y hay datos)
+            if AFIP_ENABLE_ENV_CREDS and AFIP_CUIT and AFIP_CERT and AFIP_KEY:
+                return AFIP_CUIT, AFIP_CERT, AFIP_KEY, 'env'
     except Exception:
+        # Cualquier fallo cae en 'none'
         pass
 
     return None, None, None, 'none'

@@ -62,12 +62,34 @@ if not GOOGLE_SERVICE_ACCOUNT_FILE:
      raise ValueError("CRÍTICO: GOOGLE_SERVICE_ACCOUNT_FILE no está configurado en .env.")
 
 
-#===========================FACTURADOR=========================================
-AFIP_CUIT: str = os.getenv("AFIP_CUIT")
-AFIP_CERT: str = os.getenv("AFIP_CERT")
-AFIP_KEY: str = os.getenv("AFIP_KEY")
-AFIP_COND_EMISOR : str = os.getenv("AFIP_COND_EMISOR")
-AFIP_PUNTO_VENTA : str = os.getenv("AFIP_PUNTO_VENTA")
+#===========================FACTURADOR (Hardening)=========================================
+def _parse_bool(v: str | None, default: bool = False) -> bool:
+    if v is None:
+        return default
+    return v.strip().lower() in ("1", "true", "t", "yes", "y", "on")
+
+# Flag para permitir explícitamente el uso de credenciales desde variables de entorno.
+# Por defecto DESACTIVADO para obligar a usar la bóveda de certificados.
+AFIP_ENABLE_ENV_CREDS = _parse_bool(os.getenv("AFIP_ENABLE_ENV_CREDS"), False)
+
+# Siempre podemos tener un CUIT "por defecto" para seleccionar en la bóveda, pero
+# NO cargamos directamente certificado ni clave a menos que la flag lo permita.
+AFIP_CUIT: str | None = os.getenv("AFIP_CUIT")
+if AFIP_ENABLE_ENV_CREDS:
+    AFIP_CERT: str | None = os.getenv("AFIP_CERT")
+    AFIP_KEY: str | None = os.getenv("AFIP_KEY")
+    if AFIP_CERT and AFIP_KEY:
+        print("DEBUG_CFG: Uso de credenciales AFIP desde entorno ACTIVADO por AFIP_ENABLE_ENV_CREDS=1")
+    else:
+        print("ADVERTENCIA: AFIP_ENABLE_ENV_CREDS=1 pero faltan AFIP_CERT o AFIP_KEY en entorno.")
+else:
+    AFIP_CERT = None
+    AFIP_KEY = None
+    if os.getenv("AFIP_CERT") or os.getenv("AFIP_KEY"):
+        print("DEBUG_CFG: Credenciales AFIP presentes en entorno pero IGNORADAS (AFIP_ENABLE_ENV_CREDS=0).")
+
+AFIP_COND_EMISOR : str | None = os.getenv("AFIP_COND_EMISOR")
+AFIP_PUNTO_VENTA : str | None = os.getenv("AFIP_PUNTO_VENTA")
     # URL del microservicio de facturación
 FACTURACION_API_URL: str = os.getenv("FACTURACION_API_URL", "http://localhost:8002/afipws/facturador")
 
