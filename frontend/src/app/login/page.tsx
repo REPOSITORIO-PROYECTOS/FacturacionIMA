@@ -59,13 +59,28 @@ function LoginPageInner() {
       }
 
       if (data && data.access_token) {
+        // Guardar en localStorage (uso cliente)
         localStorage.setItem("token", data.access_token);
         if (data.user_info) {
-          localStorage.setItem("user_info", JSON.stringify(data.user_info));
+            localStorage.setItem("user_info", JSON.stringify(data.user_info));
         }
         if (remember) localStorage.setItem("remember_user", email);
+
+        // IMPORTANTE: establecer cookie que el middleware del lado servidor verifica (session_token)
+        try {
+          // 8 horas (28800s) — ajustar si el backend define otra duración
+          document.cookie = `session_token=${encodeURIComponent(data.access_token)}; Path=/; Max-Age=28800; SameSite=Lax`;
+        } catch {
+          // si falla, igual continuamos con la navegación (AuthGuard client-side seguirá funcionando)
+        }
+
+        // Redirección: si veníamos de ?from= y no es /login, usarla
+        const from = searchParams.get('from');
         const isMobile = typeof window !== 'undefined' && window.innerWidth < 768;
-        router.push(isMobile ? '/inicio' : '/dashboard');
+        const fallback = isMobile ? '/inicio' : '/dashboard';
+        const target = (from && from.startsWith('/') && !from.startsWith('/login')) ? from : fallback;
+        // replace evita que el usuario vuelva atrás al formulario ya autenticado
+        router.replace(target);
       } else {
         // Mostrar un resumen del body recibido para facilitar diagnóstico en desarrollo
         const preview = data
