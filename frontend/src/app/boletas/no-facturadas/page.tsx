@@ -62,63 +62,37 @@ export default function BoletasNoFacturadasPage() {
     }
 
     async function descargarComprobanteJPG(b: BoletaRecord) {
+        // Preferir imagen generada por el backend (incluye CAE y QR si existieran)
         const bx = b as Record<string, unknown>;
-        const fecha = String(bx['Fecha'] ?? bx['fecha'] ?? '');
-        const nro = b['Nro Comprobante'] || '-';
-        const total = b.total ?? b.INGRESOS ?? '';
-        const razon = b['Razon Social'] || b.cliente || b.nombre || '';
-        const ingreso = String(b['ID Ingresos'] ?? b.id ?? '');
-
-        // Produce an image that is 58mm wide.
-        // 1 mm ≈ 3.7795275591 px at 96dpi. Multiply by devicePixelRatio for sharper output on high-dpi screens.
-        const pxPerMm = 3.7795275591 * (window.devicePixelRatio || 1);
-        const width = Math.max(1, Math.round(58 * pxPerMm)); // 58mm target width
-        const lineHeight = Math.round(7 * (window.devicePixelRatio || 1));
-        const padding = Math.round(6 * (window.devicePixelRatio || 1));
-        const lines = [
-            `Comprobante: ${String(nro)}`,
-            `Fecha: ${String(fecha)}`,
-            `Razón social: ${String(razon)}`,
-            `Importe: ${String(total)}`,
-            `Ingreso ID: ${ingreso}`,
-        ];
-        const height = padding * 2 + lines.length * lineHeight;
-        const svg = `<?xml version="1.0" encoding="UTF-8"?>\n` +
-            `<svg xmlns='http://www.w3.org/2000/svg' width='${width}' height='${height}'>` +
-            `<rect width='100%' height='100%' fill='#fff'/>` +
-            `<style> .text{font:14px Arial; fill:#222;}</style>` +
-            lines.map((l, idx) => `<text x='${padding}' y='${padding + (idx + 1) * lineHeight}' class='text'>${escapeXml(l)}</text>`).join('') +
-            `</svg>`;
+        const ingreso = String(bx['ingreso_id'] ?? bx['ID Ingresos'] ?? bx['id'] ?? '');
+        if (!ingreso) { alert('ID de ingreso no disponible'); return; }
+        const token = localStorage.getItem('token');
+        if (!token) { alert('No autenticado'); return; }
         try {
-            const svgBlob = new Blob([svg], { type: 'image/svg+xml;charset=utf-8' });
-            const url = URL.createObjectURL(svgBlob);
-            const img = new Image();
-            img.onload = () => {
-                try {
-                    const canvas = document.createElement('canvas');
-                    canvas.width = width;
-                    canvas.height = height;
-                    const ctx = canvas.getContext('2d');
-                    if (!ctx) throw new Error('Canvas no soportado');
-                    ctx.fillStyle = '#ffffff';
-                    ctx.fillRect(0, 0, canvas.width, canvas.height);
-                    ctx.drawImage(img, 0, 0);
-                    canvas.toBlob((blob) => {
-                        if (!blob) { alert('No se pudo generar la imagen'); URL.revokeObjectURL(url); return; }
-                        const a = document.createElement('a');
-                        const fileUrl = URL.createObjectURL(blob);
-                        a.href = fileUrl;
-                        a.download = `comprobante_${String(nro)}.jpg`;
-                        document.body.appendChild(a);
-                        a.click();
-                        a.remove();
-                        setTimeout(() => { try { URL.revokeObjectURL(fileUrl); URL.revokeObjectURL(url); } catch { } }, 3000);
-                    }, 'image/jpeg', 0.92);
-                } catch (e) { alert('Error al generar la imagen: ' + String(e)); URL.revokeObjectURL(url); }
-            };
-            img.onerror = () => { alert('No se pudo cargar la imagen SVG para convertirla'); URL.revokeObjectURL(url); };
-            img.src = url;
-        } catch (e) { alert('Error creando comprobante: ' + String(e)); }
+            const res = await fetch(`/api/impresion/${encodeURIComponent(ingreso)}/facturar-imagen`, { method: 'POST', headers: { Authorization: `Bearer ${token}` } });
+            if (!res.ok) {
+                const txt = await res.text().catch(() => res.statusText || 'Error');
+                alert(`Error generando imagen: ${txt}`);
+                return;
+            }
+            const blob = await res.blob();
+            let filename = `comprobante_${ingreso}.jpg`;
+            try {
+                const cd = res.headers.get('content-disposition') || '';
+                const m = cd.match(/filename\*?=([^;]+)/i);
+                if (m && m[1]) filename = decodeURIComponent(m[1].replace(/UTF-8''/, '').replace(/^"|'|"$/g, ''));
+            } catch { /* ignore */ }
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            setTimeout(() => { try { URL.revokeObjectURL(url); } catch { } }, 5000);
+        } catch (e) {
+            alert('Error generando imagen: ' + String(e));
+        }
     }
     const [items, setItems] = useState<BoletaRecord[]>([]);
     const [loading, setLoading] = useState(true);
@@ -312,7 +286,7 @@ export default function BoletasNoFacturadasPage() {
             const id = ids[i];
             try {
                 // Call the proxy that triggers facturación+imagen and returns image/jpeg
-                const res = await fetch(`/api/impresion/${encodeURIComponent(id)}`, { method: 'POST', headers: { Authorization: `Bearer ${token}` } });
+                const res = await fetch(`/api/impresion/${encodeURIComponent(id)}/facturar-imagen`, { method: 'POST', headers: { Authorization: `Bearer ${token}` } });
                 if (!res.ok) {
                     const txt = await res.text().catch(() => res.statusText || 'Error');
                     console.error(`Error al descargar ID ${id}:`, txt);
