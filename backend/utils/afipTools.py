@@ -3,7 +3,8 @@ from datetime import datetime
 import os
 import requests
 import json
-from .json_utils import default_json
+# Nota: no dependemos de un serializador personalizado aquí; usamos `str` como
+# fallback seguro al serializar objetos desconocidos para logging/debug.
 from dotenv import load_dotenv
 from typing import Dict, Any, Optional
 from enum import Enum
@@ -43,9 +44,14 @@ if not (FACTURACION_API_URL):
 
 # Intentar resolver credenciales desde variables de entorno primero,
 # y si no existen, intentar leerlas desde la bóveda temporal (boveda_afip_temporal)
+_os = os
 try:
     from backend.utils import afip_tools_manager
-    import os as _os
+    # intentar usar un alias local para llamadas a la fs de la bóveda (si está disponible)
+    try:
+        import os as _os  # pragma: no cover - override only if available
+    except Exception:
+        _os = os
 except Exception:
     afip_tools_manager = None
 
@@ -174,9 +180,11 @@ def generar_factura_para_venta(
     }
         
 
+    # Validar que la configuración contenga una cadena legible para el enum
+    if not isinstance(AFIP_COND_EMISOR, str) or not AFIP_COND_EMISOR:
+        raise ValueError("La condición de IVA del emisor no está configurada (AFIP_COND_EMISOR).")
     try:
         condicion_emisor = CondicionIVA[AFIP_COND_EMISOR]
-
     except (KeyError, AttributeError):
         raise ValueError(f"La condición de IVA del emisor '{AFIP_COND_EMISOR}' no es válida o no está soportada.")
 
@@ -235,8 +243,12 @@ def generar_factura_para_venta(
         except Exception:
             print("Credenciales: <no disponible para previsualizar>")
 
+        # Asegurarnos está disponible y de tipo str para el analizador estático
+        url = FACTURACION_API_URL
+        if not url:
+            raise RuntimeError("FACTURACION_API_URL no configurado.")
         response = requests.post(
-            FACTURACION_API_URL,
+            url,
             json=payload,
             timeout=20,
         )
@@ -261,7 +273,7 @@ def generar_factura_para_venta(
                         else:
                             # Intentar convertir a string/JSON para inspección
                             try:
-                                msgs.append(json.dumps(v, ensure_ascii=False, default=default_json))
+                                msgs.append(json.dumps(v, ensure_ascii=False, default=str))
                             except Exception:
                                 msgs.append(str(v))
                 joined = " ".join(msgs)
@@ -295,7 +307,8 @@ def generar_factura_para_venta(
                 "debug_cuit_usado": str(cuit_res),
                 "debug_fuente_credenciales": fuente,
                 "tipo_doc_receptor": datos_factura.get("tipo_documento"),
-                "nro_doc_receptor": int(datos_factura.get("documento")),
+                # Documento puede ser None; convertir defensivamente a 0 si falta
+                "nro_doc_receptor": int(datos_factura.get("documento") or 0),
                 "tipo_documento": datos_factura.get("tipo_documento"),
                 "documento": datos_factura.get("documento"),
                 "tipo_afip": datos_factura.get("tipo_afip"),
@@ -324,10 +337,12 @@ def generar_factura_para_venta(
                         body_text = body.get('message')
                     else:
                         try:
-                            from .json_utils import default_json
-                            body_text = json.dumps(body, ensure_ascii=False, default=default_json)
+                            body_text = json.dumps(body, ensure_ascii=False, default=str)
                         except Exception:
-                            body_text = json.dumps(body, ensure_ascii=False, default=default_json)
+                            try:
+                                body_text = str(body)
+                            except Exception:
+                                body_text = '<unserializable body>'
                 except ValueError:
                     body_text = e.response.text
         except Exception:

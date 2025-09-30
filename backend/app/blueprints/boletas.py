@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, Response, Request
 from datetime import datetime
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional, DefaultDict, Set
 from pydantic import BaseModel
 from backend.sqlite_security import obtener_usuario_actual_sqlite
 from backend.utils.mysql_handler import get_db_connection
@@ -8,7 +8,6 @@ from backend.utils.tablasHandler import TablasHandler
 from thefuzz import fuzz  # type: ignore
 import json
 import html as _html
-from typing import Optional
 from backend.utils.billige_manage import process_invoice_batch_for_endpoint
 import os
 
@@ -38,7 +37,7 @@ def _is_admin(usuario_actual: dict) -> bool:
 
 # Endpoint universal para /boletas?tipo=...
 @router.get("")
-async def obtener_boletas_tipo(request: Request, tipo: str = None, skip: int = 0, limit: int = 20, usuario_actual: dict = Depends(obtener_usuario_actual_sqlite)):
+async def obtener_boletas_tipo(request: Request, tipo: Optional[str] = None, skip: int = 0, limit: int = 20, usuario_actual: dict = Depends(obtener_usuario_actual_sqlite)):
     """
     Endpoint universal para /boletas?tipo=... que redirige a la lógica correspondiente.
     """
@@ -46,6 +45,7 @@ async def obtener_boletas_tipo(request: Request, tipo: str = None, skip: int = 0
         if tipo == "facturadas":
             # Usar la función existente para facturadas
             conn = None
+            cursor = None
             try:
                 conn = get_db_connection()
                 if not conn:
@@ -64,7 +64,11 @@ async def obtener_boletas_tipo(request: Request, tipo: str = None, skip: int = 0
                 raise HTTPException(status_code=500, detail=f"Ocurrió un error inesperado al consultar la base de datos: {e}")
             finally:
                 if conn and conn.is_connected():
-                    cursor.close()
+                    if cursor is not None:
+                        try:
+                            cursor.close()
+                        except Exception:
+                            pass
                     conn.close()
         elif tipo == "no-facturadas":
             todas_las_boletas = handler.cargar_ingresos()
@@ -167,6 +171,7 @@ def traer_boletas_no_facturadas(
 def traer_boletas_facturadas_desde_db(skip: int = 0, limit: int = 20):
 
     conn = None
+    cursor = None
     try:
  
         conn = get_db_connection()
@@ -191,7 +196,11 @@ def traer_boletas_facturadas_desde_db(skip: int = 0, limit: int = 20):
 
     finally:
         if conn and conn.is_connected():
-            cursor.close()
+            if cursor is not None:
+                try:
+                    cursor.close()
+                except Exception:
+                    pass
             conn.close()
 
 
@@ -454,7 +463,8 @@ def resumen_no_facturadas(usuario_actual: dict = Depends(obtener_usuario_actual_
         username_l = username.lower()
 
         from collections import defaultdict
-        agrupado = defaultdict(lambda: {"ids": [], "razones": set()})
+        ids_map: Dict[str, List[str]] = defaultdict(list)
+        razones_map: Dict[str, Set[str]] = defaultdict(set)
 
         for b in no_fact:
             repart = b.get('Repartidor') or b.get('repartidor') or ''
@@ -474,18 +484,21 @@ def resumen_no_facturadas(usuario_actual: dict = Depends(obtener_usuario_actual_
                     continue
             rid = str(b.get('ID Ingresos') or b.get('ingreso_id') or b.get('id') or '')
             if rid:
-                agrupado[repart]["ids"].append(rid)
+                ids_map[repart].append(rid)
             razon = b.get('Razon Social') or b.get('razon_social') or b.get('Cliente') or b.get('cliente') or ''
             if razon:
-                agrupado[repart]["razones"].add(str(razon))
+                razones_map[repart].add(str(razon))
 
         respuesta = []
-        for repart, data in agrupado.items():
+        all_reparts = set(list(ids_map.keys()) + list(razones_map.keys()))
+        for repart in all_reparts:
+            ids = ids_map.get(repart, [])
+            razones = list(razones_map.get(repart, []))
             respuesta.append({
                 "repartidor": repart,
-                "cantidad": len(data["ids"]),
-                "ids": data["ids"],
-                "razones_sociales": list(data["razones"])
+                "cantidad": len(ids),
+                "ids": ids,
+                "razones_sociales": razones
             })
         respuesta.sort(key=lambda x: x["repartidor"].lower())
         return {
@@ -538,65 +551,65 @@ def build_imprimible_html(boleta: Dict[str, Any], afip_result: Optional[Dict[str
     def esc(v: Any) -> str:
         return _html.escape(str(v)) if v is not None else ''
 
+    # qr_html: si existe el contenido de QR lo representamos; sino queda vacío
     qr_html = ''
     if qr_data_url:
-        # si qr_data_url es una URL normal (no data:), mostrar link tambien
         if str(qr_data_url).startswith('data:'):
             qr_html = f"<div style='margin-top:12px'><img src='{_html.escape(str(qr_data_url))}' alt='QR' style='max-width:220px'/></div>"
         else:
             qr_html = f"<div style='margin-top:12px'><a href='{_html.escape(str(qr_data_url))}' target='_blank' rel='noopener noreferrer'>Ver QR</a></div>"
 
-        # Emisor: intentar leer del diccionario o caer en variables de entorno
-        emisor_cuit = boleta.get('emisor_cuit') or boleta.get('CUIT') or os.environ.get('EMISOR_CUIT', '')
-        emisor_razon = boleta.get('emisor_razon_social') or boleta.get('Emisor') or os.environ.get('EMISOR_RAZON_SOCIAL', '')
-        emisor_domicilio = boleta.get('emisor_domicilio') or boleta.get('domicilio_emisor') or os.environ.get('EMISOR_DOMICILIO', '')
-        emisor_iva = boleta.get('emisor_condicion_iva') or os.environ.get('EMISOR_CONDICION_IVA', '')
+    # Emisor: intentar leer del diccionario o caer en variables de entorno
+    emisor_cuit = boleta.get('emisor_cuit') or boleta.get('CUIT') or os.environ.get('EMISOR_CUIT', '')
+    emisor_razon = boleta.get('emisor_razon_social') or boleta.get('Emisor') or os.environ.get('EMISOR_RAZON_SOCIAL', '')
+    emisor_domicilio = boleta.get('emisor_domicilio') or boleta.get('domicilio_emisor') or os.environ.get('EMISOR_DOMICILIO', '')
+    emisor_iva = boleta.get('emisor_condicion_iva') or os.environ.get('EMISOR_CONDICION_IVA', '')
 
-        # Comprobante: tipo y fechas (si vienen en otros campos, incluirlos)
-        tipo_comprobante = boleta.get('tipo_comprobante') or boleta.get('Tipo') or boleta.get('tipo') or ''
-        nro_comprobante = nro
-        fecha_emision = fecha
+    # Comprobante: tipo y fechas (si vienen en otros campos, incluirlos)
+    tipo_comprobante = boleta.get('tipo_comprobante') or boleta.get('Tipo') or boleta.get('tipo') or ''
+    nro_comprobante = nro
+    fecha_emision = fecha
 
-        # Receptor / cliente
-        receptor_nombre = boleta.get('cliente') or boleta.get('nombre') or boleta.get('razon_social') or ''
-        receptor_doc = boleta.get('cuit') or boleta.get('nro_doc_receptor') or boleta.get('documento') or ''
-        receptor_iva = boleta.get('condicion_iva') or ''
+    # Receptor / cliente
+    receptor_nombre = boleta.get('cliente') or boleta.get('nombre') or boleta.get('razon_social') or ''
+    receptor_doc = boleta.get('cuit') or boleta.get('nro_doc_receptor') or boleta.get('documento') or ''
+    receptor_iva = boleta.get('condicion_iva') or ''
 
-        # Items: buscar una lista en boleta['items'] o boleta['detalle'] (si existe)
-        items = boleta.get('items') or boleta.get('detalle') or []
+    # Items: buscar una lista en boleta['items'] o boleta['detalle'] (si existe)
+    items = boleta.get('items') or boleta.get('detalle') or []
 
-        # Leyendas obligatorias
-        leyendas = []
-        leyendas.append('Comprobante autorizado por AFIP')
-        # Añadir información del régimen si se tiene
-        regimen = boleta.get('regimen_emision') or boleta.get('regimen') or 'Factura Electrónica'
-        leyendas.append(regimen)
+    # Leyendas obligatorias
+    leyendas = []
+    leyendas.append('Comprobante autorizado por AFIP')
+    # Añadir información del régimen si se tiene
+    regimen = boleta.get('regimen_emision') or boleta.get('regimen') or 'Factura Electrónica'
+    leyendas.append(regimen)
 
-        # Preparar tabla de items (si hay list)
-        items_html = ''
-        if isinstance(items, list) and len(items) > 0:
-                rows = []
-                for it in items:
-                        desc = _html.escape(str(it.get('descripcion') or it.get('descripcion_producto') or it.get('detalle') or ''))
-                        qty = _html.escape(str(it.get('cantidad') or it.get('qty') or ''))
-                        price = _html.escape(str(it.get('precio_unitario') or it.get('precio') or it.get('unit_price') or ''))
-                        subtotal = _html.escape(str(it.get('subtotal') or it.get('importe') or ''))
-                        rows.append(f"<tr><td>{desc}</td><td style='text-align:right'>{qty}</td><td style='text-align:right'>{price}</td><td style='text-align:right'>{subtotal}</td></tr>")
-                items_html = f"<table style='width:100%; border-collapse:collapse; margin-top:8px'><thead><tr><th style='text-align:left'>Descripción</th><th style='text-align:right'>Cant.</th><th style='text-align:right'>P.Unit</th><th style='text-align:right'>Subtotal</th></tr></thead><tbody>{''.join(rows)}</tbody></table>"
-        else:
-                detalle_text = _html.escape(str(boleta.get('descripcion') or boleta.get('detalle_text') or boleta.get('detalle') or ''))
-                if detalle_text:
-                        items_html = f"<div style='margin-top:8px'>{detalle_text}</div>"
+    # Preparar tabla de items (si hay list)
+    items_html = ''
+    if isinstance(items, list) and len(items) > 0:
+        rows = []
+        for it in items:
+            desc = _html.escape(str(it.get('descripcion') or it.get('descripcion_producto') or it.get('detalle') or ''))
+            qty = _html.escape(str(it.get('cantidad') or it.get('qty') or ''))
+            price = _html.escape(str(it.get('precio_unitario') or it.get('precio') or it.get('unit_price') or ''))
+            subtotal = _html.escape(str(it.get('subtotal') or it.get('importe') or ''))
+            rows.append(f"<tr><td>{desc}</td><td style='text-align:right'>{qty}</td><td style='text-align:right'>{price}</td><td style='text-align:right'>{subtotal}</td></tr>")
+        items_html = f"<table style='width:100%; border-collapse:collapse; margin-top:8px'><thead><tr><th style='text-align:left'>Descripción</th><th style='text-align:right'>Cant.</th><th style='text-align:right'>P.Unit</th><th style='text-align:right'>Subtotal</th></tr></thead><tbody>{''.join(rows)}</tbody></table>"
+    else:
+        detalle_text = _html.escape(str(boleta.get('descripcion') or boleta.get('detalle_text') or boleta.get('detalle') or ''))
+        if detalle_text:
+            items_html = f"<div style='margin-top:8px'>{detalle_text}</div>"
 
-        cae_vto = ''
-        if afip_result:
-                try:
-                        cae_vto = afip_result.get('cae_vto') or afip_result.get('cae_vencimiento') or ''
-                except Exception:
-                        cae_vto = ''
+    cae_vto = ''
+    if afip_result:
+        try:
+            cae_vto = afip_result.get('cae_vto') or afip_result.get('cae_vencimiento') or ''
+        except Exception:
+            cae_vto = ''
 
-        # Construir HTML con layout más cercano a un ticket
-        html = f"""<!doctype html>
+    # Construir HTML con layout más cercano a un ticket
+    html = f"""<!doctype html>
 <html>
 <head>
     <meta charset='utf-8'/>
@@ -651,7 +664,7 @@ def build_imprimible_html(boleta: Dict[str, Any], afip_result: Optional[Dict[str
 </body>
 </html>
 """
-        return html
+    return html
 
 
 @router.get("/{ingreso_id}/imprimir-html")
@@ -665,8 +678,18 @@ def imprimir_html_por_ingreso(
     try:
         todas = handler.cargar_ingresos()
         target = None
+        # Normalizar función para comparaciones tolerantes
+        def norm(x: object) -> str:
+            try:
+                s = str(x or '')
+            except Exception:
+                s = ''
+            return ''.join(ch.lower() for ch in s if ch.isalnum())
+
+        nid = norm(ingreso_id)
+
+        # 1) Intento estricto por igualdad de string
         for b in todas:
-            # comparar varias claves posibles
             candidates = [b.get('ID Ingresos'), b.get('ingreso_id'), b.get('id'), b.get('ID')]
             for c in candidates:
                 if c is None:
@@ -680,8 +703,36 @@ def imprimir_html_por_ingreso(
             if target:
                 break
 
+        # 2) Si no encontrado, intentar matching tolerante normalizado
         if not target:
-            raise HTTPException(status_code=404, detail='No se encontró la boleta con ese ingreso_id')
+            for b in todas:
+                candidates = [b.get('ID Ingresos'), b.get('ingreso_id'), b.get('id'), b.get('ID')]
+                for c in candidates:
+                    if c is None:
+                        continue
+                    try:
+                        if norm(c) == nid:
+                            target = b
+                            break
+                        # Substring match (si cliente usó solo parte del id)
+                        if nid and norm(c).endswith(nid):
+                            target = b
+                            break
+                    except Exception:
+                        continue
+                if target:
+                    break
+
+        if not target:
+            # For debugging, incluir los primeros IDs disponibles para comparar con lo que solicitó el cliente
+            sample = []
+            try:
+                for b in todas[:10]:
+                    vals = [b.get('ID Ingresos'), b.get('ingreso_id'), b.get('id'), b.get('ID')]
+                    sample.append([v for v in vals if v is not None])
+            except Exception:
+                sample = []
+            raise HTTPException(status_code=404, detail={'msg': 'No se encontró la boleta con ese ingreso_id', 'requested': ingreso_id, 'candidates_sample': sample})
 
         # Este endpoint deja la generación de HTML básica; la conversión a imagen
         # y la facturación+impresión quedan centralizadas en el blueprint 'impresion'.
@@ -693,3 +744,19 @@ def imprimir_html_por_ingreso(
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error al generar el HTML imprimible: {e}")
+
+
+@router.post('/imprimir/{ingreso_id}')
+def imprimir_html_por_ingreso_post(
+    ingreso_id: str,
+    usuario_actual: dict = Depends(obtener_usuario_actual_sqlite)
+):
+    """Compatibilidad con frontend: POST /api/boletas/imprimir/{ingreso_id}
+    Devuelve el mismo HTML imprimible que el endpoint GET /{ingreso_id}/imprimir-html.
+    """
+    try:
+        return imprimir_html_por_ingreso(ingreso_id, usuario_actual)
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
