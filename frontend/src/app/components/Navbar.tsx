@@ -13,14 +13,35 @@ export default function Navbar() {
   useEffect(() => {
     document.body.classList.remove('dark-theme');
     document.body.classList.remove('fixed-theme');
-    const saved = localStorage.getItem("user_name") || localStorage.getItem("remember_user") || "";
-    setUserName(saved);
-    try {
-      const info = JSON.parse(localStorage.getItem("user_info") || "{}");
-      let role = info.role || info.rol_nombre || info.rol || "";
-      if (role === "Vendedor") role = "Cajero";
-      setUserRole(role);
-    } catch { setUserRole(""); }
+    const deriveFromStorage = () => {
+      const saved = localStorage.getItem("user_name") || localStorage.getItem("remember_user") || "";
+      let name = saved;
+      try {
+        const info = JSON.parse(localStorage.getItem("user_info") || "{}");
+        // prefer explicit saved name, otherwise try common fields from user_info
+        if (!name) {
+          name = info?.username || info?.nombre || info?.full_name || info?.display_name || info?.name || '';
+        }
+        let role = info.role || info.rol_nombre || info.rol || "";
+        if (role === "Vendedor") role = "Cajero";
+        setUserRole(role);
+      } catch {
+        setUserRole("");
+      }
+      setUserName(name || '');
+    };
+
+    deriveFromStorage();
+
+    // Update when other tabs or login change localStorage
+    const onStorage = (ev: StorageEvent) => {
+      if (!ev.key) return;
+      if (ev.key === 'user_info' || ev.key === 'user_name' || ev.key === 'remember_user' || ev.key === 'token') {
+        deriveFromStorage();
+      }
+    };
+    window.addEventListener('storage', onStorage);
+    return () => window.removeEventListener('storage', onStorage);
   }, []);
 
   // Abrir automáticamente en mobile despues de login (cuando hay token)
