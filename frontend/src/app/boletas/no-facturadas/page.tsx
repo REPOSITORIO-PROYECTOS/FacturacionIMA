@@ -18,22 +18,21 @@ interface BoletaRecord {
 export default function BoletasNoFacturadasPage() {
     const [detalleOpen, setDetalleOpen] = useState(false);
     const [boletaDetalle, setBoletaDetalle] = useState<BoletaRecord | null>(null);
-    const [showRaw, setShowRaw] = useState(false);
-    const [userRole, setUserRole] = useState<string | null>(null);
+    // user role not needed in this view
     const [repartidoresMap, setRepartidoresMap] = useState<Record<string, string[]> | null>(null);
     const [selectedIds, setSelectedIds] = useState<Record<string, boolean>>({});
-    // Estado para el modal de test imágenes
-    const [testModalOpen, setTestModalOpen] = useState(false);
-    interface TestResult {
-        id?: string | number;
-        ok?: boolean;
-        size?: number;
-        media_type?: string;
-        error?: string;
-        detail?: string;
+    // estado para acciones masivas
+    interface FacturarPayload {
+        id: string | number;
+        total: number;
+        medio_pago?: string;
+        cliente_data?: {
+            cuit_o_dni?: string;
+            nombre_razon_social?: string;
+            domicilio?: string;
+            condicion_iva?: string;
+        };
     }
-    const [testResults, setTestResults] = useState<TestResult[] | null>(null);
-    const [testLoading, setTestLoading] = useState(false);
 
     function abrirDetalle(boleta: BoletaRecord) {
         setBoletaDetalle(boleta);
@@ -43,23 +42,70 @@ export default function BoletasNoFacturadasPage() {
         setDetalleOpen(false);
         setBoletaDetalle(null);
     }
-    function facturarBoleta(boleta: BoletaRecord) {
-        // Aquí iría la lógica real de facturación (API, etc)
-        alert(`Facturar boleta: ${boleta['ID Ingresos'] || boleta.id}`);
+    async function facturarBoleta(boleta: BoletaRecord) {
+        const bx = boleta as Record<string, unknown>;
+        const ingreso = String(bx['ingreso_id'] ?? bx['ID Ingresos'] ?? bx['id'] ?? '');
+        if (!ingreso) { alert('ID de ingreso no disponible'); return; }
+        const token = localStorage.getItem('token');
+        if (!token) { alert('No autenticado'); return; }
+
+        // pedir medio de pago simple
+        const medio = prompt('Medio de pago (por ejemplo: Efectivo, Tarjeta):', 'Efectivo');
+        if (!medio) return;
+
+        // intentar inferir total y datos del cliente
+        const totalRaw = bx['total'] ?? bx['INGRESOS'] ?? bx['Total a Pagar'] ?? 0;
+        const totalNum = typeof totalRaw === 'number' ? totalRaw : parseFloat(String(totalRaw).replace(/[^0-9\-,\.]/g, '').replace(/,/g, '.')) || 0;
+
+        const payloadItem = {
+            id: ingreso,
+            total: Math.round(totalNum),
+            medio_pago: medio,
+            cliente_data: {
+                cuit_o_dni: String(bx['cuit'] ?? bx['CUIT'] ?? bx['dni'] ?? bx['DNI'] ?? ''),
+                nombre_razon_social: String(bx['cliente'] ?? bx['nombre'] ?? bx['Razon Social'] ?? ''),
+                domicilio: String(bx['Domicilio'] ?? ''),
+                condicion_iva: String(bx['condicion_iva'] ?? bx['condicion-iva'] ?? ''),
+            }
+        };
+
+        try {
+            const res = await fetch('/api/facturar', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+                body: JSON.stringify([payloadItem])
+            });
+
+            const text = await res.text().catch(() => '');
+            let data: unknown = {};
+            try { data = text && (text.trim().startsWith('{') || text.trim().startsWith('[')) ? JSON.parse(text) : { message: text }; } catch { data = { message: text }; }
+
+            if (!res.ok) {
+                const detail = (data && typeof data === 'object' && (data as Record<string, unknown>)['detail']) || (data && typeof data === 'object' && (data as Record<string, unknown>)['mensaje']) || (data && typeof data === 'object' && (data as Record<string, unknown>)['message']) || text || 'Error al facturar';
+                alert(String(detail));
+                return;
+            }
+
+            // mostrar éxito y refrescar lista
+            let successMsg = 'Facturación exitosa';
+            if (Array.isArray(data)) {
+                const okCount = data.filter((x: unknown) => {
+                    if (!x || typeof x !== 'object') return false;
+                    return (x as Record<string, unknown>)['ok'] !== false;
+                }).length;
+                successMsg = `Facturación procesada: ${okCount} / ${data.length}`;
+            } else if (data && typeof data === 'object' && (data as Record<string, unknown>)['mensaje']) {
+                successMsg = String((data as Record<string, unknown>)['mensaje']);
+            }
+            alert(String(successMsg));
+            // refrescar la lista
+            setRefreshTick(t => t + 1);
+        } catch (e) {
+            alert('Error de conexión al facturar: ' + String(e));
+        }
     }
 
-    function escapeXml(unsafe: string) {
-        return String(unsafe).replace(/[&<>"']/g, function (c) {
-            switch (c) {
-                case '&': return '&amp;';
-                case '<': return '&lt;';
-                case '>': return '&gt;';
-                case '"': return '&quot;';
-                case "'": return '&apos;';
-                default: return c;
-            }
-        });
-    }
+    // helper removed (not used)
 
     async function descargarComprobanteJPG(b: BoletaRecord) {
         // Preferir imagen generada por el backend (incluye CAE y QR si existieran)
@@ -170,21 +216,14 @@ export default function BoletasNoFacturadasPage() {
         return () => clearInterval(id);
     }, []);
 
-    // eslint-disable-next-line react-hooks/exhaustive-deps
     useEffect(() => {
         // reset selection when items change
         const map: Record<string, boolean> = {};
-        items.forEach((b) => { const id = String((b as Record<string, unknown>)['ID Ingresos'] || b.id || ''); if (id) map[id] = !!selectedIds[id]; });
+        items.forEach((b) => { const id = String((b as Record<string, unknown>)['ID Ingresos'] || b.id || ''); if (id) map[id] = false; });
         setSelectedIds(map);
     }, [items]);
 
-    // Leer rol de usuario desde localStorage para controlar visibilidad de botones (Mostrar JSON sólo para Admin/Soporte)
-    useEffect(() => {
-        try {
-            const ui = JSON.parse(localStorage.getItem('user_info') || '{}');
-            setUserRole(ui?.role || ui?.rol_nombre || ui?.rol || null);
-        } catch { setUserRole(null); }
-    }, []);
+    // user role not needed in this view
 
     // Restaurar/persistir fechas
     useEffect(() => {
@@ -233,26 +272,7 @@ export default function BoletasNoFacturadasPage() {
         return estado.includes('falta facturar') || estado.includes('no facturada');
     });
 
-    // Resumen por repartidor obtenido desde backend
-    interface ResumenRepartidor { repartidor: string; cantidad: number; ids: string[]; razones_sociales: string[]; }
-    const [resumen, setResumen] = useState<ResumenRepartidor[] | null>(null);
-    const [resumenTotales, setResumenTotales] = useState<{ total_boletas: number; total_repartidores: number } | null>(null);
-
-    useEffect(() => {
-        (async () => {
-            const token = localStorage.getItem('token');
-            if (!token) return;
-            try {
-                const r = await fetch('/api/boletas/resumen-no-facturadas', { headers: { Authorization: `Bearer ${token}` } });
-                if (!r.ok) return;
-                const data = await r.json();
-                if (data && Array.isArray(data.repartidores)) {
-                    setResumen(data.repartidores as ResumenRepartidor[]);
-                    setResumenTotales({ total_boletas: data.total_boletas ?? 0, total_repartidores: data.total_repartidores ?? data.repartidores.length });
-                }
-            } catch { /* ignore */ }
-        })();
-    }, [refreshTick]);
+    // (Resumen por repartidor eliminado: no se muestra en esta vista)
 
     // Filtrar items por búsqueda
     const filteredItems = itemsNoFacturadas.filter((b) => {
@@ -270,124 +290,77 @@ export default function BoletasNoFacturadasPage() {
         return key2 ? (repartidoresMap[key2] ?? []) : [];
     }
 
-    async function descargarPackSeleccionado() {
-        // ...existing code...
+    // descargar por imagen ya no se usa en este flujo
+
+    // Facturar varias boletas seleccionadas a la vez (usa el endpoint que acepta array)
+    async function facturarSeleccionadas() {
         const token = localStorage.getItem('token');
         if (!token) { alert('No autenticado'); return; }
         const ids = Object.keys(selectedIds).filter(k => selectedIds[k]);
         if (ids.length === 0) { alert('No hay boletas seleccionadas'); return; }
+        if (!confirm(`Vas a facturar ${ids.length} boletas seleccionadas. Continuar?`)) return;
 
-        if (!confirm(`Vas a descargar ${ids.length} imagen(es) una por una. Continuar?`)) return;
-
-        let success = 0;
-        let failed = 0;
-
-        for (let i = 0; i < ids.length; i++) {
-            const id = ids[i];
-            try {
-                // Call the proxy that triggers facturación+imagen and returns image/jpeg
-                const res = await fetch(`/api/impresion/${encodeURIComponent(id)}/facturar-imagen`, { method: 'POST', headers: { Authorization: `Bearer ${token}` } });
-                if (!res.ok) {
-                    const txt = await res.text().catch(() => res.statusText || 'Error');
-                    console.error(`Error al descargar ID ${id}:`, txt);
-                    failed++;
-                    continue;
+    // construir payload a partir de items
+    const payload: FacturarPayload[] = [];
+        for (const sid of ids) {
+            const found = items.find(b => String((b as Record<string, unknown>)['ID Ingresos'] || b.id || '') === sid);
+            if (!found) continue;
+            const bx = found as Record<string, unknown>;
+            const totalRaw = bx['total'] ?? bx['INGRESOS'] ?? bx['Total a Pagar'] ?? 0;
+            const totalNum = typeof totalRaw === 'number' ? totalRaw : parseFloat(String(totalRaw).replace(/[^0-9\-,\.]/g, '').replace(/,/g, '.')) || 0;
+            payload.push({
+                id: sid,
+                total: Math.round(totalNum),
+                medio_pago: 'Efectivo', // valor por defecto; el backend puede aceptarlo o lo puedes ajustar
+                cliente_data: {
+                    cuit_o_dni: String(bx['cuit'] ?? bx['CUIT'] ?? bx['dni'] ?? bx['DNI'] ?? ''),
+                    nombre_razon_social: String(bx['cliente'] ?? bx['nombre'] ?? bx['Razon Social'] ?? ''),
+                    domicilio: String(bx['Domicilio'] ?? ''),
+                    condicion_iva: String(bx['condicion_iva'] ?? bx['condicion-iva'] ?? ''),
                 }
-                const blob = await res.blob();
-                // Try to infer filename from headers; fallback to comprobante_{id}.jpg
-                let filename = `comprobante_${String(id)}.jpg`;
-                try {
-                    const cd = res.headers.get('content-disposition') || '';
-                    const m = cd.match(/filename\*?=([^;]+)/i);
-                    if (m && m[1]) {
-                        filename = decodeURIComponent(m[1].replace(/UTF-8''/, '').replace(/^\"'|\"'$/g, ''));
-                    }
-                } catch (e) { /* ignore */ }
-
-                const url = URL.createObjectURL(blob);
-                const a = document.createElement('a');
-                a.href = url;
-                a.download = filename;
-                document.body.appendChild(a);
-                a.click();
-                a.remove();
-                // Revoke URL after a short delay to ensure download started
-                setTimeout(() => { try { URL.revokeObjectURL(url); } catch { } }, 5000);
-                success++;
-                // Small delay between downloads to reduce chance of browser blocking
-                await new Promise((r) => setTimeout(r, 600));
-            } catch {
-                failed++;
-            }
+            });
         }
 
-        alert(`Descarga finalizada: ${success} correctas, ${failed} errores.`);
-    }
+        if (payload.length === 0) { alert('No se construyeron payloads válidos para las boletas seleccionadas'); return; }
 
-    // Test imágenes: llama al endpoint de diagnóstico y muestra resultados en modal
-    async function testImagenesSeleccionadas() {
-        const token = localStorage.getItem('token');
-        if (!token) { alert('No autenticado'); return; }
-        const ids = Object.keys(selectedIds).filter(k => selectedIds[k]);
-        if (ids.length === 0) { alert('No hay boletas seleccionadas'); return; }
-        setTestLoading(true);
-        setTestModalOpen(true);
-        setTestResults(null);
         try {
-            const res = await fetch('/api/impresion/test-imagenes', {
+            const res = await fetch('/api/facturar', {
                 method: 'POST',
-                headers: { 'content-type': 'application/json', Authorization: `Bearer ${token}` },
-                body: JSON.stringify(ids)
+                headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+                body: JSON.stringify(payload)
             });
+            const text = await res.text().catch(() => '');
+            let data: unknown = {};
+            try { data = text && (text.trim().startsWith('{') || text.trim().startsWith('[')) ? JSON.parse(text) : { message: text }; } catch { data = { message: text }; }
             if (!res.ok) {
-                const txt = await res.text().catch(() => 'Error');
-                setTestResults([{ error: txt }]);
+                const detail = (data && typeof data === 'object' && (data as Record<string, unknown>)['detail']) || (data && typeof data === 'object' && (data as Record<string, unknown>)['mensaje']) || (data && typeof data === 'object' && (data as Record<string, unknown>)['message']) || text || 'Error al facturar';
+                alert(String(detail));
                 return;
             }
-            const data = await res.json();
-            setTestResults(data.results || []);
+            let successMsg = 'Facturación procesada';
+            if (Array.isArray(data)) {
+                const okCount = data.filter((x: unknown) => {
+                    if (!x || typeof x !== 'object') return false;
+                    return (x as Record<string, unknown>)['ok'] !== false;
+                }).length;
+                successMsg = `Facturación procesada: ${okCount} / ${data.length}`;
+            } else if (data && typeof data === 'object' && (data as Record<string, unknown>)['mensaje']) {
+                successMsg = String((data as Record<string, unknown>)['mensaje']);
+            }
+            alert(successMsg);
+            setRefreshTick(t => t + 1);
         } catch (e) {
-            setTestResults([{ error: String(e) }]);
-        } finally {
-            setTestLoading(false);
+            alert('Error de conexión al facturar: ' + String(e));
         }
     }
+
+    // Test imágenes eliminado del flujo
 
     return (
         <div className="p-4 md:p-6 space-y-4">
             <h1 className="text-xl font-bold text-purple-700">Boletas No Facturadas</h1>
             <div className="flex flex-col gap-3 mb-4">
-                {resumen && resumenTotales && (
-                    <div className="text-xs bg-purple-50 border border-purple-200 rounded p-2 space-y-1">
-                        <div className="font-semibold text-purple-800">Resumen (No Facturadas)</div>
-                        <div className="flex flex-wrap gap-x-4 gap-y-1">
-                            <span>Total boletas: <strong>{resumenTotales.total_boletas}</strong></span>
-                            <span>Repartidores: <strong>{resumenTotales.total_repartidores}</strong></span>
-                        </div>
-                        <div className="overflow-x-auto">
-                            <table className="min-w-full text-[11px]">
-                                <thead>
-                                    <tr className="text-left text-purple-700">
-                                        <th className="pr-3 py-1">Repartidor</th>
-                                        <th className="pr-3 py-1">Cantidad</th>
-                                        <th className="pr-3 py-1">Razones Sociales</th>
-                                        <th className="py-1">Primeros IDs</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {resumen.map(r => (
-                                        <tr key={r.repartidor} className="border-t border-purple-100">
-                                            <td className="pr-3 py-1 font-medium">{r.repartidor}</td>
-                                            <td className="pr-3 py-1">{r.cantidad}</td>
-                                            <td className="pr-3 py-1 truncate max-w-[240px]">{r.razones_sociales.slice(0, 4).join(', ')}{r.razones_sociales.length > 4 ? '…' : ''}</td>
-                                            <td className="py-1 text-gray-600">{r.ids.slice(0, 5).join(', ')}{r.ids.length > 5 ? '…' : ''}</td>
-                                        </tr>
-                                    ))}
-                                </tbody>
-                            </table>
-                        </div>
-                    </div>
-                )}
+                {/* Resumen eliminado en esta vista */}
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 max-w-3xl">
                     <div>
                         <label className="block text-sm text-gray-600 mb-1">Fecha desde</label>
@@ -420,9 +393,8 @@ export default function BoletasNoFacturadasPage() {
             {!loading && !error && (
                 <div className="overflow-auto border rounded bg-white">
                     <div className="p-2 flex flex-wrap items-center gap-2 sticky top-0 bg-white z-10 border-b">
-                        <button className="px-3 py-2 bg-indigo-600 text-white rounded text-xs" onClick={descargarPackSeleccionado}>Descargar imágenes</button>
+                        <button className="px-3 py-2 bg-green-600 text-white rounded text-xs" onClick={facturarSeleccionadas}>Facturar seleccionadas</button>
                         <button className="px-3 py-2 bg-blue-500 text-white rounded text-xs" onClick={() => setRefreshTick(t => t + 1)}>Refrescar</button>
-                        <button className="px-3 py-2 bg-yellow-500 text-white rounded text-xs" onClick={testImagenesSeleccionadas}>Test imágenes</button>
                         <span className="ml-auto text-[11px] text-gray-500">Mostrando {filteredItems.length} / {itemsNoFacturadas.length}</span>
                     </div>
                     {/* Mobile list */}
@@ -514,44 +486,7 @@ export default function BoletasNoFacturadasPage() {
                     )}
                 </div>
             )}
-            {/* Modal de test imágenes */}
-            {testModalOpen && (
-                <div className="fixed inset-0 bg-black bg-opacity-40 flex items-center justify-center z-50">
-                    <div className="bg-white rounded-lg shadow-lg p-6 w-full max-w-2xl">
-                        <h3 className="text-xl font-bold mb-4">Test de generación de imágenes</h3>
-                        {testLoading && <div className="py-4 text-center">Cargando…</div>}
-                        {!testLoading && testResults && (
-                            <div className="overflow-x-auto max-h-[60vh]">
-                                <table className="w-full text-sm border">
-                                    <thead className="bg-gray-100">
-                                        <tr>
-                                            <th className="p-2">ID</th>
-                                            <th className="p-2">OK</th>
-                                            <th className="p-2">Tamaño</th>
-                                            <th className="p-2">Media type</th>
-                                            <th className="p-2">Error</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        {testResults.map((r, i) => (
-                                            <tr key={String(r.id || i)} className={r.ok ? '' : 'bg-red-50'}>
-                                                <td className="p-2">{String(r.id || '')}</td>
-                                                <td className="p-2">{r.ok ? '✔️' : '❌'}</td>
-                                                <td className="p-2">{r.size ?? ''}</td>
-                                                <td className="p-2">{r.media_type ?? ''}</td>
-                                                <td className="p-2 text-xs text-red-600">{r.error || r.detail || ''}</td>
-                                            </tr>
-                                        ))}
-                                    </tbody>
-                                </table>
-                            </div>
-                        )}
-                        <div className="flex gap-2 justify-end mt-4">
-                            <button className="bg-gray-300 px-4 py-2 rounded hover:bg-gray-400" onClick={() => setTestModalOpen(false)}>Cerrar</button>
-                        </div>
-                    </div>
-                </div>
-            )}
+            {/* Test imágenes eliminado */}
             {/* Modal de detalles de boleta */}
             {detalleOpen && boletaDetalle && (
                 <div className="fixed inset-0 bg-black bg-opacity-40 flex items-center justify-center z-50">
@@ -599,15 +534,9 @@ export default function BoletasNoFacturadasPage() {
                                         })();
                                     }}>Facturar y imprimir</button>
                                 </div>
-                                {/* Mostrar JSON sólo si el rol es Admin o Soporte */}
-                                {['Admin', 'Soporte'].includes(String(userRole || '')) && (
-                                    <button className="px-3 py-2 bg-gray-200 rounded" onClick={() => setShowRaw(s => !s)}>{showRaw ? 'Ocultar JSON' : 'Mostrar JSON'}</button>
-                                )}
                             </div>
 
-                            {showRaw && (
-                                <pre className="text-xs bg-gray-100 p-2 rounded mb-2 overflow-x-auto max-h-64">{JSON.stringify(boletaDetalle, null, 2)}</pre>
-                            )}
+                            {/* JSON debug removed */}
 
                         </div>
 

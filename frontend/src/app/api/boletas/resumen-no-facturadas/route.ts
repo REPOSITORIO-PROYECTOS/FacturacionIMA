@@ -13,7 +13,7 @@ export async function GET(request: Request): Promise<Response> {
             if (r.status === 404) continue;
             const data = await r.json().catch(() => ({}));
             return new Response(JSON.stringify(data), { status: r.status, headers: { 'Content-Type': 'application/json' } });
-        } catch (e) {
+        } catch {
             continue;
         }
     }
