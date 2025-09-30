@@ -63,6 +63,7 @@ function LoginPageInner() {
         localStorage.setItem("token", data.access_token);
         if (data.user_info) {
             localStorage.setItem("user_info", JSON.stringify(data.user_info));
+              try { window.dispatchEvent(new Event('user_info_changed')); } catch {}
         }
         if (remember) localStorage.setItem("remember_user", email);
 

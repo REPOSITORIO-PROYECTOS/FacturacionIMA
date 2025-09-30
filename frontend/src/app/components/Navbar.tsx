@@ -14,34 +14,43 @@ export default function Navbar() {
     document.body.classList.remove('dark-theme');
     document.body.classList.remove('fixed-theme');
     const deriveFromStorage = () => {
-      const saved = localStorage.getItem("user_name") || localStorage.getItem("remember_user") || "";
-      let name = saved;
+      // Prefer the authoritative name from user_info (set on login).
+      // Fall back to any saved remember_user/user_name if user_info has no usable name.
+      let name = "";
+      let role = "";
       try {
         const info = JSON.parse(localStorage.getItem("user_info") || "{}");
-        // prefer explicit saved name, otherwise try common fields from user_info
-        if (!name) {
-          name = info?.username || info?.nombre || info?.full_name || info?.display_name || info?.name || '';
-        }
-        let role = info.role || info.rol_nombre || info.rol || "";
+        name = info?.username || info?.nombre || info?.full_name || info?.display_name || info?.name || '';
+        role = info.role || info.rol_nombre || info.rol || "";
         if (role === "Vendedor") role = "Cajero";
-        setUserRole(role);
       } catch {
-        setUserRole("");
+        // ignore parse errors
       }
+
+      const saved = localStorage.getItem("user_name") || localStorage.getItem("remember_user") || "";
+      if (!name && saved) name = saved;
+
+      setUserRole(role);
       setUserName(name || '');
     };
 
     deriveFromStorage();
 
-    // Update when other tabs or login change localStorage
+    // Update when other tabs change localStorage (storage event),
+    // or when the app dispatches a custom event for same-tab updates (e.g. after login).
     const onStorage = (ev: StorageEvent) => {
       if (!ev.key) return;
       if (ev.key === 'user_info' || ev.key === 'user_name' || ev.key === 'remember_user' || ev.key === 'token') {
         deriveFromStorage();
       }
     };
+    const onUserInfoChanged = () => deriveFromStorage();
     window.addEventListener('storage', onStorage);
-    return () => window.removeEventListener('storage', onStorage);
+    window.addEventListener('user_info_changed', onUserInfoChanged as EventListener);
+    return () => {
+      window.removeEventListener('storage', onStorage);
+      window.removeEventListener('user_info_changed', onUserInfoChanged as EventListener);
+    };
   }, []);
 
   // Abrir automáticamente en mobile despues de login (cuando hay token)
