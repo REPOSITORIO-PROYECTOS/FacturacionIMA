@@ -4,7 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from backend import config # (y otros que necesites)
 from backend.utils.mysql_handler import get_db_connection
-from backend.app.blueprints import auth_router, boletas, facturador, tablas, afip, setup, usuarios, impresion, ventas_detalle, comprobantes
+from backend.app.blueprints import auth_router, boletas, facturador, tablas, afip, setup, usuarios, impresion, ventas_detalle, comprobantes, sheets_boletas
 
 app = FastAPI(
     title="API Facturacion IMA",
@@ -42,6 +42,8 @@ if ventas_detalle:  # Condicional: solo montar si el módulo se importó
     _mount(ventas_detalle.router)
 if comprobantes:  # Condicional: solo montar si el módulo se importó
     _mount(comprobantes.router)
+if sheets_boletas:  # Nuevo: endpoint para Google Sheets
+    _mount(sheets_boletas.router)
 # tablas.router no existe, se comenta para evitar error
 # app.include_router(tablas.router)
 # afip.router already uses prefix '/api' internally; include it directly

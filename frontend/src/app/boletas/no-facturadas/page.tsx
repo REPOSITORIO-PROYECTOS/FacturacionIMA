@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useState } from 'react';
 import { LoadingSpinner } from "../../components/LoadingSpinner";
-import { buildInvoiceItem, facturarItems, buildValidItems, getVentaConceptos } from "@/app/lib/facturacion";
+import { buildInvoiceItem, facturarItems, buildValidItems, getVentaConceptos, marcarVentaFacturada } from "@/app/lib/facturacion";
 
 interface BoletaRecord {
     id?: number | string;
@@ -20,6 +20,8 @@ export default function BoletasNoFacturadasPage() {
     // user role not needed in this view
     const [repartidoresMap, setRepartidoresMap] = useState<Record<string, string[]> | null>(null);
     const [selectedIds, setSelectedIds] = useState<Record<string, boolean>>({});
+    const [processingIds, setProcessingIds] = useState<Set<string>>(new Set()); // IDs en proceso
+    const [isProcessing, setIsProcessing] = useState(false); // Flag general de procesamiento
     // estado para acciones masivas
     interface FacturarPayload {
         id: string | number;
@@ -38,68 +40,120 @@ export default function BoletasNoFacturadasPage() {
     async function facturarBoleta(boleta: BoletaRecord) {
         const token = localStorage.getItem('token');
         if (!token) { alert('No autenticado'); return; }
-        const built = buildInvoiceItem(boleta);
-        if ('error' in built) {
-            alert('Boleta no facturable (falta ID o total <= 0)');
-            return;
-        }
-
-        // Obtener conceptos de la venta
+        
         const ventaId = String((boleta as Record<string, unknown>)['ID Ingresos'] || boleta.id || '');
-        if (ventaId) {
-            const conceptos = await getVentaConceptos(ventaId, token);
-            if (conceptos.length > 0) {
-                (built as any).conceptos = conceptos;
-                console.log(`✓ Boleta ${ventaId}: ${conceptos.length} conceptos cargados`);
+        
+        // Marcar como en proceso
+        setProcessingIds(prev => new Set([...prev, ventaId]));
+        setIsProcessing(true);
+        
+        try {
+            const built = buildInvoiceItem(boleta);
+            if ('error' in built) {
+                alert('Boleta no facturable (falta ID o total <= 0)');
+                return;
             }
-        }
 
-        const result = await facturarItems([built as any], token);
-        if (!result.ok) {
-            alert(result.error || 'Error al facturar');
-            return;
-        }
-        const data = result.data;
-        let successMsg = 'Facturación exitosa';
-
-        // ⭐ NUEVO: Descargar PDF automáticamente
-        if (Array.isArray(data) && data.length > 0) {
-            const firstResult = data[0];
-            const okCount = data.filter((r: any) => r && typeof r === 'object' && r.ok !== false && r.status === 'SUCCESS').length;
-            successMsg = `Facturación procesada: ${okCount} / ${data.length}`;
-
-            // Si tiene factura_id, descargar PDF
-            if (firstResult && firstResult.result && firstResult.result.factura_id) {
-                const facturaId = firstResult.result.factura_id;
-                console.log(`📄 Descargando comprobante #${facturaId}...`);
-
-                try {
-                    const pdfRes = await fetch(`/api/comprobantes/${facturaId}/pdf`, {
-                        headers: { Authorization: `Bearer ${token}` }
-                    });
-
-                    if (pdfRes.ok) {
-                        const blob = await pdfRes.blob();
-                        const url = window.URL.createObjectURL(blob);
-                        const a = document.createElement('a');
-                        a.href = url;
-                        a.download = `comprobante_${facturaId}.pdf`;
-                        document.body.appendChild(a);
-                        a.click();
-                        window.URL.revokeObjectURL(url);
-                        document.body.removeChild(a);
-                        console.log('✓ Comprobante descargado');
-                    } else {
-                        console.warn('No se pudo descargar el PDF:', await pdfRes.text());
-                    }
-                } catch (pdfError) {
-                    console.error('Error descargando PDF:', pdfError);
+            // Obtener conceptos de la venta
+            if (ventaId) {
+                const conceptos = await getVentaConceptos(ventaId, token);
+                if (conceptos.length > 0) {
+                    (built as any).conceptos = conceptos;
+                    console.log(`✓ Boleta ${ventaId}: ${conceptos.length} conceptos cargados`);
                 }
             }
-        }
 
-        alert(successMsg);
-        setRefreshTick(t => t + 1);
+            const result = await facturarItems([built as any], token);
+            if (!result.ok) {
+                alert(result.error || 'Error al facturar');
+                return;
+            }
+            const data = result.data;
+            let successMsg = 'Facturación exitosa';
+
+            console.log('📦 Respuesta completa de facturación:', JSON.stringify(data, null, 2));
+
+            // ⭐ NUEVO: Descargar PDF automáticamente
+            if (Array.isArray(data) && data.length > 0) {
+                const firstResult = data[0];
+                console.log('📋 Primer resultado:', JSON.stringify(firstResult, null, 2));
+                
+                const okCount = data.filter((r: any) => r && typeof r === 'object' && r.ok !== false && r.status === 'SUCCESS').length;
+                successMsg = `Facturación procesada: ${okCount} / ${data.length}`;
+
+                // Buscar factura_id en diferentes ubicaciones posibles
+                const facturaId = firstResult?.factura_id || firstResult?.result?.factura_id;
+                
+                console.log('🔍 factura_id encontrado:', facturaId);
+
+                if (facturaId && firstResult.status === 'SUCCESS') {
+                    console.log(`📄 Descargando comprobante #${facturaId}...`);
+
+                    try {
+                        const pdfRes = await fetch(`/api/comprobantes/${facturaId}/pdf`, {
+                            headers: { Authorization: `Bearer ${token}` }
+                        });
+
+                        console.log('📡 Respuesta PDF:', pdfRes.status, pdfRes.statusText);
+
+                        if (pdfRes.ok) {
+                            const blob = await pdfRes.blob();
+                            console.log('📦 Blob recibido, tamaño:', blob.size, 'bytes');
+                            
+                            const url = window.URL.createObjectURL(blob);
+                            const a = document.createElement('a');
+                            a.href = url;
+                            a.download = `comprobante_${facturaId}.pdf`;
+                            document.body.appendChild(a);
+                            a.click();
+                            window.URL.revokeObjectURL(url);
+                            document.body.removeChild(a);
+                            console.log('✅ Comprobante descargado exitosamente');
+                        } else {
+                            const errorText = await pdfRes.text();
+                            console.error('❌ Error descargando PDF:', pdfRes.status, errorText);
+                        }
+                    } catch (pdfError) {
+                        console.error('❌ Excepción descargando PDF:', pdfError);
+                    }
+                } else {
+                    console.warn('⚠️ No se encontró factura_id o el status no es SUCCESS');
+                }
+            }
+
+            // ⭐ NUEVO: Marcar boleta como facturada automáticamente
+            if (ventaId && data && Array.isArray(data) && data.length > 0) {
+                const firstResult = data[0];
+                if (firstResult && firstResult.status === 'SUCCESS') {
+                    console.log(`📝 Marcando boleta ${ventaId} como facturada...`);
+                    try {
+                        const marcado = await marcarVentaFacturada(ventaId, token);
+                        if (marcado) {
+                            console.log('✅ Boleta marcada como facturada exitosamente');
+                            successMsg += ' (Actualizada en BD)';
+                        } else {
+                            console.warn('⚠️ No se pudo marcar la boleta como facturada');
+                            successMsg += ' (Advertencia: no se actualizó el estado)';
+                        }
+                    } catch (markError) {
+                        console.error('❌ Error marcando boleta:', markError);
+                    }
+                }
+            }
+
+            alert(successMsg);
+        } catch (error) {
+            console.error('❌ Error en facturación:', error);
+            alert('Error durante la facturación');
+        } finally {
+            // Remover de procesamiento
+            setProcessingIds(prev => {
+                const newSet = new Set(prev);
+                newSet.delete(ventaId);
+                return newSet;
+            });
+            setIsProcessing(false);
+        }
     }
 
     // helper removed (not used)
@@ -275,22 +329,31 @@ export default function BoletasNoFacturadasPage() {
 
     // descargar por imagen ya no se usa en este flujo
 
-    // Facturar varias boletas seleccionadas a la vez (usa el endpoint que acepta array)
+        // Facturar varias boletas seleccionadas a la vez (usa el endpoint que acepta array)
     async function facturarSeleccionadas() {
         const token = localStorage.getItem('token');
         if (!token) { alert('No autenticado'); return; }
         const ids = Object.keys(selectedIds).filter(k => selectedIds[k]);
         if (ids.length === 0) { alert('No hay boletas seleccionadas'); return; }
-        // Sin confirm: acción directa
-        const selectedRaw = ids.map(id => items.find(b => String((b as any)['ID Ingresos'] || (b as any).id || '') === id)).filter(Boolean);
-        const { valid, invalid } = buildValidItems(selectedRaw as any[]);
-        if (valid.length === 0) {
-            alert('No hay boletas válidas para facturar (todas con total <= 0 o sin ID)');
-            return;
-        }
-        if (invalid.length > 0) {
-            console.warn('[facturarSeleccionadas] Saltando boletas inválidas:', invalid);
-        }
+        
+        // Confirmar acción
+        if (!confirm(`¿Facturar ${ids.length} boleta(s) seleccionada(s)?`)) return;
+        
+        // Marcar todas como en proceso
+        setProcessingIds(new Set(ids));
+        setIsProcessing(true);
+        
+        try {
+            // Sin confirm: acción directa
+            const selectedRaw = ids.map(id => items.find(b => String((b as any)['ID Ingresos'] || (b as any).id || '') === id)).filter(Boolean);
+            const { valid, invalid } = buildValidItems(selectedRaw as any[]);
+            if (valid.length === 0) {
+                alert('No hay boletas válidas para facturar (todas con total <= 0 o sin ID)');
+                return;
+            }
+            if (invalid.length > 0) {
+                console.warn('[facturarSeleccionadas] Saltando boletas inválidas:', invalid);
+            }
 
         // Cargar conceptos para cada boleta válida
         console.log(`📦 Cargando conceptos para ${valid.length} boletas...`);
@@ -313,18 +376,30 @@ export default function BoletasNoFacturadasPage() {
             return;
         }
         const data = result.data;
+        
+        console.log('📦 Respuesta múltiple de facturación:', JSON.stringify(data, null, 2));
+        
         let successMsg = 'Facturación procesada';
         if (Array.isArray(data)) {
             const okCount = data.filter((r: any) => r && typeof r === 'object' && r.ok !== false && r.status === 'SUCCESS').length;
             successMsg = `Facturación procesada: ${okCount} / ${data.length}`;
 
-            // ⭐ NUEVO: Descargar PDFs automáticamente para facturas exitosas
-            const exitosas = data.filter((r: any) => r && r.status === 'SUCCESS' && r.result && r.result.factura_id);
+            // ⭐ Descargar PDFs automáticamente para facturas exitosas
+            const exitosas = data.filter((r: any) => {
+                if (!r || r.status !== 'SUCCESS') return false;
+                // Buscar factura_id en ambas ubicaciones posibles
+                return r.factura_id || (r.result && r.result.factura_id);
+            });
+            
             if (exitosas.length > 0) {
                 console.log(`📄 Descargando ${exitosas.length} comprobantes...`);
 
                 for (const item of exitosas) {
-                    const facturaId = item.result.factura_id;
+                    const facturaId = item.factura_id || item.result?.factura_id;
+                    if (!facturaId) continue;
+                    
+                    console.log(`📥 Descargando comprobante #${facturaId}...`);
+                    
                     try {
                         const pdfRes = await fetch(`/api/comprobantes/${facturaId}/pdf`, {
                             headers: { Authorization: `Bearer ${token}` }
@@ -332,6 +407,8 @@ export default function BoletasNoFacturadasPage() {
 
                         if (pdfRes.ok) {
                             const blob = await pdfRes.blob();
+                            console.log(`✅ PDF #${facturaId} descargado (${blob.size} bytes)`);
+                            
                             const url = window.URL.createObjectURL(blob);
                             const a = document.createElement('a');
                             a.href = url;
@@ -341,18 +418,60 @@ export default function BoletasNoFacturadasPage() {
                             window.URL.revokeObjectURL(url);
                             document.body.removeChild(a);
                             // Pequeña pausa entre descargas
-                            await new Promise(resolve => setTimeout(resolve, 300));
+                            await new Promise(resolve => setTimeout(resolve, 500));
+                        } else {
+                            const errorText = await pdfRes.text();
+                            console.error(`❌ Error PDF #${facturaId}:`, pdfRes.status, errorText);
                         }
                     } catch (pdfError) {
-                        console.error(`Error descargando PDF #${facturaId}:`, pdfError);
+                        console.error(`❌ Excepción descargando PDF #${facturaId}:`, pdfError);
                     }
                 }
-                console.log('✓ Comprobantes descargados');
+                console.log('✅ Proceso de descarga completado');
+            }
+
+            // ⭐ Marcar boletas como facturadas automáticamente
+            if (okCount > 0) {
+                console.log(`📝 Marcando ${okCount} boletas como facturadas...`);
+                
+                // Obtener solo los IDs de las facturas exitosas
+                const exitosasConId = data.filter((r: any) => r && r.status === 'SUCCESS');
+                const ventasIdsExitosas = exitosasConId.map((r: any) => String(r.id || '')).filter(Boolean);
+                
+                console.log('🔍 IDs a marcar:', ventasIdsExitosas);
+                
+                const marcadosPromises = ventasIdsExitosas.map(async (ventaId) => {
+                    try {
+                        const resultado = await marcarVentaFacturada(ventaId, token);
+                        console.log(`${resultado ? '✅' : '⚠️'} Venta ${ventaId}: ${resultado ? 'marcada' : 'falló'}`);
+                        return resultado;
+                    } catch (err) {
+                        console.error(`❌ Error marcando ${ventaId}:`, err);
+                        return false;
+                    }
+                });
+                
+                const resultados = await Promise.all(marcadosPromises);
+                const exitososMarcado = resultados.filter(Boolean).length;
+                console.log(`✅ Resultado final: ${exitososMarcado}/${ventasIdsExitosas.length} boletas marcadas`);
+                
+                if (exitososMarcado > 0) {
+                    successMsg += ` (${exitososMarcado} actualizadas en BD)`;
+                }
             }
         }
         if (invalid.length > 0) successMsg += ` (Saltadas ${invalid.length})`;
         alert(successMsg);
         setRefreshTick(t => t + 1);
+        
+        } catch (error) {
+            console.error('❌ Error en facturación múltiple:', error);
+            alert('Error durante la facturación múltiple');
+        } finally {
+            // Limpiar todos los IDs de procesamiento
+            setProcessingIds(new Set());
+            setIsProcessing(false);
+        }
     }
 
     // Test imágenes eliminado del flujo
@@ -394,7 +513,23 @@ export default function BoletasNoFacturadasPage() {
             {!loading && !error && (
                 <div className="overflow-auto border rounded bg-white">
                     <div className="p-2 flex flex-wrap items-center gap-2 sticky top-0 bg-white z-10 border-b">
-                        <button className="px-3 py-2 bg-green-600 text-white rounded text-xs" onClick={facturarSeleccionadas}>Facturar seleccionadas</button>
+                        <button 
+                            className={`px-3 py-2 rounded text-xs transition-colors flex items-center gap-2 ${
+                                isProcessing 
+                                    ? 'bg-gray-400 cursor-not-allowed' 
+                                    : 'bg-green-600 hover:bg-green-700 text-white'
+                            }`}
+                            onClick={facturarSeleccionadas}
+                            disabled={isProcessing}
+                        >
+                            {isProcessing && (
+                                <svg className="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                </svg>
+                            )}
+                            {isProcessing ? 'Procesando...' : 'Facturar seleccionadas'}
+                        </button>
                         <button className="px-3 py-2 bg-blue-500 text-white rounded text-xs" onClick={() => setRefreshTick(t => t + 1)}>Refrescar</button>
                         <span className="ml-auto text-[11px] text-gray-500">Mostrando {filteredItems.length} / {itemsNoFacturadas.length}</span>
                     </div>
@@ -423,9 +558,24 @@ export default function BoletasNoFacturadasPage() {
                                     <div className="shrink-0 flex gap-2">
                                         {!(b['Nro Comprobante']) && (
                                             <button
-                                                className="text-xs bg-green-600 text-white px-2 py-1 rounded hover:bg-green-700"
+                                                className={`text-xs px-2 py-1 rounded transition-colors ${
+                                                    processingIds.has(String(id)) 
+                                                        ? 'bg-gray-400 cursor-not-allowed' 
+                                                        : 'bg-green-600 hover:bg-green-700 text-white'
+                                                }`}
                                                 onClick={() => facturarBoleta(b)}
-                                            >Facturar</button>
+                                                disabled={processingIds.has(String(id)) || isProcessing}
+                                            >
+                                                {processingIds.has(String(id)) ? (
+                                                    <span className="flex items-center gap-1">
+                                                        <svg className="animate-spin h-3 w-3" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                                        </svg>
+                                                        Procesando...
+                                                    </span>
+                                                ) : 'Facturar'}
+                                            </button>
                                         )}
                                     </div>
                                 </div>
@@ -465,9 +615,24 @@ export default function BoletasNoFacturadasPage() {
                                             <td className="p-2 flex gap-2">
                                                 {!(b['Nro Comprobante']) && (
                                                     <button
-                                                        className="bg-green-500 text-white px-2 py-1 rounded hover:bg-green-600 transition"
+                                                        className={`px-2 py-1 rounded transition ${
+                                                            processingIds.has(String(id)) 
+                                                                ? 'bg-gray-400 cursor-not-allowed' 
+                                                                : 'bg-green-500 hover:bg-green-600 text-white'
+                                                        }`}
                                                         onClick={() => facturarBoleta(b)}
-                                                    >Facturar</button>
+                                                        disabled={processingIds.has(String(id)) || isProcessing}
+                                                    >
+                                                        {processingIds.has(String(id)) ? (
+                                                            <span className="flex items-center gap-1">
+                                                                <svg className="animate-spin h-3 w-3" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                                                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                                                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                                                </svg>
+                                                                Procesando...
+                                                            </span>
+                                                        ) : 'Facturar'}
+                                                    </button>
                                                 )}
                                             </td>
                                         </tr>

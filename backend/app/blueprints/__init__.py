@@ -56,4 +56,10 @@ try:
 except Exception:
 	comprobantes = None
 
-__all__ = ["auth_router", "boletas", "facturador", "tablas", "afip", "setup", "usuarios", "impresion", "ventas_detalle", "comprobantes"]
+# Export sheets_boletas if present
+try:
+	from . import sheets_boletas
+except Exception:
+	sheets_boletas = None
+
+__all__ = ["auth_router", "boletas", "facturador", "tablas", "afip", "setup", "usuarios", "impresion", "ventas_detalle", "comprobantes", "sheets_boletas"]
