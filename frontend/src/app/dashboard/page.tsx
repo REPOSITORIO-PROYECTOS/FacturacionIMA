@@ -2,6 +2,7 @@
 import React, { useEffect, useMemo, useState, useCallback } from "react";
 import Link from "next/link";
 import type { Boleta } from "@/types/boleta";
+import { buildInvoiceItem, facturarItems } from "@/app/lib/facturacion";
 import { MediosPagoResumen } from "@/components/dashboard/MediosPagoResumen";
 import { BoletaDetalleModal } from "@/components/dashboard/BoletaDetalleModal";
 import { useToast } from "../components/ToastProvider";
@@ -95,33 +96,27 @@ export default function DashboardPage() {
     }
 
     // Medio de pago: tomar override, luego campo existente en boleta (Tipo Pago / tipo_pago / medio_pago), o fallback 'Efectivo'
-    const medio = medioOverride 
-      || (b as any).medio_pago 
-      || (b as any)["Tipo Pago"] 
-      || (b as any)["tipo_pago"] 
+    const medio = medioOverride
+      || (b as any).medio_pago
+      || (b as any)["Tipo Pago"]
+      || (b as any)["tipo_pago"]
       || 'Efectivo';
-    const payload = {
-      id: getId(b),
-      total: b.total || parseMonto(String(b.INGRESOS || b.total || 0)),
-      medio_pago: medio,
-      cliente_data: {
-        cuit_o_dni: b.cuit || b.dni || String(b.CUIT || ""),
-        nombre_razon_social: b.cliente || b.nombre || b["Razon Social"] || "",
-        domicilio: b["Domicilio"] || "",
-        condicion_iva: b.condicion_iva || b["condicion-iva"] || "",
-      },
-    };
-    try {
-      const res = await fetch("/api/facturar", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify([payload]),
-      });
-      const data = await res.json().catch(() => ({}));
-  if (res.ok) toast.success(`Facturación exitosa`, `Medio: ${medio}`);
-      else toast.error(String(data?.detail || "Error al facturar"));
-    } catch {
-      toast.error("Error de conexión al facturar");
+    const built = buildInvoiceItem({ ...b, medio_pago: medio });
+    if ('error' in built) {
+      toast.error('Boleta no facturable (ID/Total inválido)');
+      return;
+    }
+    const result = await facturarItems([built], token);
+    if (!result.ok) {
+      toast.error(String(result.error || 'Error al facturar'));
+      return;
+    }
+    const data = result.data;
+    if (Array.isArray(data)) {
+      const okCount = data.filter(r => r && typeof r === 'object' && (r as any).ok !== false).length;
+      toast.success(`Facturación procesada ${okCount}/${data.length}`, `Medio: ${medio}`);
+    } else {
+      toast.success(`Facturación exitosa`, `Medio: ${medio}`);
     }
   }
 

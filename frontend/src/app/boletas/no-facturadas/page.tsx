@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useState } from 'react';
 import { LoadingSpinner } from "../../components/LoadingSpinner";
+import { buildInvoiceItem, facturarItems, buildValidItems } from "@/app/lib/facturacion";
 
 interface BoletaRecord {
     id?: number | string;
@@ -32,66 +33,29 @@ export default function BoletasNoFacturadasPage() {
         };
     }
 
+    // buildInvoiceItem ahora proviene de helper unificado (importado)
+
     async function facturarBoleta(boleta: BoletaRecord) {
-        const bx = boleta as Record<string, unknown>;
-        const ingreso = String(bx['ingreso_id'] ?? bx['ID Ingresos'] ?? bx['id'] ?? '');
-        if (!ingreso) { alert('ID de ingreso no disponible'); return; }
         const token = localStorage.getItem('token');
         if (!token) { alert('No autenticado'); return; }
-
-    // Determinar medio de pago sin prompt: intentar campos existentes, si no, usar 'Efectivo'
-    const medio = (boleta as any).medio_pago || (boleta as any)['Tipo Pago'] || (boleta as any)['tipo_pago'] || 'Efectivo';
-
-        // intentar inferir total y datos del cliente
-        const totalRaw = bx['total'] ?? bx['INGRESOS'] ?? bx['Total a Pagar'] ?? 0;
-        const totalNum = typeof totalRaw === 'number' ? totalRaw : parseFloat(String(totalRaw).replace(/[^0-9\-,\.]/g, '').replace(/,/g, '.')) || 0;
-
-        const payloadItem = {
-            id: ingreso,
-            total: Math.round(totalNum),
-                medio_pago: medio,
-            cliente_data: {
-                cuit_o_dni: String(bx['cuit'] ?? bx['CUIT'] ?? bx['dni'] ?? bx['DNI'] ?? ''),
-                nombre_razon_social: String(bx['cliente'] ?? bx['nombre'] ?? bx['Razon Social'] ?? ''),
-                domicilio: String(bx['Domicilio'] ?? ''),
-                condicion_iva: String(bx['condicion_iva'] ?? bx['condicion-iva'] ?? ''),
-            }
-        };
-
-        try {
-            const res = await fetch('/api/facturar', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-                body: JSON.stringify([payloadItem])
-            });
-
-            const text = await res.text().catch(() => '');
-            let data: unknown = {};
-            try { data = text && (text.trim().startsWith('{') || text.trim().startsWith('[')) ? JSON.parse(text) : { message: text }; } catch { data = { message: text }; }
-
-            if (!res.ok) {
-                const detail = (data && typeof data === 'object' && (data as Record<string, unknown>)['detail']) || (data && typeof data === 'object' && (data as Record<string, unknown>)['mensaje']) || (data && typeof data === 'object' && (data as Record<string, unknown>)['message']) || text || 'Error al facturar';
-                alert(String(detail));
-                return;
-            }
-
-            // mostrar éxito y refrescar lista
-            let successMsg = 'Facturación exitosa';
-            if (Array.isArray(data)) {
-                const okCount = data.filter((x: unknown) => {
-                    if (!x || typeof x !== 'object') return false;
-                    return (x as Record<string, unknown>)['ok'] !== false;
-                }).length;
-                successMsg = `Facturación procesada: ${okCount} / ${data.length}`;
-            } else if (data && typeof data === 'object' && (data as Record<string, unknown>)['mensaje']) {
-                successMsg = String((data as Record<string, unknown>)['mensaje']);
-            }
-            alert(String(successMsg));
-            // refrescar la lista
-            setRefreshTick(t => t + 1);
-        } catch (e) {
-            alert('Error de conexión al facturar: ' + String(e));
+        const built = buildInvoiceItem(boleta);
+        if ('error' in built) {
+            alert('Boleta no facturable (falta ID o total <= 0)');
+            return;
         }
+        const result = await facturarItems([built as any], token);
+        if (!result.ok) {
+            alert(result.error || 'Error al facturar');
+            return;
+        }
+        const data = result.data;
+        let successMsg = 'Facturación exitosa';
+        if (Array.isArray(data)) {
+            const okCount = data.filter((r: any) => r && typeof r === 'object' && r.ok !== false).length;
+            successMsg = `Facturación procesada: ${okCount} / ${data.length}`;
+        }
+        alert(successMsg);
+        setRefreshTick(t => t + 1);
     }
 
     // helper removed (not used)
@@ -254,60 +218,30 @@ export default function BoletasNoFacturadasPage() {
         if (!token) { alert('No autenticado'); return; }
         const ids = Object.keys(selectedIds).filter(k => selectedIds[k]);
         if (ids.length === 0) { alert('No hay boletas seleccionadas'); return; }
-        if (!confirm(`Vas a facturar ${ids.length} boletas seleccionadas. Continuar?`)) return;
-
-    // construir payload a partir de items
-    const payload: FacturarPayload[] = [];
-        for (const sid of ids) {
-            const found = items.find(b => String((b as Record<string, unknown>)['ID Ingresos'] || b.id || '') === sid);
-            if (!found) continue;
-            const bx = found as Record<string, unknown>;
-            const totalRaw = bx['total'] ?? bx['INGRESOS'] ?? bx['Total a Pagar'] ?? 0;
-            const totalNum = typeof totalRaw === 'number' ? totalRaw : parseFloat(String(totalRaw).replace(/[^0-9\-,\.]/g, '').replace(/,/g, '.')) || 0;
-            payload.push({
-                id: sid,
-                total: Math.round(totalNum),
-                medio_pago: 'Efectivo', // valor por defecto; el backend puede aceptarlo o lo puedes ajustar
-                cliente_data: {
-                    cuit_o_dni: String(bx['cuit'] ?? bx['CUIT'] ?? bx['dni'] ?? bx['DNI'] ?? ''),
-                    nombre_razon_social: String(bx['cliente'] ?? bx['nombre'] ?? bx['Razon Social'] ?? ''),
-                    domicilio: String(bx['Domicilio'] ?? ''),
-                    condicion_iva: String(bx['condicion_iva'] ?? bx['condicion-iva'] ?? ''),
-                }
-            });
+        // Sin confirm: acción directa
+        const selectedRaw = ids.map(id => items.find(b => String((b as any)['ID Ingresos'] || (b as any).id || '') === id)).filter(Boolean);
+        const { valid, invalid } = buildValidItems(selectedRaw as any[]);
+        if (valid.length === 0) {
+            alert('No hay boletas válidas para facturar (todas con total <= 0 o sin ID)');
+            return;
         }
-
-        if (payload.length === 0) { alert('No se construyeron payloads válidos para las boletas seleccionadas'); return; }
-
-        try {
-            const res = await fetch('/api/facturar', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-                body: JSON.stringify(payload)
-            });
-            const text = await res.text().catch(() => '');
-            let data: unknown = {};
-            try { data = text && (text.trim().startsWith('{') || text.trim().startsWith('[')) ? JSON.parse(text) : { message: text }; } catch { data = { message: text }; }
-            if (!res.ok) {
-                const detail = (data && typeof data === 'object' && (data as Record<string, unknown>)['detail']) || (data && typeof data === 'object' && (data as Record<string, unknown>)['mensaje']) || (data && typeof data === 'object' && (data as Record<string, unknown>)['message']) || text || 'Error al facturar';
-                alert(String(detail));
-                return;
-            }
-            let successMsg = 'Facturación procesada';
-            if (Array.isArray(data)) {
-                const okCount = data.filter((x: unknown) => {
-                    if (!x || typeof x !== 'object') return false;
-                    return (x as Record<string, unknown>)['ok'] !== false;
-                }).length;
-                successMsg = `Facturación procesada: ${okCount} / ${data.length}`;
-            } else if (data && typeof data === 'object' && (data as Record<string, unknown>)['mensaje']) {
-                successMsg = String((data as Record<string, unknown>)['mensaje']);
-            }
-            alert(successMsg);
-            setRefreshTick(t => t + 1);
-        } catch (e) {
-            alert('Error de conexión al facturar: ' + String(e));
+        if (invalid.length > 0) {
+            console.warn('[facturarSeleccionadas] Saltando boletas inválidas:', invalid);
         }
+        const result = await facturarItems(valid as any, token);
+        if (!result.ok) {
+            alert(result.error || 'Error al facturar');
+            return;
+        }
+        const data = result.data;
+        let successMsg = 'Facturación procesada';
+        if (Array.isArray(data)) {
+            const okCount = data.filter((r: any) => r && typeof r === 'object' && r.ok !== false).length;
+            successMsg = `Facturación procesada: ${okCount} / ${data.length}`;
+        }
+        if (invalid.length > 0) successMsg += ` (Saltadas ${invalid.length})`;
+        alert(successMsg);
+        setRefreshTick(t => t + 1);
     }
 
     // Test imágenes eliminado del flujo

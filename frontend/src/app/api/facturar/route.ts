@@ -47,11 +47,56 @@ export async function POST(request: Request): Promise<Response> {
     return new Response(JSON.stringify({ detail: 'JSON inválido o vacío' }), { status: 400, headers: { 'Content-Type': 'application/json' } });
   }
 
-  // Validación mínima local antes de disparar requests
-  const invalid = payload.findIndex(p => !p || typeof p.total !== 'number' || !(p.total > 0) || !p.cliente_data || !p.cliente_data.cuit_o_dni || !p.cliente_data.condicion_iva);
-  if (invalid >= 0) {
-    return new Response(JSON.stringify({ detail: 'Payload inválido', index: invalid }), { status: 422, headers: { 'Content-Type': 'application/json' } });
+  // --- Saneo proactivo antes de validar ---
+  const originalLength = Array.isArray(payload) ? payload.length : 0;
+  const sanitized: FacturarRequest = (payload as FacturarRequest).map((item) => {
+    if (!item || typeof item !== 'object') return item as any;
+    const clone: any = { ...item };
+    // total: permitir string numérica
+    if (typeof clone.total !== 'number') {
+      const maybe = parseFloat(String(clone.total).replace(/[^0-9\-,\.]/g, '').replace(/,/g, '.'));
+      if (!isNaN(maybe) && maybe > 0) clone.total = maybe;
+    }
+    // cliente_data: crear si falta
+    if (!clone.cliente_data || typeof clone.cliente_data !== 'object') {
+      clone.cliente_data = { cuit_o_dni: '0', condicion_iva: 'CONSUMIDOR_FINAL' };
+    }
+    // Normalizar cuit/dni
+    if (!clone.cliente_data.cuit_o_dni) clone.cliente_data.cuit_o_dni = '0';
+    clone.cliente_data.cuit_o_dni = String(clone.cliente_data.cuit_o_dni).replace(/[^0-9]/g, '') || '0';
+    // Normalizar condicion_iva
+    if (!clone.cliente_data.condicion_iva) clone.cliente_data.condicion_iva = 'CONSUMIDOR_FINAL';
+    clone.cliente_data.condicion_iva = String(clone.cliente_data.condicion_iva).trim().toUpperCase();
+    // Asegurar total > 0 (redondear a entero positivo si aplica)
+    if (typeof clone.total === 'number' && clone.total > 0) {
+      // Evitar floats largos, backend solo necesita monto total
+      clone.total = Math.round(clone.total);
+    }
+    return clone as InvoiceItemPayload;
+  });
+
+  // Validación mínima local después del saneo
+  const invalidIndexes: number[] = [];
+  sanitized.forEach((p, idx) => {
+    if (!p || typeof p.total !== 'number' || !(p.total > 0) || !p.cliente_data || !p.cliente_data.cuit_o_dni || !p.cliente_data.condicion_iva) {
+      invalidIndexes.push(idx);
+    }
+  });
+  if (invalidIndexes.length > 0) {
+    return new Response(
+      JSON.stringify({
+        detail: 'Payload inválido tras saneo',
+        invalid_indexes: invalidIndexes,
+        total_items: originalLength,
+        hint: 'Verifique que total > 0 y cliente_data.{cuit_o_dni, condicion_iva} estén presentes',
+        sample_invalid: invalidIndexes.slice(0, 3).map(i => sanitized[i])
+      }),
+      { status: 422, headers: { 'Content-Type': 'application/json' } }
+    );
   }
+
+  // Reemplazar payload por el sanitized antes de enviar
+  payload = sanitized;
 
   const incomingHost = (() => { try { return new URL(request.url).host; } catch { return ''; } })();
   const bases: string[] = [];
