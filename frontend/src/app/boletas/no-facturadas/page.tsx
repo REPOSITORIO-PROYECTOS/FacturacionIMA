@@ -43,7 +43,7 @@ export default function BoletasNoFacturadasPage() {
             alert('Boleta no facturable (falta ID o total <= 0)');
             return;
         }
-        
+
         // Obtener conceptos de la venta
         const ventaId = String((boleta as Record<string, unknown>)['ID Ingresos'] || boleta.id || '');
         if (ventaId) {
@@ -53,7 +53,7 @@ export default function BoletasNoFacturadasPage() {
                 console.log(`✓ Boleta ${ventaId}: ${conceptos.length} conceptos cargados`);
             }
         }
-        
+
         const result = await facturarItems([built as any], token);
         if (!result.ok) {
             alert(result.error || 'Error al facturar');
@@ -61,23 +61,23 @@ export default function BoletasNoFacturadasPage() {
         }
         const data = result.data;
         let successMsg = 'Facturación exitosa';
-        
+
         // ⭐ NUEVO: Descargar PDF automáticamente
         if (Array.isArray(data) && data.length > 0) {
             const firstResult = data[0];
             const okCount = data.filter((r: any) => r && typeof r === 'object' && r.ok !== false && r.status === 'SUCCESS').length;
             successMsg = `Facturación procesada: ${okCount} / ${data.length}`;
-            
+
             // Si tiene factura_id, descargar PDF
             if (firstResult && firstResult.result && firstResult.result.factura_id) {
                 const facturaId = firstResult.result.factura_id;
                 console.log(`📄 Descargando comprobante #${facturaId}...`);
-                
+
                 try {
                     const pdfRes = await fetch(`/api/comprobantes/${facturaId}/pdf`, {
                         headers: { Authorization: `Bearer ${token}` }
                     });
-                    
+
                     if (pdfRes.ok) {
                         const blob = await pdfRes.blob();
                         const url = window.URL.createObjectURL(blob);
@@ -97,7 +97,7 @@ export default function BoletasNoFacturadasPage() {
                 }
             }
         }
-        
+
         alert(successMsg);
         setRefreshTick(t => t + 1);
     }
@@ -291,7 +291,7 @@ export default function BoletasNoFacturadasPage() {
         if (invalid.length > 0) {
             console.warn('[facturarSeleccionadas] Saltando boletas inválidas:', invalid);
         }
-        
+
         // Cargar conceptos para cada boleta válida
         console.log(`📦 Cargando conceptos para ${valid.length} boletas...`);
         const itemsConConceptos = await Promise.all(
@@ -306,7 +306,7 @@ export default function BoletasNoFacturadasPage() {
                 return item;
             })
         );
-        
+
         const result = await facturarItems(itemsConConceptos as any, token);
         if (!result.ok) {
             alert(result.error || 'Error al facturar');
@@ -317,19 +317,19 @@ export default function BoletasNoFacturadasPage() {
         if (Array.isArray(data)) {
             const okCount = data.filter((r: any) => r && typeof r === 'object' && r.ok !== false && r.status === 'SUCCESS').length;
             successMsg = `Facturación procesada: ${okCount} / ${data.length}`;
-            
+
             // ⭐ NUEVO: Descargar PDFs automáticamente para facturas exitosas
             const exitosas = data.filter((r: any) => r && r.status === 'SUCCESS' && r.result && r.result.factura_id);
             if (exitosas.length > 0) {
                 console.log(`📄 Descargando ${exitosas.length} comprobantes...`);
-                
+
                 for (const item of exitosas) {
                     const facturaId = item.result.factura_id;
                     try {
                         const pdfRes = await fetch(`/api/comprobantes/${facturaId}/pdf`, {
                             headers: { Authorization: `Bearer ${token}` }
                         });
-                        
+
                         if (pdfRes.ok) {
                             const blob = await pdfRes.blob();
                             const url = window.URL.createObjectURL(blob);
