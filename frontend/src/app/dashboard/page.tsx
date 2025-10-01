@@ -94,23 +94,12 @@ export default function DashboardPage() {
       return;
     }
 
-    // Seleccionar medio de pago
-    let medio = medioOverride;
-    if (!medio) {
-      const medioSeleccionado = prompt(
-        `Seleccionar medio de pago:\n\n` +
-        mediosPago.map((m, idx) => `${idx + 1}. ${m}`).join('\n') +
-        '\n\nIngrese el número del medio de pago (1-' + mediosPago.length + '):',
-        '1'
-      );
-      if (!medioSeleccionado) return;
-      const indice = parseInt(medioSeleccionado) - 1;
-      if (indice < 0 || indice >= mediosPago.length) {
-        toast.error('Opción inválida');
-        return;
-      }
-      medio = mediosPago[indice];
-    }
+    // Medio de pago: tomar override, luego campo existente en boleta (Tipo Pago / tipo_pago / medio_pago), o fallback 'Efectivo'
+    const medio = medioOverride 
+      || (b as any).medio_pago 
+      || (b as any)["Tipo Pago"] 
+      || (b as any)["tipo_pago"] 
+      || 'Efectivo';
     const payload = {
       id: getId(b),
       total: b.total || parseMonto(String(b.INGRESOS || b.total || 0)),
@@ -129,7 +118,7 @@ export default function DashboardPage() {
         body: JSON.stringify([payload]),
       });
       const data = await res.json().catch(() => ({}));
-      if (res.ok) toast.success(`Facturación exitosa`, `Medio: ${medio}`);
+  if (res.ok) toast.success(`Facturación exitosa`, `Medio: ${medio}`);
       else toast.error(String(data?.detail || "Error al facturar"));
     } catch {
       toast.error("Error de conexión al facturar");

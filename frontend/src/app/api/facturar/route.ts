@@ -2,7 +2,7 @@
 // Acepta una LISTA de InvoiceItemPayload y la reenvía a /facturador/facturar-por-cantidad.
 // Implementa estrategia multi-base + detección de HTML (misconfiguración) y evita recursión.
 
-import type { FacturarRequest, FacturarResponse, InvoiceItemPayload } from "../../types/facturar";
+import type { FacturarRequest, FacturarResponse, InvoiceItemPayload } from "@/types/facturar";
 
 const envBase = process.env.NEXT_PUBLIC_BACKEND_URL || '';
 const internalOverride = process.env.BACKEND_INTERNAL_URL || '';

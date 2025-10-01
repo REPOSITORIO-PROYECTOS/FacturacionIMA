@@ -39,9 +39,8 @@ export default function BoletasNoFacturadasPage() {
         const token = localStorage.getItem('token');
         if (!token) { alert('No autenticado'); return; }
 
-        // pedir medio de pago simple
-        const medio = prompt('Medio de pago (por ejemplo: Efectivo, Tarjeta):', 'Efectivo');
-        if (!medio) return;
+    // Determinar medio de pago sin prompt: intentar campos existentes, si no, usar 'Efectivo'
+    const medio = (boleta as any).medio_pago || (boleta as any)['Tipo Pago'] || (boleta as any)['tipo_pago'] || 'Efectivo';
 
         // intentar inferir total y datos del cliente
         const totalRaw = bx['total'] ?? bx['INGRESOS'] ?? bx['Total a Pagar'] ?? 0;
@@ -50,7 +49,7 @@ export default function BoletasNoFacturadasPage() {
         const payloadItem = {
             id: ingreso,
             total: Math.round(totalNum),
-            medio_pago: medio,
+                medio_pago: medio,
             cliente_data: {
                 cuit_o_dni: String(bx['cuit'] ?? bx['CUIT'] ?? bx['dni'] ?? bx['DNI'] ?? ''),
                 nombre_razon_social: String(bx['cliente'] ?? bx['nombre'] ?? bx['Razon Social'] ?? ''),

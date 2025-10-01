@@ -9,11 +9,12 @@ echo "[BACKEND] Base: $BASE_DIR"
 REQ_FILE="$BASE_DIR/backend/requirements.txt"
 VENV_DIR="$BASE_DIR/backend/venv"
 STAMP_FILE="$VENV_DIR/.requirements.hash"
+echo "[BACKEND] Forzado: usando backend/venv únicamente"
 
 python3 --version >/dev/null 2>&1 || { echo "[BACKEND] Python3 no está disponible"; exit 1; }
 
 if [ ! -d "$VENV_DIR" ]; then
-  echo "[BACKEND] Creando venv"; python3 -m venv "$VENV_DIR"; "$VENV_DIR/bin/pip" install --upgrade pip;
+  echo "[BACKEND] Creando venv en $VENV_DIR"; python3 -m venv "$VENV_DIR"; "$VENV_DIR/bin/pip" install --upgrade pip;
 fi
 
 NEEDS_INSTALL=0
