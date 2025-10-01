@@ -18,12 +18,12 @@ function buildBases(incomingHost: string): string[] {
         console.warn(`[api/afip] Omitiendo base ${b} (mismo host) para evitar recursión. Configure BACKEND_INTERNAL_URL para forzar.`);
         return false;
       }
-    } catch {}
+    } catch { }
     return true;
   });
 }
 
-function composeEndpoint(action: string | null, cuit: string | null, method: 'GET'|'POST'): string {
+function composeEndpoint(action: string | null, cuit: string | null, method: 'GET' | 'POST'): string {
   if (method === 'POST') {
     switch (action) {
       case 'generar-csr': return '/api/afip/generar-csr';
@@ -65,7 +65,7 @@ export async function POST(request: Request): Promise<Response> {
     return new Response(JSON.stringify({ detail: 'Acción no válida' }), { status: 400, headers: { 'Content-Type': 'application/json' } });
   }
   let body: unknown = {};
-  try { body = await request.json(); } catch {}
+  try { body = await request.json(); } catch { }
   const incomingHost = (() => { try { return new URL(request.url).host; } catch { return ''; } })();
   const bases = buildBases(incomingHost);
   for (const base of bases) {
@@ -80,14 +80,14 @@ export async function POST(request: Request): Promise<Response> {
         const content = await response.text();
         return new Response(content, {
           status: 200,
-            headers: {
-              'Content-Type': 'application/x-pem-file',
-              'Content-Disposition': response.headers.get('Content-Disposition') || 'attachment; filename=csr.pem'
-            }
+          headers: {
+            'Content-Type': 'application/x-pem-file',
+            'Content-Disposition': response.headers.get('Content-Disposition') || 'attachment; filename=csr.pem'
+          }
         });
       }
       let parsed: unknown = {};
-      try { parsed = await response.json(); } catch {}
+      try { parsed = await response.json(); } catch { }
       if (!response.ok) {
         // Intentar siguiente base si 404 / 502; para otros códigos devolvemos ya
         if ([404, 502, 503, 500].includes(response.status) && base !== bases[bases.length - 1]) {
@@ -124,9 +124,9 @@ export async function GET(request: Request): Promise<Response> {
       const response = await fetch(finalUrl, { headers: { Authorization: `Bearer ${token}`, 'X-Forwarded-Afip': '1' } });
       const text = await response.text();
       let parsed: unknown = {};
-      try { parsed = text ? JSON.parse(text) : {}; } catch { parsed = { parseError: true, rawSnippet: text.slice(0,200) }; }
+      try { parsed = text ? JSON.parse(text) : {}; } catch { parsed = { parseError: true, rawSnippet: text.slice(0, 200) }; }
       if (!response.ok) {
-        if ([404,502,503,500].includes(response.status) && base !== bases[bases.length - 1]) {
+        if ([404, 502, 503, 500].includes(response.status) && base !== bases[bases.length - 1]) {
           console.warn(`[api/afip] GET fallback tras status ${response.status} en ${finalUrl}`);
           continue;
         }
