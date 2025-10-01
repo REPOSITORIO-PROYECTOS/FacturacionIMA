@@ -16,8 +16,6 @@ interface BoletaRecord {
 }
 
 export default function BoletasNoFacturadasPage() {
-    const [detalleOpen, setDetalleOpen] = useState(false);
-    const [boletaDetalle, setBoletaDetalle] = useState<BoletaRecord | null>(null);
     // user role not needed in this view
     const [repartidoresMap, setRepartidoresMap] = useState<Record<string, string[]> | null>(null);
     const [selectedIds, setSelectedIds] = useState<Record<string, boolean>>({});
@@ -34,14 +32,6 @@ export default function BoletasNoFacturadasPage() {
         };
     }
 
-    function abrirDetalle(boleta: BoletaRecord) {
-        setBoletaDetalle(boleta);
-        setDetalleOpen(true);
-    }
-    function cerrarDetalle() {
-        setDetalleOpen(false);
-        setBoletaDetalle(null);
-    }
     async function facturarBoleta(boleta: BoletaRecord) {
         const bx = boleta as Record<string, unknown>;
         const ingreso = String(bx['ingreso_id'] ?? bx['ID Ingresos'] ?? bx['id'] ?? '');
@@ -107,39 +97,6 @@ export default function BoletasNoFacturadasPage() {
 
     // helper removed (not used)
 
-    async function descargarComprobanteJPG(b: BoletaRecord) {
-        // Preferir imagen generada por el backend (incluye CAE y QR si existieran)
-        const bx = b as Record<string, unknown>;
-        const ingreso = String(bx['ingreso_id'] ?? bx['ID Ingresos'] ?? bx['id'] ?? '');
-        if (!ingreso) { alert('ID de ingreso no disponible'); return; }
-        const token = localStorage.getItem('token');
-        if (!token) { alert('No autenticado'); return; }
-        try {
-            const res = await fetch(`/api/impresion/${encodeURIComponent(ingreso)}/facturar-imagen`, { method: 'POST', headers: { Authorization: `Bearer ${token}` } });
-            if (!res.ok) {
-                const txt = await res.text().catch(() => res.statusText || 'Error');
-                alert(`Error generando imagen: ${txt}`);
-                return;
-            }
-            const blob = await res.blob();
-            let filename = `comprobante_${ingreso}.jpg`;
-            try {
-                const cd = res.headers.get('content-disposition') || '';
-                const m = cd.match(/filename\*?=([^;]+)/i);
-                if (m && m[1]) filename = decodeURIComponent(m[1].replace(/UTF-8''/, '').replace(/^"|'|"$/g, ''));
-            } catch { /* ignore */ }
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = filename;
-            document.body.appendChild(a);
-            a.click();
-            a.remove();
-            setTimeout(() => { try { URL.revokeObjectURL(url); } catch { } }, 5000);
-        } catch (e) {
-            alert('Error generando imagen: ' + String(e));
-        }
-    }
     const [items, setItems] = useState<BoletaRecord[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
@@ -420,10 +377,6 @@ export default function BoletasNoFacturadasPage() {
                                         <div className="text-[11px] text-gray-600">Total: {String(total)}</div>
                                     </div>
                                     <div className="shrink-0 flex gap-2">
-                                        <button
-                                            className="text-xs text-blue-700 hover:underline"
-                                            onClick={() => abrirDetalle(b)}
-                                        >Detalles</button>
                                         {!(b['Nro Comprobante']) && (
                                             <button
                                                 className="text-xs bg-green-600 text-white px-2 py-1 rounded hover:bg-green-700"
@@ -444,6 +397,7 @@ export default function BoletasNoFacturadasPage() {
                                     <th className="p-2"><input aria-label="Seleccionar todas" type="checkbox" onChange={(e) => { const v = e.target.checked; const m: Record<string, boolean> = {}; filteredItems.forEach(b => { const id = String((b as Record<string, unknown>)['ID Ingresos'] || b.id || ''); if (id) m[id] = v; }); setSelectedIds(m); }} /></th>
                                     <th className="p-2">Repartidor</th>
                                     <th className="p-2">Razón Social</th>
+                                    <th className="p-2">Fecha</th>
                                     <th className="p-2">Total</th>
                                     <th className="p-2">Acciones</th>
                                 </tr>
@@ -456,17 +410,15 @@ export default function BoletasNoFacturadasPage() {
                                     const razonSocial = b.cliente || b.nombre || b['Razon Social'] || '';
                                     const id = b['ID Ingresos'] || b.id || i;
                                     const repartidor = (b.Repartidor ?? (b as Record<string, unknown>)['repartidor'] ?? '') as string;
+                                    const fecha = String((b as Record<string, unknown>)['Fecha'] || (b as Record<string, unknown>)['fecha'] || '');
                                     return (
                                         <tr key={`${String(id)}-${i}`} className="border-t">
                                             <td className="p-2"><input aria-label={`Seleccionar boleta ${String(id)}`} type="checkbox" checked={!!selectedIds[String(id)]} onChange={(e) => setSelectedIds(s => ({ ...s, [String(id)]: e.target.checked }))} /></td>
                                             <td className="p-2">{repartidor}</td>
                                             <td className="p-2">{razonSocial}</td>
+                                            <td className="p-2">{fecha}</td>
                                             <td className="p-2">{total}</td>
                                             <td className="p-2 flex gap-2">
-                                                <button
-                                                    className="bg-blue-500 text-white px-2 py-1 rounded hover:bg-blue-600 transition"
-                                                    onClick={() => abrirDetalle(b)}
-                                                >Ver detalles</button>
                                                 {!(b['Nro Comprobante']) && (
                                                     <button
                                                         className="bg-green-500 text-white px-2 py-1 rounded hover:bg-green-600 transition"
@@ -486,66 +438,7 @@ export default function BoletasNoFacturadasPage() {
                     )}
                 </div>
             )}
-            {/* Test imágenes eliminado */}
-            {/* Modal de detalles de boleta */}
-            {detalleOpen && boletaDetalle && (
-                <div className="fixed inset-0 bg-black bg-opacity-40 flex items-center justify-center z-50">
-                    <div className="bg-white rounded-lg shadow-lg p-6 w-full max-w-lg">
-                        <h3 className="text-xl font-bold mb-4">Detalle de Boleta</h3>
-                        <div className="grid grid-cols-1 gap-4 mb-4">
-                            <div className="space-y-2">
-                                <div className="flex justify-between"><div className="font-medium text-sm">Fecha</div><div className="text-sm text-gray-700">{String(boletaDetalle.fecha || boletaDetalle['Fecha'] || '-')}</div></div>
-                                <div className="flex justify-between"><div className="font-medium text-sm">Cliente / Razón social</div><div className="text-sm text-gray-700">{String(boletaDetalle['Razon Social'] || boletaDetalle.cliente || boletaDetalle.nombre || '-')}</div></div>
-                                <div className="flex justify-between"><div className="font-medium text-sm">Repartidor</div><div className="text-sm text-gray-700">{String(boletaDetalle.repartidor || boletaDetalle.Repartidor || '-')}</div></div>
-                                <div className="flex justify-between"><div className="font-medium text-sm">Total</div><div className="text-sm text-gray-700">{String(boletaDetalle['Total a Pagar'] ?? boletaDetalle.total ?? boletaDetalle.INGRESOS ?? '-')}</div></div>
-                                <div className="flex justify-between"><div className="font-medium text-sm">Nro comprobante</div><div className="text-sm text-gray-700">{String(boletaDetalle['Nro Comprobante'] || '-')}</div></div>
-                            </div>
-
-                            <div className="flex items-center justify-between">
-                                <div className="flex gap-2">
-                                    <button className="px-3 py-2 bg-blue-600 text-white rounded" onClick={() => descargarComprobanteJPG(boletaDetalle)}>Descargar JPG</button>
-                                    <button className="px-3 py-2 bg-green-600 text-white rounded" onClick={() => { /* facturar y luego imprimir mediante backend */
-                                        if (!boletaDetalle) return;
-                                        (async () => {
-                                            const token = localStorage.getItem('token');
-                                            if (!token) { alert('No autenticado'); return; }
-                                            const bx = boletaDetalle as Record<string, unknown>;
-                                            const ingreso = String(bx['ingreso_id'] ?? bx['ID Ingresos'] ?? bx['id'] ?? '');
-                                            if (!ingreso) { alert('ID no disponible'); return; }
-                                            try {
-                                                // Call backend to facturar and receive HTML; then open and print/download automatically
-                                                const res = await fetch(`/api/boletas/imprimir/${encodeURIComponent(ingreso)}`, { method: 'POST', headers: { Authorization: `Bearer ${token}` } });
-                                                const text = await res.text();
-                                                if (!res.ok) { alert(text || 'Error en facturar e imprimir'); return; }
-                                                // Open in new tab and trigger print automatically
-                                                const blob = new Blob([text], { type: 'text/html' });
-                                                const url = URL.createObjectURL(blob);
-                                                const w = window.open(url, '_blank');
-                                                if (!w) {
-                                                    // Fallback: navigate current window to printable HTML then trigger print
-                                                    window.location.href = url;
-                                                    setTimeout(() => { try { window.print(); } catch { } }, 600);
-                                                    setTimeout(() => { try { URL.revokeObjectURL(url); } catch { } }, 5000);
-                                                    return;
-                                                }
-                                                // Optionally trigger print after a short delay
-                                                setTimeout(() => { try { w.print(); } catch { } }, 800);
-                                            } catch (e) { alert('Error al facturar e imprimir: ' + String(e)); }
-                                        })();
-                                    }}>Facturar y imprimir</button>
-                                </div>
-                            </div>
-
-                            {/* JSON debug removed */}
-
-                        </div>
-
-                        <div className="flex gap-2 justify-end">
-                            <button className="bg-gray-300 px-4 py-2 rounded hover:bg-gray-400" onClick={cerrarDetalle}>Cerrar</button>
-                        </div>
-                    </div>
-                </div>
-            )}
+            {/* Modal de detalles eliminado */}
         </div>
     );
 }

@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, Response, Query
 from pydantic import BaseModel
-from backend.sqlite_security import obtener_usuario_actual_sqlite
+from backend.security import obtener_usuario_actual
 from backend.app.blueprints import boletas
 from typing import List
 from io import BytesIO
@@ -10,7 +10,7 @@ router = APIRouter(prefix="/impresion")
 
 
 @router.get("/{ingreso_id}/html")
-def imprimir_html(ingreso_id: str, usuario_actual: dict = Depends(obtener_usuario_actual_sqlite)):
+def imprimir_html(ingreso_id: str, usuario_actual = Depends(obtener_usuario_actual)):
     try:
         return boletas.imprimir_html_por_ingreso(ingreso_id, usuario_actual)
     except HTTPException:
@@ -20,7 +20,7 @@ def imprimir_html(ingreso_id: str, usuario_actual: dict = Depends(obtener_usuari
 
 
 @router.get("/{ingreso_id}/imagen")
-def imprimir_imagen(ingreso_id: str, formato: str = Query('jpg', pattern='^(jpg|jpeg|png)$'), usuario_actual: dict = Depends(obtener_usuario_actual_sqlite)):
+def imprimir_imagen(ingreso_id: str, formato: str = Query('jpg', pattern='^(jpg|jpeg|png)$'), usuario_actual = Depends(obtener_usuario_actual)):
     try:
         return boletas.imprimir_imagen_por_ingreso(ingreso_id, usuario_actual, formato=formato)
     except HTTPException:
@@ -30,9 +30,9 @@ def imprimir_imagen(ingreso_id: str, formato: str = Query('jpg', pattern='^(jpg|
 
 
 @router.post("/{ingreso_id}/facturar-imagen")
-def facturar_e_imprimir_img(ingreso_id: str, formato: str = Query('jpg', pattern='^(jpg|jpeg|png)$'), tipo_forzado: int | None = Query(None, description='Override tipo comprobante: 1=A,6=B,11=C'), usuario_actual: dict = Depends(obtener_usuario_actual_sqlite)):
+def facturar_e_imprimir_img(ingreso_id: str, formato: str = Query('jpg', pattern='^(jpg|jpeg|png)$'), tipo_forzado: int | None = Query(None, description='Override tipo comprobante: 1=A,6=B,11=C'), punto_venta: int | None = Query(None, description='Override punto de venta'), usuario_actual = Depends(obtener_usuario_actual)):
     try:
-        return boletas.facturar_e_imprimir_img(ingreso_id, usuario_actual, formato=formato, tipo_forzado=tipo_forzado)
+        return boletas.facturar_e_imprimir_img(ingreso_id, usuario_actual, formato=formato, tipo_forzado=tipo_forzado, punto_venta_override=punto_venta)
     except HTTPException:
         raise
     except Exception as e:
@@ -44,7 +44,7 @@ class PackRequest(BaseModel):
 
 
 @router.post("/pack-imagenes")
-def generar_pack_imagenes(ingreso_ids: List[str], usuario_actual: dict = Depends(obtener_usuario_actual_sqlite)):
+def generar_pack_imagenes(ingreso_ids: List[str], usuario_actual = Depends(obtener_usuario_actual)):
     """Genera un ZIP con las imágenes JPEG (58mm) para una lista de ingreso_ids.
     Sólo incluirá boletas a las que el usuario tenga acceso (si no es admin, sólo su repartidor).
     """
@@ -82,7 +82,7 @@ def generar_pack_imagenes(ingreso_ids: List[str], usuario_actual: dict = Depends
 
 
 @router.post("/test-imagenes")
-def test_generar_imagenes(ingreso_ids: List[str], usuario_actual: dict = Depends(obtener_usuario_actual_sqlite)):
+def test_generar_imagenes(ingreso_ids: List[str], usuario_actual = Depends(obtener_usuario_actual)):
     """Endpoint de diagnóstico: intenta generar la imagen JPEG para cada ingreso_id y devuelve un resumen por ID.
     Útil para comprobar autorización, generación y que el backend entrega correctamente al frontend.
     """

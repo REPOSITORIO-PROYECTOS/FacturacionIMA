@@ -92,12 +92,18 @@ def _resolve_afip_credentials(emisor_cuit: str | None = None):
         if afip_tools_manager:
             # 1) Bóveda para CUIT específico
             if emisor_cuit:
-                emisor_cuit = str(emisor_cuit).strip()
+                emisor_cuit = ''.join(ch for ch in str(emisor_cuit).strip() if ch.isdigit())  # trim y sólo dígitos
                 try:
                     cfg = afip_tools_manager.obtener_configuracion_emisor(emisor_cuit)
                 except Exception:
                     cfg = {}
                 if cfg.get('existe'):
+                    # Sanitizar dentro del cfg por si quedó con espacios
+                    try:
+                        if isinstance(cfg.get('cuit_empresa'), str):
+                            cfg['cuit_empresa'] = ''.join(ch for ch in cfg['cuit_empresa'].strip() if ch.isdigit())
+                    except Exception:
+                        pass
                     cert_path = _os.path.join(afip_tools_manager.BOVEDA_TEMPORAL_PATH, f"{emisor_cuit}.crt")
                     key_path = _os.path.join(afip_tools_manager.BOVEDA_TEMPORAL_PATH, f"{emisor_cuit}.key")
                     if _os.path.exists(cert_path) and _os.path.exists(key_path):
@@ -321,18 +327,54 @@ def generar_factura_para_venta(
     except (KeyError, AttributeError):
         raise ValueError(f"La condición de IVA del emisor '{AFIP_COND_EMISOR}' no es válida o no está soportada.")
 
-    if cliente_data and cliente_data.cuit_o_dni and cliente_data.cuit_o_dni != "0":
-        documento = cliente_data.cuit_o_dni
-        tipo_documento_receptor = TipoDocumento.CUIT if len(documento) == 11 else TipoDocumento.DNI
+    # --- Validación y normalización de documento receptor ---
+    def _es_cuit_valido(c: str) -> bool:
         try:
-            cond_receptor_str = cliente_data.condicion_iva.upper().replace(' ', '_')
-            condicion_receptor = CondicionIVA[cond_receptor_str]
-        except (KeyError, AttributeError):
-             raise ValueError(f"La condición de IVA del receptor '{cliente_data.condicion_iva}' no es válida o no está soportada.")
-    else: 
-        documento = "0"
+            c = ''.join(ch for ch in c if ch.isdigit())
+            if len(c) != 11:
+                return False
+            mult = [5,4,3,2,7,6,5,4,3,2]
+            suma = sum(int(c[i]) * mult[i] for i in range(10))
+            resto = 11 - (suma % 11)
+            ver = 0 if resto == 11 else (9 if resto == 10 else resto)
+            return ver == int(c[-1])
+        except Exception:
+            return False
+
+    doc_input = (cliente_data.cuit_o_dni or '').strip()
+    condicion_receptor = None
+    documento = "0"
+    tipo_documento_receptor = TipoDocumento.CONSUMIDOR_FINAL
+    try:
+        cond_receptor_str = (cliente_data.condicion_iva or '').upper().replace(' ', '_')
+        condicion_receptor = CondicionIVA[cond_receptor_str]
+    except Exception:
+        raise ValueError(f"La condición de IVA del receptor '{cliente_data.condicion_iva}' no es válida o no está soportada.")
+
+    if doc_input and doc_input != '0':
+        # Determinar tipo doc tentativo
+        if len(doc_input) == 11 and _es_cuit_valido(doc_input):
+            documento = doc_input
+            tipo_documento_receptor = TipoDocumento.CUIT
+        elif len(doc_input) in (7,8) and doc_input.isdigit():
+            # DNI típico (7 u 8 cifras)
+            documento = doc_input
+            tipo_documento_receptor = TipoDocumento.DNI
+        else:
+            # Documento no válido -> degradar a Consumidor Final sin doc
+            documento = '0'
+            tipo_documento_receptor = TipoDocumento.CONSUMIDOR_FINAL
+            condicion_receptor = CondicionIVA.CONSUMIDOR_FINAL
+            print(f"[FACTURA] Documento receptor '{doc_input}' inválido -> degradado a Consumidor Final (sin doc)")
+    else:
+        # Sin doc explícito -> Consumidor Final
+        documento = '0'
         tipo_documento_receptor = TipoDocumento.CONSUMIDOR_FINAL
         condicion_receptor = CondicionIVA.CONSUMIDOR_FINAL
+
+    # Regla solicitada: si se pide Factura A (1) pero receptor queda como Consumidor Final sin documento, error claro
+    if tipo_forzado == 1 and (tipo_documento_receptor == TipoDocumento.CONSUMIDOR_FINAL or condicion_receptor != CondicionIVA.RESPONSABLE_INSCRIPTO):
+        raise ValueError("No se puede emitir Factura A: receptor no es Responsable Inscripto con CUIT válido.")
         
     print(f"Emisor: {condicion_emisor.name}, Receptor: {condicion_receptor.name}, Total: {total}")
 
@@ -353,6 +395,10 @@ def generar_factura_para_venta(
         if tipo_forzado_int in (1, 6):
             if condicion_emisor != CondicionIVA.RESPONSABLE_INSCRIPTO:
                 raise ValueError("No se puede forzar Factura A/B porque el emisor no es RESPONSABLE_INSCRIPTO")
+            # Si se fuerza A pero receptor no RI -> degradar a B con aviso (salvo que ya se haya lanzado error arriba)
+            if tipo_forzado_int == 1 and condicion_receptor != CondicionIVA.RESPONSABLE_INSCRIPTO:
+                print("[FACTURA] Override solicitó A pero receptor no RI -> degradando a B (6)")
+                tipo_forzado_int = 6
         elif tipo_forzado_int == 11:
             # Siempre aceptable (Monotributo / Exento / forzar C)
             pass

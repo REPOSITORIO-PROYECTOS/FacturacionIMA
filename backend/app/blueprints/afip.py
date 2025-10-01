@@ -219,6 +219,28 @@ async def listar_condiciones_iva():
         ]
     }
 
+@router.get("")
+async def afip_root(action: Optional[str] = None):
+    """
+    Endpoint raíz de AFIP. Devuelve ayuda básica.
+
+    Parámetros opcionales:
+      action=condiciones-iva  -> devuelve mismas condiciones que /api/afip/condiciones-iva
+    """
+    if action == 'condiciones-iva':
+        return await listar_condiciones_iva()
+    return {
+        "mensaje": "Root AFIP OK",
+        "uso": {
+            "condiciones_iva": "/api/afip/condiciones-iva",
+            "credenciales": ["GET /api/afip/credenciales", "GET /api/afip/credenciales/{cuit}"],
+            "prueba_factura": "/api/afip/prueba-factura-1peso",
+            "diagnostico_credencial": "/api/afip/diagnostico-credencial/{cuit}",
+        },
+        "tip": "Llama a /api/afip/condiciones-iva para listado de condiciones o agrega ?action=condiciones-iva",
+        "ok": True
+    }
+
 
 # ================== NUEVO: CRUD SIMPLE PARA CREDENCIALES EN BD ==================
 

@@ -25,20 +25,6 @@ interface BoletaRecord {
 }
 
 export default function BoletasFacturadasPage() {
-    const [detalleOpen, setDetalleOpen] = useState(false);
-    const [boletaDetalle, setBoletaDetalle] = useState<BoletaRecord | null>(null);
-
-    function abrirDetalle(boleta: BoletaRecord) {
-        setBoletaDetalle(boleta);
-        setDetalleOpen(true);
-    }
-    function cerrarDetalle() {
-        setDetalleOpen(false);
-        setBoletaDetalle(null);
-    }
-    function facturarBoleta(boleta: BoletaRecord) {
-        alert(`Facturar boleta: ${boleta['ID Ingresos'] || boleta.id}`);
-    }
 
     function imprimirComprobante(b: BoletaRecord) {
         // Descarga directa de la imagen del comprobante usando el endpoint /api/impresion/{id}
@@ -261,16 +247,7 @@ export default function BoletasFacturadasPage() {
                                         <div className="text-[11px] text-gray-600">Total: {String(total)}</div>
                                     </div>
                                     <div className="shrink-0 flex gap-2">
-                                        <button
-                                            className="text-xs text-blue-700 hover:underline"
-                                            onClick={() => abrirDetalle(b)}
-                                        >Detalles</button>
-                                        {!nroComp && (
-                                            <button
-                                                className="text-xs bg-green-600 text-white px-2 py-1 rounded hover:bg-green-700"
-                                                onClick={() => facturarBoleta(b)}
-                                            >Facturar</button>
-                                        )}
+                                        {/* Botón de detalles y facturar removidos */}
                                         <button
                                             className="text-xs bg-gray-200 px-2 py-1 rounded hover:bg-gray-300"
                                             onClick={() => imprimirComprobante(b)}
@@ -319,14 +296,6 @@ export default function BoletasFacturadasPage() {
                                             <td className="p-2">{total}</td>
                                             <td className="p-2">{b.cae || '-'}</td>
                                             <td className="p-2 flex gap-2">
-                                                <button
-                                                    className="bg-blue-500 text-white px-2 py-1 rounded hover:bg-blue-600 transition"
-                                                    onClick={() => abrirDetalle(b)}
-                                                >Ver detalles</button>
-                                                {/* aquí podríamos mostrar un botón de facturar si no existe comprobante */}
-                                                {!nroComp && (
-                                                    <button className="text-xs bg-green-600 text-white px-2 py-1 rounded hover:bg-green-700" onClick={() => facturarBoleta(b)}>Facturar</button>
-                                                )}
                                                 <button className="text-xs bg-gray-200 px-2 py-1 rounded hover:bg-gray-300" onClick={() => imprimirComprobante(b)}>Imprimir</button>
                                             </td>
                                         </tr>
@@ -341,34 +310,7 @@ export default function BoletasFacturadasPage() {
                     )}
                 </div>
             )}
-            {/* Modal de detalles de boleta */}
-            {detalleOpen && boletaDetalle && (
-                <div className="fixed inset-0 bg-black bg-opacity-40 flex items-center justify-center z-50">
-                    <div className="bg-white rounded-lg shadow-lg p-6 w-full max-w-lg">
-                        <h3 className="text-xl font-bold mb-4">Detalle de Boleta</h3>
-                        <div className="grid grid-cols-1 gap-4 mb-4">
-                            <div className="space-y-2">
-                                <div className="flex justify-between"><div className="font-medium text-sm">Fecha</div><div className="text-sm text-gray-700">{String(boletaDetalle.fecha || boletaDetalle.fecha_comprobante || boletaDetalle.created_at || boletaDetalle['Fecha'] || '-')}</div></div>
-                                <div className="flex justify-between"><div className="font-medium text-sm">Cliente / Razón social</div><div className="text-sm text-gray-700">{String(boletaDetalle.razon_social || boletaDetalle['Razon Social'] || boletaDetalle.Cliente || boletaDetalle.cliente || '-')}</div></div>
-                                <div className="flex justify-between"><div className="font-medium text-sm">Repartidor</div><div className="text-sm text-gray-700">{String(boletaDetalle.repartidor || boletaDetalle.Repartidor || '-')}</div></div>
-                                <div className="flex justify-between"><div className="font-medium text-sm">Total</div><div className="text-sm text-gray-700">{String(boletaDetalle['Total a Pagar'] ?? boletaDetalle.importe_total ?? boletaDetalle.INGRESOS ?? boletaDetalle.Total ?? '-')}</div></div>
-                                <div className="flex justify-between"><div className="font-medium text-sm">Tipo de pago</div><div className="text-sm text-gray-700">{String(boletaDetalle['Tipo Pago'] ?? boletaDetalle.TipoPago ?? boletaDetalle['Tipo de Pago'] ?? '-')}</div></div>
-                                <div className="flex justify-between"><div className="font-medium text-sm">Nro comprobante</div><div className="text-sm text-gray-700">{String(boletaDetalle['Nro Comprobante'] || boletaDetalle.numero_comprobante || '-')}</div></div>
-                                <div className="flex justify-between"><div className="font-medium text-sm">Estado</div><div className="text-sm text-gray-700">{String(boletaDetalle.Estado ?? boletaDetalle.estado ?? boletaDetalle.facturacion ?? '-')}</div></div>
-                                <div className="flex justify-between"><div className="font-medium text-sm">IDs</div><div className="text-sm text-gray-700">Ingreso: {String(boletaDetalle.id_ingreso ?? boletaDetalle['ID Ingresos'] ?? boletaDetalle.ingreso_id ?? '-')} — Pedido: {String(boletaDetalle['ID Pedido'] ?? boletaDetalle.id_pedido ?? '-')}</div></div>
-                            </div>
-
-                            <div className="flex items-center justify-between">
-                                <button className="px-3 py-2 bg-blue-600 text-white rounded" onClick={() => imprimirComprobante(boletaDetalle)}>Imprimir comprobante</button>
-                            </div>
-                        </div>
-
-                        <div className="flex gap-2 justify-end">
-                            <button className="bg-gray-300 px-4 py-2 rounded hover:bg-gray-400" onClick={cerrarDetalle}>Cerrar</button>
-                        </div>
-                    </div>
-                </div>
-            )}
+            {/* Modal de detalles eliminado */}
         </div>
     );
 }

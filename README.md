@@ -3,13 +3,11 @@ DEsarrollo chico modulacion
 
 ## Despliegue / Producción
 
-### Opción 1: Stack unificado (legacy)
-Se usaba `ecosystem.config.js` con el script `start_all.sh` que:
-1. Reinstala dependencias backend siempre.
-2. Ejecuta `npm install` y `next build` en el frontend cada reinicio.
-3. Inicia backend (uvicorn) y frontend (next start) en un mismo proceso supervisado.
-
-Desventaja: si sólo cambias código del backend igualmente recompila todo el frontend, haciendo los reinicios más lentos.
+### (Removido) Stack unificado legacy
+El modo unificado (archivo `ecosystem.config.js` + `start_all.sh`) fue deprecado y eliminado para evitar builds innecesarios. Usa exclusivamente la configuración separada (`ecosystem.split.config.js`). Si todavía tienes un proceso `IMA-stack` en PM2, elimínalo:
+```bash
+pm2 delete IMA-stack || true
+```
 
 ### Opción 2: Procesos separados (recomendada)
 Se añadieron scripts y un ecosystem separado para dividir backend y frontend:
@@ -31,9 +29,8 @@ pm2 restart IMA-backend
 pm2 restart IMA-frontend
 ```
 
-Detener (migrando desde la versión unificada):
+Migrar desde el modo unificado (si aún existe en tu instancia):
 ```bash
-pm2 stop IMA-stack || true
 pm2 delete IMA-stack || true
 pm2 start ecosystem.split.config.js
 ```

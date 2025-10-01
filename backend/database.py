@@ -3,22 +3,38 @@
 
 import os
 from sqlmodel import create_engine, Session, SQLModel
-from sqlalchemy.orm import sessionmaker # <--- 1. IMPORTAMOS sessionmaker
+from sqlalchemy.orm import sessionmaker
 from dotenv import load_dotenv
 
 load_dotenv()
 
-DB_USER = os.getenv("DB_USER")
-DB_PASSWORD = os.getenv("DB_PASSWORD")
-DB_HOST = os.getenv("DB_HOST")
-DB_PORT = os.getenv("DB_PORT", "3306")
-DB_NAME = os.getenv("DB_NAME")
+def _get(val: str):
+    v = os.getenv(val)
+    return v.strip() if isinstance(v, str) else v
+
+DB_HOST = _get("DB_HOST")
+DB_USER = _get("DB_USER")
+DB_PASSWORD = _get("DB_PASSWORD")
+DB_NAME = _get("DB_NAME")
+DB_PORT = _get("DB_PORT") or "3306"
+
+USE_NEW = (_get('USE_NEW_DB') or '0').lower() in ('1','true','yes','on')
+NEW_DB_HOST = _get('NEW_DB_HOST')
+NEW_DB_USER = _get('NEW_DB_USER')
+NEW_DB_PASSWORD = _get('NEW_DB_PASSWORD')
+NEW_DB_NAME = _get('NEW_DB_NAME')
+
+if USE_NEW and all([NEW_DB_HOST, NEW_DB_USER, NEW_DB_PASSWORD, NEW_DB_NAME]):
+    print('[DB] Override -> usando NEW_DB_*')
+    DB_HOST, DB_USER, DB_PASSWORD, DB_NAME = NEW_DB_HOST, NEW_DB_USER, NEW_DB_PASSWORD, NEW_DB_NAME
+elif USE_NEW:
+    print('[DB] USE_NEW_DB=1 pero faltan variables NEW_DB_* completas; se mantiene base original')
 
 if not all([DB_USER, DB_PASSWORD, DB_HOST, DB_NAME]):
-    raise ValueError("Faltan variables de entorno para la base de datos. Asegúrate de que el archivo .env esté configurado correctamente.")
+    raise ValueError('Faltan variables de entorno para la base de datos (DB_* o NEW_DB_* incompletas).')
 
-# Línea corregida
 DATABASE_URL = f"mysql+pymysql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
+print(f"[DB] DATABASE_URL destino (ocultando password): mysql+pymysql://{DB_USER}:***@{DB_HOST}:{DB_PORT}/{DB_NAME}")
 
 engine = create_engine(DATABASE_URL, echo=True)
 

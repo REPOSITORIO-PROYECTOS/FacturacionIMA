@@ -21,13 +21,36 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
         try {
             const token = localStorage.getItem('token');
             if (!token) {
-                // Redirect to login and preserve origin path
                 router.replace(`/login?from=${encodeURIComponent(pathname)}`);
                 return;
             }
-            setChecked(true);
+            // Si falta user_info intentar recuperarlo vía /api/me (usa cookie HttpOnly)
+            const existingInfo = localStorage.getItem('user_info');
+            if (!existingInfo) {
+                (async () => {
+                    try {
+                        const meRes = await fetch('/api/me', { cache: 'no-store' });
+                        if (meRes.ok) {
+                            const meData = await meRes.json().catch(() => null);
+                            if (meData) {
+                                const baseInfo: any = {
+                                    username: meData.username || meData.user || meData.email || 'usuario',
+                                    role: meData.role || meData.rol || 'Desconocido'
+                                };
+                                if (meData.empresa_nombre || meData.empresa) baseInfo.empresa_nombre = meData.empresa_nombre || meData.empresa;
+                                if (meData.empresa_cuit) baseInfo.empresa_cuit = meData.empresa_cuit;
+                                if (meData.empresa_id) baseInfo.empresa_id = meData.empresa_id;
+                                localStorage.setItem('user_info', JSON.stringify(baseInfo));
+                                try { window.dispatchEvent(new Event('user_info_changed')); } catch { }
+                            }
+                        }
+                    } catch { /* silent */ }
+                    setChecked(true);
+                })();
+            } else {
+                setChecked(true);
+            }
         } catch {
-            // If accessing localStorage fails, treat as unauthenticated
             router.replace(`/login?from=${encodeURIComponent(pathname ?? '/')}`);
         }
     }, [pathname, router]);

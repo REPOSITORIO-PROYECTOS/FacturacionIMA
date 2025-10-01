@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, Response, Request, Query
 from datetime import datetime
 from typing import Any, Dict, List, Optional, DefaultDict, Set
 from pydantic import BaseModel
-from backend.sqlite_security import obtener_usuario_actual_sqlite
+from backend.security import obtener_usuario_actual  # migrado desde sqlite_security
 from backend.utils.mysql_handler import get_db_connection
 from backend.utils.tablasHandler import TablasHandler
 from thefuzz import fuzz  # type: ignore
@@ -24,30 +24,29 @@ except Exception:
 router = APIRouter(prefix="/boletas")
 
 
-def _is_admin(usuario_actual: dict) -> bool:
-    """Determina si el usuario es admin normalizando el rol_id (puede venir como int o str).
-    Rol admin es id=1 en la tabla SQLite.
+def _is_admin(user) -> bool:
+    """Determina si el usuario tiene rol administrativo.
+
+    Considera administrativos: Admin, Soporte.
+    Evita dependencia de IDs (más flexible para futuras migraciones).
     """
     try:
-        rid = usuario_actual.get("rol_id")
-        if rid is None:
-            return False
-        # Normalizar a entero si es posible
-        if isinstance(rid, str):
-            rid = rid.strip()
-            if rid.isdigit():
-                rid_int = int(rid)
-            else:
-                return False
-        else:
-            rid_int = int(rid)
-        return rid_int == 1
+        nombre_rol = getattr(getattr(user, 'rol', None), 'nombre', None)
+        return bool(nombre_rol in ("Admin", "Soporte"))
     except Exception:
         return False
 
+def _get_username(user) -> str:
+    return (
+        getattr(user, 'nombre_usuario', None)
+        or getattr(user, 'username', None)
+        or getattr(user, 'email', None)
+        or ''
+    )
+
 # Endpoint universal para /boletas?tipo=...
 @router.get("")
-async def obtener_boletas_tipo(request: Request, tipo: Optional[str] = None, skip: int = 0, limit: int = 20, usuario_actual: dict = Depends(obtener_usuario_actual_sqlite)):
+async def obtener_boletas_tipo(request: Request, tipo: Optional[str] = None, skip: int = 0, limit: int = 20, usuario_actual = Depends(obtener_usuario_actual)):
     """
     Endpoint universal para /boletas?tipo=... que redirige a la lógica correspondiente.
     """
@@ -92,7 +91,7 @@ async def obtener_boletas_tipo(request: Request, tipo: Optional[str] = None, ski
                     boletas_filtradas.append(bo)
 
             if not _is_admin(usuario_actual):
-                username = usuario_actual.get("nombre_usuario", "")
+                username = _get_username(usuario_actual)
                 if username:
                     username_l = username.lower()
                     resultado = []
@@ -137,7 +136,7 @@ def traer_todas_las_boletas(skip: int = 0, limit: int = 20):
 def traer_boletas_no_facturadas(
     skip: int = 0,
     limit: int = 20,
-    usuario_actual: dict = Depends(obtener_usuario_actual_sqlite)
+    usuario_actual = Depends(obtener_usuario_actual)
 ):
     """Devuelve boletas que faltan facturar. Si el usuario no es admin, se filtra
     por repartidor asociado al usuario (fuzzy match o comparación case-insensitive).
@@ -151,7 +150,7 @@ def traer_boletas_no_facturadas(
                 boletas_filtradas.append(bo)
 
         if not _is_admin(usuario_actual):
-            username = usuario_actual.get("nombre_usuario", "")
+            username = _get_username(usuario_actual)
             if username:
                 username_l = username.lower()
                 resultado = []
@@ -218,11 +217,10 @@ def traer_boletas_facturadas_desde_db(skip: int = 0, limit: int = 20):
 def traer_todas_por_repartidor(
     skip: int = 0, 
     limit: int = 20,
-    usuario_actual: dict = Depends(obtener_usuario_actual_sqlite) 
+    usuario_actual = Depends(obtener_usuario_actual) 
 ):
     try:
-
-        username = usuario_actual.get("nombre_usuario", "")
+        username = _get_username(usuario_actual)
         if _is_admin(usuario_actual):   # si es admin le mando todas
             try:
                 todas_las_boletas = handler.cargar_ingresos()
@@ -264,7 +262,7 @@ def traer_todas_por_razon_social(
     request_data: RazonSocialRequest,
     skip: int = 0, 
     limit: int = 20,
-    usuario_actual: dict = Depends(obtener_usuario_actual_sqlite) 
+    usuario_actual = Depends(obtener_usuario_actual) 
 ):
     try:
         if _is_admin(usuario_actual):
@@ -306,7 +304,7 @@ def traer_todas_por_dia(
     request_data: FechaRequest,
     skip: int = 0, 
     limit: int = 20,
-    usuario_actual: dict = Depends(obtener_usuario_actual_sqlite) 
+    usuario_actual = Depends(obtener_usuario_actual) 
 ):
     try:
         if _is_admin(usuario_actual):
@@ -361,7 +359,7 @@ def traer_todas_por_dia(
 def listar_repartidores(
     skip: int = 0,
     limit: int = 1000,
-    usuario_actual: dict = Depends(obtener_usuario_actual_sqlite)
+    usuario_actual = Depends(obtener_usuario_actual)
 ):
     """
     Devuelve una lista de repartidores y las razones sociales asociadas.
@@ -372,7 +370,8 @@ def listar_repartidores(
     el usuario autenticado y las razones sociales relacionadas a sus boletas.
     """
     try:
-        username = usuario_actual.get("nombre_usuario", "")
+        # Aseguramos obtener el nombre de usuario sin asumir que es un dict
+        username = _get_username(usuario_actual)
         todas_las_boletas = handler.cargar_ingresos()
 
         # Construir mapping repartidor -> set(razon social)
@@ -419,7 +418,7 @@ def listar_repartidores(
 
 
 @router.get("/debug/no-facturadas")
-def debug_no_facturadas(usuario_actual: dict = Depends(obtener_usuario_actual_sqlite)):
+def debug_no_facturadas(usuario_actual = Depends(obtener_usuario_actual)):
     """Endpoint de diagnóstico: muestra conteos y ejemplos de estados de facturación.
     No dejar en producción permanente; usar para verificar por qué front no recibe datos.
     """
@@ -448,7 +447,7 @@ def debug_no_facturadas(usuario_actual: dict = Depends(obtener_usuario_actual_sq
 
 
 @router.get("/resumen-no-facturadas")
-def resumen_no_facturadas(usuario_actual: dict = Depends(obtener_usuario_actual_sqlite)):
+def resumen_no_facturadas(usuario_actual = Depends(obtener_usuario_actual)):
     """Devuelve un resumen agrupado de boletas 'falta facturar'.
     Estructura:
     {
@@ -469,7 +468,7 @@ def resumen_no_facturadas(usuario_actual: dict = Depends(obtener_usuario_actual_
                 no_fact.append(b)
 
         es_admin = _is_admin(usuario_actual)
-        username = usuario_actual.get("nombre_usuario", "") if not es_admin else ""
+        username = _get_username(usuario_actual) if not es_admin else ""
         username_l = username.lower()
 
         from collections import defaultdict
@@ -742,7 +741,7 @@ def build_imprimible_html(boleta: Dict[str, Any], afip_result: Optional[Dict[str
 @router.get("/{ingreso_id}/imprimir-html")
 def imprimir_html_por_ingreso(
     ingreso_id: str,
-    usuario_actual: dict = Depends(obtener_usuario_actual_sqlite)
+    usuario_actual = Depends(obtener_usuario_actual)
 ):
     """Devuelve un HTML imprimible para la boleta identificada por `ingreso_id`.
     Busca en los ingresos cargados por `TablasHandler` y, si no lo encuentra, devuelve 404.
@@ -821,7 +820,7 @@ def imprimir_html_por_ingreso(
 @router.post('/imprimir/{ingreso_id}')
 def imprimir_html_por_ingreso_post(
     ingreso_id: str,
-    usuario_actual: dict = Depends(obtener_usuario_actual_sqlite)
+    usuario_actual = Depends(obtener_usuario_actual)
 ):
     """Compatibilidad con frontend: POST /api/boletas/imprimir/{ingreso_id}
     Devuelve el mismo HTML imprimible que el endpoint GET /{ingreso_id}/imprimir-html.
@@ -890,13 +889,13 @@ def _render_ticket_image(html: str, formato: str = 'jpg') -> bytes:
         return out.getvalue()
 
 
-def imprimir_imagen_por_ingreso(ingreso_id: str, usuario_actual: dict, formato: str = 'jpg'):
+def imprimir_imagen_por_ingreso(ingreso_id: str, usuario_actual, formato: str = 'jpg'):
     boleta = _buscar_boleta_por_ingreso(ingreso_id)
     if not boleta:
         raise HTTPException(status_code=404, detail='Boleta no encontrada')
     # Autorización si no es admin
     if not _is_admin(usuario_actual):
-        usuario = (usuario_actual.get('nombre_usuario') or '').lower().strip()
+        usuario = _get_username(usuario_actual).lower().strip()
         repart = (boleta.get('Repartidor') or boleta.get('repartidor') or '').lower().strip()
         if repart:
             try:
@@ -916,22 +915,76 @@ def imprimir_imagen_por_ingreso(ingreso_id: str, usuario_actual: dict, formato: 
     return Response(content=img_bytes, media_type=media, headers={'Content-Disposition': f'attachment; filename="comprobante_{ingreso_id}.{ext}"'})
 
 
-def facturar_e_imprimir_img(ingreso_id: str, usuario_actual: dict, formato: str = 'jpg', tipo_forzado: int | None = None):
+def facturar_e_imprimir_img(ingreso_id: str, usuario_actual, formato: str = 'jpg', tipo_forzado: int | None = None, punto_venta_override: int | None = None):
     boleta = _buscar_boleta_por_ingreso(ingreso_id)
     if not boleta:
         raise HTTPException(status_code=404, detail='Boleta no encontrada')
     afip_row = _buscar_factura_db(ingreso_id)
     if not afip_row:
-        # Intento mínimo de facturación (requiere total + doc receptor)
-        total_raw = boleta.get('importe_total') or boleta.get('total') or boleta.get('INGRESOS')
-        try:
-            total_float = float(str(total_raw).replace(',', '.')) if total_raw is not None else None
-        except Exception:
-            total_float = None
-        receptor_doc = boleta.get('cuit') or boleta.get('dni') or boleta.get('documento')
-        receptor_nombre = boleta.get('Razon Social') or boleta.get('razon_social') or boleta.get('cliente') or boleta.get('nombre')
+        # Intento mínimo de facturación: detectar total y documento en múltiples variantes
+        # 1. Total: probar campos comunes y limpiar formato ($, separadores miles, coma decimal)
+        total_raw = (
+            boleta.get('importe_total')
+            or boleta.get('total')
+            or boleta.get('Total a Pagar')
+            or boleta.get('total_a_pagar')
+            or boleta.get('INGRESOS')
+        )
+        total_float = None
+        if total_raw is not None:
+            try:
+                s = str(total_raw).strip()
+                # Remover símbolo moneda y espacios
+                s = s.replace('$', '').replace(' ', '')
+                # Si el formato es tipo 75.000,00 => quitar puntos (miles) y cambiar coma por punto
+                if ',' in s and s.count(',') == 1 and s.count('.') >= 1:
+                    s = s.replace('.', '').replace(',', '.')
+                elif s.count(',') == 1 and s.count('.') == 0:
+                    # Caso 75000,50 -> cambiar coma por punto
+                    s = s.replace(',', '.')
+                total_float = float(s)
+            except Exception:
+                total_float = None
+
+        # 2. Documento receptor (CUIT / DNI) en múltiples alias
+        receptor_doc = (
+            boleta.get('cuit')
+            or boleta.get('CUIT')
+            or boleta.get('dni')
+            or boleta.get('documento')
+            or boleta.get('doc')
+        )
+        if receptor_doc is not None:
+            receptor_doc = str(receptor_doc).strip()
+            if receptor_doc == '' or receptor_doc.lower() in ('0', 'none', 'null'):  # limpiar valores vacíos
+                receptor_doc = None
+
+        receptor_nombre = (
+            boleta.get('Razon Social')
+            or boleta.get('razon_social')
+            or boleta.get('Cliente')
+            or boleta.get('cliente')
+            or boleta.get('nombre')
+            or 'Consumidor Final'
+        )
+
+        # 3. Condición IVA receptor (alias con guión u otras variantes)
+        cond_iva = (
+            boleta.get('condicion_iva')
+            or boleta.get('condicion-iva')
+            or boleta.get('iva_condicion')
+            or 'CONSUMIDOR_FINAL'
+        )
+        if isinstance(cond_iva, str):
+            cond_iva = cond_iva.strip().upper() or 'CONSUMIDOR_FINAL'
+
         if total_float is None or receptor_doc is None:
-            raise HTTPException(status_code=400, detail='Faltan datos para facturar (total o documento)')
+            missing = []
+            if total_float is None:
+                missing.append('total')
+            if receptor_doc is None:
+                missing.append('documento_receptor')
+            raise HTTPException(status_code=422, detail={'error': 'Datos insuficientes para facturar', 'missing': missing, 'ingreso_id': ingreso_id})
         payload = [{
             'id': str(ingreso_id),
             'total': total_float,
@@ -939,11 +992,17 @@ def facturar_e_imprimir_img(ingreso_id: str, usuario_actual: dict, formato: str 
                 'cuit_o_dni': str(receptor_doc),
                 'nombre_razon_social': receptor_nombre or 'Consumidor Final',
                 'domicilio': boleta.get('domicilio') or boleta.get('domicilio_receptor') or 'S/D',
-                'condicion_iva': boleta.get('condicion_iva') or 'Consumidor Final'
+                'condicion_iva': cond_iva
             },
             'emisor_cuit': boleta.get('emisor_cuit') or os.environ.get('EMISOR_CUIT'),
             **({'tipo_forzado': int(tipo_forzado)} if tipo_forzado is not None else {})
         }]
+        # Si el front forza un punto de venta explícito (override diagnóstico)
+        if punto_venta_override is not None:
+            try:
+                payload[0]['punto_venta'] = int(punto_venta_override)
+            except Exception:
+                pass
         try:
             batch_res = process_invoice_batch_for_endpoint(payload, max_workers=1)
             if batch_res and batch_res[0].get('status') == 'SUCCESS':
@@ -961,11 +1020,133 @@ def facturar_e_imprimir_img(ingreso_id: str, usuario_actual: dict, formato: str 
         raise HTTPException(status_code=500, detail=f'Error generando imagen: {e}')
     ext = 'png' if formato.lower() == 'png' else 'jpg'
     media = 'image/png' if ext == 'png' else 'image/jpeg'
-    return Response(content=img_bytes, media_type=media, headers={'Content-Disposition': f'attachment; filename="comprobante_{ingreso_id}.{ext}"'})
+    # Añadir metadatos de factura en headers si existen
+    headers = {
+        'Content-Disposition': f'attachment; filename="comprobante_{ingreso_id}.{ext}"'
+    }
+    try:
+        if afip_row:
+            if isinstance(afip_row, dict):
+                cae = afip_row.get('cae')
+                pto = afip_row.get('punto_venta')
+                tipo = afip_row.get('tipo_comprobante') or afip_row.get('tipo_afip')
+                nro = afip_row.get('numero_comprobante')
+                if cae: headers['X-Factura-CAE'] = str(cae)
+                if pto: headers['X-Factura-PtoVta'] = str(pto)
+                if tipo: headers['X-Factura-Tipo'] = str(tipo)
+                if nro: headers['X-Factura-Nro'] = str(nro)
+    except Exception:
+        pass
+    return Response(content=img_bytes, media_type=media, headers=headers)
+
+
+@router.get('/preview/facturacion/{ingreso_id}')
+def preview_facturacion(ingreso_id: str, tipo_forzado: int | None = None, punto_venta: int | None = None, usuario_actual = Depends(obtener_usuario_actual)):
+    """Devuelve el payload que se intentaría facturar (sin llamar AFIP) para diagnóstico.
+    Permite revisar: total, documento, condicion IVA, emisor_cuit, overrides.
+    """
+    boleta = _buscar_boleta_por_ingreso(ingreso_id)
+    if not boleta:
+        raise HTTPException(status_code=404, detail='Boleta no encontrada')
+    # Reutilizamos lógica de parsing (duplicada mínima para no ejecutar facturación)
+    total_raw = (
+        boleta.get('importe_total')
+        or boleta.get('total')
+        or boleta.get('Total a Pagar')
+        or boleta.get('total_a_pagar')
+        or boleta.get('INGRESOS')
+    )
+    total_float = None
+    parse_log = {}
+    if total_raw is not None:
+        try:
+            s = str(total_raw).strip()
+            original = s
+            s = s.replace('$', '').replace(' ', '')
+            if ',' in s and s.count(',') == 1 and s.count('.') >= 1:
+                s = s.replace('.', '').replace(',', '.')
+            elif s.count(',') == 1 and s.count('.') == 0:
+                s = s.replace(',', '.')
+            total_float = float(s)
+            parse_log['total_parse'] = {'input': original, 'normalized': s, 'ok': True}
+        except Exception as e:
+            parse_log['total_parse'] = {'input': str(total_raw), 'error': str(e), 'ok': False}
+    receptor_doc = (
+        boleta.get('cuit')
+        or boleta.get('CUIT')
+        or boleta.get('dni')
+        or boleta.get('documento')
+        or boleta.get('doc')
+    )
+    if receptor_doc is not None:
+        receptor_doc = str(receptor_doc).strip()
+        if receptor_doc == '' or receptor_doc.lower() in ('0', 'none', 'null'):
+            receptor_doc = None
+    receptor_nombre = (
+        boleta.get('Razon Social')
+        or boleta.get('razon_social')
+        or boleta.get('Cliente')
+        or boleta.get('cliente')
+        or boleta.get('nombre')
+        or 'Consumidor Final'
+    )
+    cond_iva = (
+        boleta.get('condicion_iva')
+        or boleta.get('condicion-iva')
+        or boleta.get('iva_condicion')
+        or 'CONSUMIDOR_FINAL'
+    )
+    if isinstance(cond_iva, str):
+        cond_iva = cond_iva.strip().upper() or 'CONSUMIDOR_FINAL'
+    emisor_cuit = (boleta.get('emisor_cuit') or os.environ.get('EMISOR_CUIT'))
+    # Validar CUIT receptor (si se suministró) para diagnóstico
+    def _cuit_valido(c: str) -> bool:
+        try:
+            num = ''.join(ch for ch in c if ch.isdigit())
+            if len(num) != 11:
+                return False
+            mult = [5,4,3,2,7,6,5,4,3,2]
+            s = sum(int(num[i])*mult[i] for i in range(10))
+            resto = 11 - (s % 11)
+            ver = 0 if resto == 11 else (9 if resto == 10 else resto)
+            return ver == int(num[-1])
+        except Exception:
+            return False
+
+    documento_clasificacion = 'SIN_DOC'
+    cuit_valido = False
+    if receptor_doc and receptor_doc != '0':
+        if len(receptor_doc) == 11 and _cuit_valido(receptor_doc):
+            documento_clasificacion = 'CUIT_VALIDO'
+            cuit_valido = True
+        elif receptor_doc.isdigit() and len(receptor_doc) in (7,8):
+            documento_clasificacion = 'DNI'
+        else:
+            documento_clasificacion = 'INVALIDO'
+
+    preview = {
+        'ingreso_id': ingreso_id,
+        'total_detectado': total_float,
+        'total_raw': total_raw,
+        'receptor_doc': receptor_doc,
+        'receptor_nombre': receptor_nombre,
+        'condicion_iva_receptor': cond_iva,
+        'emisor_cuit_raw': emisor_cuit,
+        'tipo_forzado': tipo_forzado,
+        'punto_venta_override': punto_venta,
+        'parse_log': parse_log,
+        'facturable': (total_float is not None and (receptor_doc is not None or cond_iva == 'CONSUMIDOR_FINAL')),
+        'diagnostico': {
+            'cuit_valido': cuit_valido,
+            'documento_clasificacion': documento_clasificacion,
+            'degradacion_consumidor_final': (documento_clasificacion in ('INVALIDO','SIN_DOC') and cond_iva == 'CONSUMIDOR_FINAL')
+        }
+    }
+    return preview
 
 
 @router.get('/debug/afip-credenciales')
-def debug_afip_credenciales(emisor_cuit: str | None = None, usuario_actual: dict = Depends(obtener_usuario_actual_sqlite)):
+def debug_afip_credenciales(emisor_cuit: str | None = None, usuario_actual = Depends(obtener_usuario_actual)):
     """Endpoint de diagnóstico para ver qué credenciales AFIP se resolverían.
     Restringido a admin/soporte (rol_id=1) para evitar exposición excesiva.
     """
@@ -994,7 +1175,7 @@ def debug_afip_credenciales(emisor_cuit: str | None = None, usuario_actual: dict
 
 
 @router.get('/debug/afip-preflight')
-def debug_afip_preflight(emisor_cuit: str | None = None, usuario_actual: dict = Depends(obtener_usuario_actual_sqlite)):
+def debug_afip_preflight(emisor_cuit: str | None = None, usuario_actual = Depends(obtener_usuario_actual)):
     if not _is_admin(usuario_actual):
         raise HTTPException(status_code=403, detail='Solo admin/soporte')
     try:
@@ -1003,7 +1184,7 @@ def debug_afip_preflight(emisor_cuit: str | None = None, usuario_actual: dict = 
         raise HTTPException(status_code=500, detail=f'Error preflight credenciales: {e}')
 
 @router.post('/debug/afip-contract-test')
-def afip_contract_test(emisor_cuit: str, tipo_forzado: int = 11, total: float = 100.0, documento: str = '20111111112', condicion_receptor: str = 'CONSUMIDOR_FINAL', usuario_actual: dict = Depends(obtener_usuario_actual_sqlite)):
+def afip_contract_test(emisor_cuit: str, tipo_forzado: int = 11, total: float = 100.0, documento: str = '20111111112', condicion_receptor: str = 'CONSUMIDOR_FINAL', usuario_actual = Depends(obtener_usuario_actual)):
     """Realiza una facturación mínima sintética para verificar que el microservicio
     respeta el CUIT y el tipo_forzado enviados.
 
@@ -1037,3 +1218,40 @@ def afip_contract_test(emisor_cuit: str, tipo_forzado: int = 11, total: float = 
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f'Error en contract test: {e}')
+
+
+@router.post('/test/facturar-consumidor-final/{ingreso_id}')
+def test_facturar_consumidor_final(
+    ingreso_id: str,
+    emisor_cuit: str | None = None,
+    tipo_forzado: int = 6,  # Factura B por defecto para RI -> Consumidor Final
+    usuario_actual = Depends(obtener_usuario_actual)
+):
+    """Factura de prueba (no persistente) para un ingreso dado, forzando total=1 y consumidor final.
+    No escribe en DB ni Google Sheets. Útil para validar credenciales, tipo, punto de venta.
+    """
+    if not _is_admin(usuario_actual):
+        raise HTTPException(status_code=403, detail='Solo admin/soporte')
+    try:
+        # Receptor CF sin documento (AFIP suele usar DocTipo 99 / DocNro 0 en microservicio interno)
+        receptor = ReceptorData(
+            cuit_o_dni='0',
+            condicion_iva='CONSUMIDOR_FINAL',
+            nombre_razon_social='Consumidor Final TEST',
+            domicilio='S/D'
+        )
+        # Intentar usar CUIT del archivo de la boleta si existiese (boleta no lo trae, se usa param/env)
+        # Pasamos al generador con total=1.0
+        resultado = generar_factura_para_venta(total=1.0, cliente_data=receptor, emisor_cuit=emisor_cuit, tipo_forzado=tipo_forzado)
+        # No persistimos: devolver payload relevante
+        return {
+            'ingreso_id': ingreso_id,
+            'total_utilizado': 1.0,
+            'tipo_forzado': tipo_forzado,
+            'resultado': resultado,
+            'nota': 'Factura de prueba no persistida'
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f'Error en test consumidor final: {e}')

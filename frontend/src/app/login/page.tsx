@@ -59,29 +59,47 @@ function LoginPageInner() {
       }
 
       if (data && data.access_token) {
-        // Guardar en localStorage (uso cliente)
+        // Guardar token inmediatamente
         localStorage.setItem("token", data.access_token);
-        if (data.user_info) {
-            localStorage.setItem("user_info", JSON.stringify(data.user_info));
-              try { window.dispatchEvent(new Event('user_info_changed')); } catch {}
+        // Establecer cookie (si falla seguimos)
+        try {
+          document.cookie = `session_token=${encodeURIComponent(data.access_token)}; Path=/; Max-Age=28800; SameSite=Lax`;
+        } catch { }
+
+        // Obtener user_info enriquecido desde /api/me (incluye empresa y rol si backend lo expone)
+        try {
+          const meRes = await fetch('/api/me', { headers: { 'Cache-Control': 'no-store' } });
+          if (meRes.ok) {
+            const meData = await meRes.json().catch(() => null);
+            if (meData) {
+              // Normalizamos estructura mínima esperada
+              const baseInfo: any = {
+                username: meData.username || meData.user || meData.email || email,
+                role: meData.role || meData.rol || data.user_info?.role || 'Desconocido',
+              };
+              if (meData.empresa_nombre || meData.empresa || meData.company_name) baseInfo.empresa_nombre = meData.empresa_nombre || meData.empresa || meData.company_name;
+              if (meData.empresa_cuit || meData.cuit_empresa) baseInfo.empresa_cuit = meData.empresa_cuit || meData.cuit_empresa;
+              if (meData.empresa_id) baseInfo.empresa_id = meData.empresa_id;
+              localStorage.setItem('user_info', JSON.stringify(baseInfo));
+              try { window.dispatchEvent(new Event('user_info_changed')); } catch { }
+            }
+          } else if (data.user_info) {
+            // Fallback: usar user_info provisto en /auth/token si existe
+            localStorage.setItem('user_info', JSON.stringify(data.user_info));
+          }
+        } catch {
+          // Fallback a user_info del login si existe
+          if (data.user_info) localStorage.setItem('user_info', JSON.stringify(data.user_info));
         }
         if (remember) localStorage.setItem("remember_user", email);
-
-        // IMPORTANTE: establecer cookie que el middleware del lado servidor verifica (session_token)
-        try {
-          // 8 horas (28800s) — ajustar si el backend define otra duración
-          document.cookie = `session_token=${encodeURIComponent(data.access_token)}; Path=/; Max-Age=28800; SameSite=Lax`;
-        } catch {
-          // si falla, igual continuamos con la navegación (AuthGuard client-side seguirá funcionando)
-        }
 
         // Redirección: si veníamos de ?from= y no es /login, usarla
         const from = searchParams.get('from');
         const isMobile = typeof window !== 'undefined' && window.innerWidth < 768;
         const fallback = isMobile ? '/inicio' : '/dashboard';
         const target = (from && from.startsWith('/') && !from.startsWith('/login')) ? from : fallback;
-        // replace evita que el usuario vuelva atrás al formulario ya autenticado
-        router.replace(target);
+        // Pequeño delay para asegurar persistencia de user_info antes de navegar
+        setTimeout(() => router.replace(target), 50);
       } else {
         // Mostrar un resumen del body recibido para facilitar diagnóstico en desarrollo
         const preview = data
