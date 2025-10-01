@@ -1,8 +1,5 @@
 #!/usr/bin/env python3
-"""
-Crear en bloque usuarios en SQLite (auth.db) con rol 'Cajero'.
-Usa el mismo gestor que el backend (sqlite_auth) para mantener consistencia.
-"""
+"""Crear en bloque usuarios en MySQL (rol por defecto 'Cajero'). Sustituye versión SQLite."""
 
 import os
 import sys
@@ -13,7 +10,10 @@ ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
-from backend.sqlite_auth import sqlite_auth  # type: ignore
+from sqlmodel import select
+from backend.database import SessionLocal
+from backend.modelos import Usuario, Rol, Empresa
+from backend.security import get_password_hash
 
 
 USUARIOS: List[Tuple[str, str, str]] = [
@@ -26,38 +26,35 @@ USUARIOS: List[Tuple[str, str, str]] = [
 
 
 def main() -> int:
-    print("=== Creación en bloque de usuarios (SQLite auth.db) ===")
-    ok = 0
-    already = 0
-    fail = 0
-    for username, password, rol in USUARIOS:
-        print(f"\n-> Creando usuario: {username} (rol: {rol})")
-        res = sqlite_auth.crear_usuario(username, password, rol)
-        if res:
-            ok += 1
-            prueba = sqlite_auth.autenticar_usuario(username, password)
-            if prueba:
-                print(f"   ✅ Creado y login verificado (rol: {prueba['rol_nombre']})")
-            else:
-                print("   ⚠️ Creado pero fallo en verificación de login")
-        else:
-            # Distinguir si ya existe
-            existente = sqlite_auth.obtener_usuario_por_username(username)
-            if existente:
-                already += 1
+    print("=== Creación en bloque de usuarios (MySQL) ===")
+    created=0; existed=0; failed=0
+    with SessionLocal() as db:
+        empresa = db.exec(select(Empresa)).first()
+        if not empresa:
+            print("❌ No hay empresas en la base.")
+            return 1
+        for username, password, rol in USUARIOS:
+            print(f"\n-> Creando usuario: {username} (rol: {rol})")
+            if db.exec(select(Usuario).where(Usuario.nombre_usuario == username)).first():
+                existed += 1
                 print("   ℹ️ Ya existía, se omite")
-            else:
-                fail += 1
-                print("   ❌ Error al crear (rol inválido u otro problema)")
-
+                continue
+            r = db.exec(select(Rol).where(Rol.nombre == rol)).first()
+            if not r:
+                r = Rol(nombre=rol); db.add(r); db.commit(); db.refresh(r)
+            u = Usuario(nombre_usuario=username, password_hash=get_password_hash(password), id_rol=r.id, id_empresa=empresa.id)
+            db.add(u)
+            try:
+                db.commit(); db.refresh(u); created +=1
+                print("   ✅ Creado")
+            except Exception as e:
+                db.rollback(); failed+=1
+                print(f"   ❌ Error: {e}")
     print("\n=== Resumen ===")
-    print(f"   Creados:    {ok}")
-    print(f"   Existentes: {already}")
-    print(f"   Fallidos:   {fail}")
-    print("\nUsuarios actuales:")
-    for u in sqlite_auth.listar_usuarios():
-        print(f"  - {u['nombre_usuario']} ({u['rol_nombre']}) - Activo: {u['activo']}")
-    return 0 if fail == 0 else 1
+    print(f"   Creados:    {created}")
+    print(f"   Existentes: {existed}")
+    print(f"   Fallidos:   {failed}")
+    return 0 if failed==0 else 1
 
 
 if __name__ == "__main__":

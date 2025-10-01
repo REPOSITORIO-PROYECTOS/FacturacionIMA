@@ -6,7 +6,17 @@ from cryptography.hazmat.primitives.asymmetric import rsa
 from backend import config
 
 # Directorio seguro para guardado temporal de claves
-BOVEDA_TEMPORAL_PATH = os.getenv('AFIP_KEYS_PATH', './boveda_afip_temporal')
+# Asegurar ruta absoluta para evitar diferencias de working directory en threads / procesos
+_vault_env = os.getenv('AFIP_KEYS_PATH', './boveda_afip_temporal')
+if not os.path.isabs(_vault_env):
+    BOVEDA_TEMPORAL_PATH = os.path.abspath(_vault_env)
+else:
+    BOVEDA_TEMPORAL_PATH = _vault_env
+
+def _normalize_cuit(cuit: str | None) -> str | None:
+    if cuit is None:
+        return None
+    return cuit.strip()
 
 def generar_csr_y_guardar_clave_temporal(cuit_empresa: str, razon_social: str) -> str:
     """
@@ -183,7 +193,16 @@ def obtener_configuracion_emisor(cuit: str) -> dict:
     Obtiene la configuración del emisor desde el archivo JSON.
     """
     try:
+        original_cuit = cuit
+        cuit = _normalize_cuit(cuit) or cuit
+        # Si existe un archivo con espacio final, renombrarlo
+        legacy_path = os.path.join(BOVEDA_TEMPORAL_PATH, f"emisor_{original_cuit}.json")
         config_path = os.path.join(BOVEDA_TEMPORAL_PATH, f"emisor_{cuit}.json")
+        try:
+            if legacy_path != config_path and os.path.exists(legacy_path) and not os.path.exists(config_path):
+                os.rename(legacy_path, config_path)
+        except Exception:
+            pass
         
         if not os.path.exists(config_path):
             return {
@@ -202,8 +221,10 @@ def obtener_configuracion_emisor(cuit: str) -> dict:
         import json
         with open(config_path, "r", encoding="utf-8") as f:
             configuracion = json.load(f)
-        
+
         configuracion["existe"] = True
+        # Normalizar CUIT dentro del contenido
+        configuracion["cuit_empresa"] = _normalize_cuit(configuracion.get("cuit_empresa")) or configuracion.get("cuit_empresa")
         return configuracion
         
     except Exception as e:

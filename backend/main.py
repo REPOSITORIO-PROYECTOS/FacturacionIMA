@@ -24,10 +24,20 @@ origins = [
 
 # ...existing code...
 
-app.include_router(boletas.router)
-app.include_router(impresion.router)
-app.include_router(auth_router.router)
-app.include_router(facturador.router)
+API_PREFIX = os.getenv('API_PREFIX', '').strip()
+
+def _mount(router):
+    # Si se define un prefijo global (ej /api) y el router no lo tiene ya, recrear con prefix compuesto
+    if API_PREFIX and not router.prefix.startswith(API_PREFIX):
+        # FastAPI no soporta cambiar prefix directamente; asumimos routers ya correctos excepto facturador
+        app.include_router(router, prefix=API_PREFIX + router.prefix)
+    else:
+        app.include_router(router)
+
+_mount(boletas.router)
+_mount(impresion.router)
+_mount(auth_router.router)
+_mount(facturador.router)
 # tablas.router no existe, se comenta para evitar error
 # app.include_router(tablas.router)
 # afip.router already uses prefix '/api' internally; include it directly
@@ -71,6 +81,19 @@ def startup_event():
     
     if config.GOOGLE_SHEET_ID:
         print(f"ℹ️  Google Sheets configurado para reportes (ID: {config.GOOGLE_SHEET_ID[:10]}...).")
+
+    # Listar rutas para depuración
+    try:
+        print("--- Rutas registradas ---")
+        for r in app.router.routes:
+            try:
+                methods = ",".join(sorted(getattr(r, 'methods', [])))
+                print(f"{methods:15} {getattr(r, 'path', '')}")
+            except Exception:
+                continue
+        print("--------------------------")
+    except Exception:
+        pass
 
 
 

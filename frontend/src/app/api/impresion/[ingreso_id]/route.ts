@@ -12,6 +12,11 @@ export async function POST(req: Request) {
         headers: { Authorization: token },
     });
 
-    const blob = await r.blob();
-    return new Response(blob, { status: r.status, headers: { 'content-type': r.headers.get('content-type') || 'application/octet-stream' } });
+    const arrayBuffer = await r.arrayBuffer();
+    // Reemitimos la cabecera de filename si existe
+    const headers = new Headers();
+    headers.set('content-type', r.headers.get('content-type') || 'application/octet-stream');
+    const cd = r.headers.get('content-disposition');
+    if (cd) headers.set('content-disposition', cd);
+    return new Response(arrayBuffer, { status: r.status, headers });
 }

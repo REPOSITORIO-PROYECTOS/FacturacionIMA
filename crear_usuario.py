@@ -1,78 +1,56 @@
 #!/usr/bin/env python3
+"""Script CLI para crear usuarios en MySQL (unificado, reemplaza versión SQLite).
+
+Uso:
+    python crear_usuario.py --username pepe --password secreta --rol Cajero --empresa-cuit 30718331680
+Si no se pasa empresa se usa la primera existente.
 """
-Script simple para crear usuarios localmente usando SQLite
-"""
 
-import sys
-import os
+import sys, os, argparse
+from sqlmodel import select
 
-# Agregar el directorio backend al path
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'backend'))
+ROOT = os.path.dirname(__file__)
+if ROOT not in sys.path:
+    sys.path.insert(0, ROOT)
 
-from backend.sqlite_auth import sqlite_auth
+from backend.database import SessionLocal
+from backend.modelos import Usuario, Rol, Empresa
+from backend.security import get_password_hash
+
+def create_user(username: str, password: str, rol: str, empresa_cuit: str | None):
+    with SessionLocal() as db:
+        if db.exec(select(Usuario).where(Usuario.nombre_usuario == username)).first():
+            print("⚠️  Usuario ya existe")
+            return 1
+        # empresa
+        empresa = None
+        if empresa_cuit:
+            empresa = db.exec(select(Empresa).where(Empresa.cuit == empresa_cuit)).first()
+            if not empresa:
+                print(f"❌ Empresa con CUIT {empresa_cuit} no encontrada")
+                return 2
+        else:
+            empresa = db.exec(select(Empresa)).first()
+            if not empresa:
+                print("❌ No hay empresas en la base. Cree una primero.")
+                return 3
+        role = db.exec(select(Rol).where(Rol.nombre == rol)).first()
+        if not role:
+            role = Rol(nombre=rol)
+            db.add(role); db.commit(); db.refresh(role)
+        user = Usuario(nombre_usuario=username, password_hash=get_password_hash(password), id_rol=role.id, id_empresa=empresa.id)
+        db.add(user); db.commit(); db.refresh(user)
+        print(f"✅ Usuario creado: id={user.id} username={user.nombre_usuario} rol={role.nombre} empresa={empresa.cuit}")
+    return 0
 
 def main():
-    print("=== Creador de Usuarios para FacturacionIMA ===")
-    print("Sistema de autenticación SQLite local")
-    print()
-    
-    # Mostrar usuarios existentes
-    usuarios = sqlite_auth.listar_usuarios()
-    print(f"Usuarios existentes: {len(usuarios)}")
-    for u in usuarios:
-        print(f"  - {u['nombre_usuario']} ({u['rol_nombre']}) - Activo: {u['activo']}")
-    
-    print("\n=== Crear Nuevo Usuario ===")
-    
-    # Solicitar datos
-    username = input("Nombre de usuario: ").strip()
-    if not username:
-        print("Error: El nombre de usuario no puede estar vacío")
-        return
-    
-    password = input("Contraseña: ").strip()
-    if not password:
-        print("Error: La contraseña no puede estar vacía")
-        return
-    
-    print("\nRoles disponibles:")
-    print("1. Admin - Administrador completo")
-    print("2. Gerente - Gestión del negocio")
-    print("3. Cajero - Operador básico")
-    print("4. Soporte - Soporte técnico")
-    
-    rol_opcion = input("Seleccione rol (1-4) [3]: ").strip() or "3"
-    
-    roles_map = {
-        "1": "Admin",
-        "2": "Gerente", 
-        "3": "Cajero",
-        "4": "Soporte"
-    }
-    
-    rol_nombre = roles_map.get(rol_opcion, "Cajero")
-    
-    print(f"\nCreando usuario: {username} con rol: {rol_nombre}")
-    
-    # Crear usuario
-    resultado = sqlite_auth.crear_usuario(username, password, rol_nombre)
-    
-    if resultado:
-        print("✅ Usuario creado exitosamente!")
-        
-        # Test de login
-        print("\n=== Test de Login ===")
-        test_usuario = sqlite_auth.autenticar_usuario(username, password)
-        if test_usuario:
-            print(f"✅ Login funciona correctamente para: {test_usuario['nombre_usuario']}")
-            print(f"   Rol: {test_usuario['rol_nombre']}")
-        else:
-            print("❌ Error en el test de login")
-            
-    else:
-        print("❌ Error al crear el usuario")
-        print("   - Verifique que el nombre de usuario no exista")
-        print("   - Verifique que el rol sea válido")
+    parser = argparse.ArgumentParser(description="Crear usuario en MySQL")
+    parser.add_argument("--username", required=True)
+    parser.add_argument("--password", required=True)
+    parser.add_argument("--rol", default="Cajero")
+    parser.add_argument("--empresa-cuit", dest="empresa_cuit")
+    args = parser.parse_args()
+    return create_user(args.username.strip(), args.password, args.rol.strip(), args.empresa_cuit)
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

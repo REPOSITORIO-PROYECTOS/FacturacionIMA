@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Response, Request
+from fastapi import APIRouter, Depends, HTTPException, Response, Request, Query
 from datetime import datetime
 from typing import Any, Dict, List, Optional, DefaultDict, Set
 from pydantic import BaseModel
@@ -10,6 +10,16 @@ import json
 import html as _html
 from backend.utils.billige_manage import process_invoice_batch_for_endpoint
 import os
+from io import BytesIO
+from backend.utils import afip_tools_manager  # nuevo para debug credenciales
+from backend.utils.afipTools import _resolve_afip_credentials, preflight_afip_credentials  # type: ignore
+from backend.utils.afipTools import generar_factura_para_venta, ReceptorData  # para test de contrato
+try:
+    from weasyprint import HTML  # type: ignore
+    from PIL import Image  # type: ignore
+except Exception:
+    HTML = None  # type: ignore
+    Image = None  # type: ignore
 
 router = APIRouter(prefix="/boletas")
 
@@ -559,15 +569,51 @@ def build_imprimible_html(boleta: Dict[str, Any], afip_result: Optional[Dict[str
         else:
             qr_html = f"<div style='margin-top:12px'><a href='{_html.escape(str(qr_data_url))}' target='_blank' rel='noopener noreferrer'>Ver QR</a></div>"
 
-    # Emisor: intentar leer del diccionario o caer en variables de entorno
-    emisor_cuit = boleta.get('emisor_cuit') or boleta.get('CUIT') or os.environ.get('EMISOR_CUIT', '')
+    # Emisor: primero boleta, luego env, luego intentar leer configuración de bóveda si tenemos CUIT.
+    emisor_cuit = boleta.get('emisor_cuit') or boleta.get('CUIT') or os.environ.get('AFIP_CUIT') or os.environ.get('EMISOR_CUIT', '')
     emisor_razon = boleta.get('emisor_razon_social') or boleta.get('Emisor') or os.environ.get('EMISOR_RAZON_SOCIAL', '')
     emisor_domicilio = boleta.get('emisor_domicilio') or boleta.get('domicilio_emisor') or os.environ.get('EMISOR_DOMICILIO', '')
-    emisor_iva = boleta.get('emisor_condicion_iva') or os.environ.get('EMISOR_CONDICION_IVA', '')
+    emisor_iva = boleta.get('emisor_condicion_iva') or os.environ.get('EMISOR_CONDICION_IVA', os.environ.get('AFIP_COND_EMISOR', ''))
+    try:
+        # Si falta razón social o domicilio, intentar cargar config de emisor desde bóveda
+        if (not emisor_razon or not emisor_domicilio) and emisor_cuit:
+            from backend.utils import afip_tools_manager  # import local para no romper carga si falta
+            cfg = afip_tools_manager.obtener_configuracion_emisor(str(emisor_cuit))
+            if cfg and cfg.get('existe'):
+                if not emisor_razon:
+                    emisor_razon = cfg.get('razon_social') or cfg.get('nombre_fantasia') or emisor_razon
+                if not emisor_domicilio:
+                    emisor_domicilio = cfg.get('direccion') or emisor_domicilio
+                # Punto de venta potencialmente útil si no viene en afip_result
+                if afip_result and not afip_result.get('punto_venta') and cfg.get('punto_venta'):
+                    afip_result['punto_venta'] = cfg.get('punto_venta')
+    except Exception:
+        pass
 
     # Comprobante: tipo y fechas (si vienen en otros campos, incluirlos)
-    tipo_comprobante = boleta.get('tipo_comprobante') or boleta.get('Tipo') or boleta.get('tipo') or ''
-    nro_comprobante = nro
+    tipo_comprobante = (afip_result.get('tipo_comprobante') if afip_result else None) or boleta.get('tipo_comprobante') or boleta.get('Tipo') or boleta.get('tipo') or ''
+    nro_comprobante = (afip_result.get('numero_comprobante') if afip_result else None) or nro
+    punto_venta = (afip_result.get('punto_venta') if afip_result else None) or os.environ.get('AFIP_PUNTO_VENTA') or ''
+
+    # Normalizar a int donde sea posible
+    try:
+        tipo_int = int(tipo_comprobante)
+    except Exception:
+        tipo_int = None
+    try:
+        nro_int = int(nro_comprobante)
+    except Exception:
+        nro_int = None
+    try:
+        pv_int = int(punto_venta)
+    except Exception:
+        pv_int = None
+
+    tipo_labels = {1: 'Factura A', 6: 'Factura B', 11: 'Factura C'}
+    tipo_label = tipo_labels.get(tipo_int, f"Comprobante {esc(tipo_comprobante)}") if tipo_int is not None else f"Comprobante {esc(tipo_comprobante)}"
+    nro_fmt = f"{nro_int:08d}" if nro_int is not None else esc(nro_comprobante)
+    pv_fmt = f"{pv_int:04d}" if pv_int is not None else esc(punto_venta)
+    encabezado_linea2 = f"Pto Vta {pv_fmt} - Nº {nro_fmt}" if (pv_fmt and nro_fmt) else f"Nº {nro_fmt}" if nro_fmt else ''
     fecha_emision = fecha
 
     # Receptor / cliente
@@ -608,6 +654,29 @@ def build_imprimible_html(boleta: Dict[str, Any], afip_result: Optional[Dict[str
         except Exception:
             cae_vto = ''
 
+    # Anotación de mismatch si existe
+    mismatch_html = ''
+    try:
+        tipo_forzado_intentado = None
+        tipo_mismatch = None
+        tipo_final = None
+        if afip_result:
+            tipo_forzado_intentado = afip_result.get('tipo_forzado_intentado') or afip_result.get('tipo_forzado')
+            tipo_mismatch = afip_result.get('tipo_mismatch')
+            tipo_final = afip_result.get('tipo_comprobante') or afip_result.get('tipo_afip')
+        # También intentar extraer desde raw_response persistido si viene en boleta DB
+        if not tipo_forzado_intentado and isinstance(boleta.get('raw_response'), dict):
+            tipo_forzado_intentado = boleta['raw_response'].get('tipo_forzado_intentado')
+            if tipo_mismatch is None:
+                tipo_mismatch = boleta['raw_response'].get('tipo_mismatch')
+        label_map = {1:'A',6:'B',11:'C'}
+        if tipo_forzado_intentado is not None and (tipo_mismatch or (tipo_final and int(tipo_forzado_intentado)!=int(tipo_final))):
+            solicitado_lbl = label_map.get(int(tipo_forzado_intentado), str(tipo_forzado_intentado))
+            emitido_lbl = label_map.get(int(tipo_final) if tipo_final is not None else -1, str(tipo_final))
+            mismatch_html = f"<div style='margin-top:6px;color:#b00;font-size:10px'><strong>Advertencia:</strong> Se solicitó Tipo {solicitado_lbl} pero se emitió {emitido_lbl}. Verifique configuración del microservicio.</div>"
+    except Exception:
+        mismatch_html = ''
+
     # Construir HTML con layout más cercano a un ticket
     html = f"""<!doctype html>
 <html>
@@ -634,7 +703,8 @@ def build_imprimible_html(boleta: Dict[str, Any], afip_result: Optional[Dict[str
             <div class='small'>CUIT: {_html.escape(str(emisor_cuit))} · { _html.escape(str(emisor_iva)) }</div>
             <div class='small'>{_html.escape(str(emisor_domicilio))}</div>
             <hr/>
-            <h3>Comprobante {esc(tipo_comprobante)} {esc(nro_comprobante)}</h3>
+            <h3 style='margin:4px 0'>{tipo_label}</h3>
+            <div class='small'>{encabezado_linea2}</div>
             <div class='small'>Fecha: {esc(fecha_emision)}</div>
         </div>
 
@@ -648,13 +718,15 @@ def build_imprimible_html(boleta: Dict[str, Any], afip_result: Optional[Dict[str
         <div class='totals'>
             <div>Total: {esc(total)}</div>
             <div class='small'>CAE: {esc(cae)} { ('(Vto: ' + _html.escape(str(cae_vto)) + ')') if cae_vto else '' }</div>
+            <div class='small'>CUIT Emisor: {_html.escape(str(emisor_cuit))}</div>
         </div>
 
         <div class='qr'>
             {qr_html}
         </div>
 
-        <div class='leyendas'>
+    {mismatch_html}
+    <div class='leyendas'>
             { '<br/>'.join(_html.escape(l) for l in leyendas) }
         </div>
 
@@ -760,3 +832,208 @@ def imprimir_html_por_ingreso_post(
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ===================== FUNCIONES PARA GENERAR IMAGEN (PNG / JPG) =====================
+
+def _buscar_boleta_por_ingreso(ingreso_id: str) -> Optional[Dict[str, Any]]:
+    try:
+        todas = handler.cargar_ingresos()
+    except Exception:
+        return None
+    for b in todas:
+        for c in [b.get('ID Ingresos'), b.get('ingreso_id'), b.get('id'), b.get('ID')]:
+            if c is None:
+                continue
+            try:
+                if str(c) == str(ingreso_id):
+                    return b
+            except Exception:
+                continue
+    return None
+
+
+def _buscar_factura_db(ingreso_id: str) -> Optional[Dict[str, Any]]:
+    try:
+        conn = get_db_connection()
+        if not conn:
+            return None
+        cur = conn.cursor(dictionary=True)
+        cur.execute("SELECT * FROM facturas_electronicas WHERE ingreso_id=%s ORDER BY id DESC LIMIT 1", (str(ingreso_id),))
+        row = cur.fetchone()
+        cur.close(); conn.close()
+        if row and isinstance(row.get('raw_response'), str):
+            try:
+                row['raw_response'] = json.loads(row['raw_response'])
+            except Exception:
+                pass
+        return row
+    except Exception:
+        return None
+
+
+def _render_ticket_image(html: str, formato: str = 'jpg') -> bytes:
+    if HTML is None:
+        raise RuntimeError('WeasyPrint no disponible en el entorno')
+    formato_l = formato.lower()
+    if formato_l not in ('jpg', 'jpeg', 'png'):
+        formato_l = 'jpg'
+    png_buf = BytesIO()
+    HTML(string=html, base_url=os.getcwd()).write_png(png_buf)
+    png_buf.seek(0)
+    if formato_l == 'png' or Image is None:
+        return png_buf.getvalue()
+    with Image.open(png_buf) as im:
+        rgb = im.convert('RGB')
+        out = BytesIO()
+        rgb.save(out, format='JPEG', quality=90, optimize=True)
+        return out.getvalue()
+
+
+def imprimir_imagen_por_ingreso(ingreso_id: str, usuario_actual: dict, formato: str = 'jpg'):
+    boleta = _buscar_boleta_por_ingreso(ingreso_id)
+    if not boleta:
+        raise HTTPException(status_code=404, detail='Boleta no encontrada')
+    # Autorización si no es admin
+    if not _is_admin(usuario_actual):
+        usuario = (usuario_actual.get('nombre_usuario') or '').lower().strip()
+        repart = (boleta.get('Repartidor') or boleta.get('repartidor') or '').lower().strip()
+        if repart:
+            try:
+                ratio = fuzz.token_set_ratio(usuario, repart)
+            except Exception:
+                ratio = 0
+            if ratio <= 80 and repart != usuario:
+                raise HTTPException(status_code=403, detail='No autorizado')
+    afip_row = _buscar_factura_db(ingreso_id)
+    html = build_imprimible_html(boleta, afip_row)
+    try:
+        img_bytes = _render_ticket_image(html, formato)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f'Error generando imagen: {e}')
+    ext = 'png' if formato.lower() == 'png' else 'jpg'
+    media = 'image/png' if ext == 'png' else 'image/jpeg'
+    return Response(content=img_bytes, media_type=media, headers={'Content-Disposition': f'attachment; filename="comprobante_{ingreso_id}.{ext}"'})
+
+
+def facturar_e_imprimir_img(ingreso_id: str, usuario_actual: dict, formato: str = 'jpg', tipo_forzado: int | None = None):
+    boleta = _buscar_boleta_por_ingreso(ingreso_id)
+    if not boleta:
+        raise HTTPException(status_code=404, detail='Boleta no encontrada')
+    afip_row = _buscar_factura_db(ingreso_id)
+    if not afip_row:
+        # Intento mínimo de facturación (requiere total + doc receptor)
+        total_raw = boleta.get('importe_total') or boleta.get('total') or boleta.get('INGRESOS')
+        try:
+            total_float = float(str(total_raw).replace(',', '.')) if total_raw is not None else None
+        except Exception:
+            total_float = None
+        receptor_doc = boleta.get('cuit') or boleta.get('dni') or boleta.get('documento')
+        receptor_nombre = boleta.get('Razon Social') or boleta.get('razon_social') or boleta.get('cliente') or boleta.get('nombre')
+        if total_float is None or receptor_doc is None:
+            raise HTTPException(status_code=400, detail='Faltan datos para facturar (total o documento)')
+        payload = [{
+            'id': str(ingreso_id),
+            'total': total_float,
+            'cliente_data': {
+                'cuit_o_dni': str(receptor_doc),
+                'nombre_razon_social': receptor_nombre or 'Consumidor Final',
+                'domicilio': boleta.get('domicilio') or boleta.get('domicilio_receptor') or 'S/D',
+                'condicion_iva': boleta.get('condicion_iva') or 'Consumidor Final'
+            },
+            'emisor_cuit': boleta.get('emisor_cuit') or os.environ.get('EMISOR_CUIT'),
+            **({'tipo_forzado': int(tipo_forzado)} if tipo_forzado is not None else {})
+        }]
+        try:
+            batch_res = process_invoice_batch_for_endpoint(payload, max_workers=1)
+            if batch_res and batch_res[0].get('status') == 'SUCCESS':
+                afip_row = batch_res[0].get('result')
+            else:
+                raise HTTPException(status_code=500, detail='Error facturando boleta')
+        except HTTPException:
+            raise
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f'Error facturando: {e}')
+    html = build_imprimible_html(boleta, afip_row)
+    try:
+        img_bytes = _render_ticket_image(html, formato)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f'Error generando imagen: {e}')
+    ext = 'png' if formato.lower() == 'png' else 'jpg'
+    media = 'image/png' if ext == 'png' else 'image/jpeg'
+    return Response(content=img_bytes, media_type=media, headers={'Content-Disposition': f'attachment; filename="comprobante_{ingreso_id}.{ext}"'})
+
+
+@router.get('/debug/afip-credenciales')
+def debug_afip_credenciales(emisor_cuit: str | None = None, usuario_actual: dict = Depends(obtener_usuario_actual_sqlite)):
+    """Endpoint de diagnóstico para ver qué credenciales AFIP se resolverían.
+    Restringido a admin/soporte (rol_id=1) para evitar exposición excesiva.
+    """
+    if not _is_admin(usuario_actual):
+        raise HTTPException(status_code=403, detail='Solo admin/soporte')
+    try:
+        cuit, cert, key, fuente = _resolve_afip_credentials(emisor_cuit)
+        disponibles = []
+        try:
+            disponibles = afip_tools_manager.listar_certificados_disponibles()
+        except Exception:
+            disponibles = []
+        return {
+            'solicitado': emisor_cuit,
+            'resuelto_cuit': cuit,
+            'fuente': fuente,
+            'cert_preview': (cert[:60] + '...') if cert else None,
+            'key_presente': bool(key),
+            'certificados_boveda': disponibles,
+            'env_flag_AFIP_ENABLE_ENV_CREDS': os.getenv('AFIP_ENABLE_ENV_CREDS'),
+            'env_AFIP_CUIT': os.getenv('AFIP_CUIT'),
+            'nota': 'Si fuente=env y querías bóveda, desactiva AFIP_ENABLE_ENV_CREDS o añade certificado/key a boveda.'
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f'Error debug credenciales: {e}')
+
+
+@router.get('/debug/afip-preflight')
+def debug_afip_preflight(emisor_cuit: str | None = None, usuario_actual: dict = Depends(obtener_usuario_actual_sqlite)):
+    if not _is_admin(usuario_actual):
+        raise HTTPException(status_code=403, detail='Solo admin/soporte')
+    try:
+        return preflight_afip_credentials(emisor_cuit)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f'Error preflight credenciales: {e}')
+
+@router.post('/debug/afip-contract-test')
+def afip_contract_test(emisor_cuit: str, tipo_forzado: int = 11, total: float = 100.0, documento: str = '20111111112', condicion_receptor: str = 'CONSUMIDOR_FINAL', usuario_actual: dict = Depends(obtener_usuario_actual_sqlite)):
+    """Realiza una facturación mínima sintética para verificar que el microservicio
+    respeta el CUIT y el tipo_forzado enviados.
+
+    NOTA: No debe usarse en producción normal. Sólo diagnóstico. Requiere rol admin.
+    """
+    if not _is_admin(usuario_actual):
+        raise HTTPException(status_code=403, detail='Solo admin/soporte')
+    try:
+        receptor = ReceptorData(cuit_o_dni=str(documento), condicion_iva=condicion_receptor, nombre_razon_social='TEST CONTRATO', domicilio='S/D')
+        resultado = generar_factura_para_venta(total=total, cliente_data=receptor, emisor_cuit=emisor_cuit, tipo_forzado=tipo_forzado)
+        esperado_tipo = tipo_forzado
+        obtenido_tipo = resultado.get('tipo_comprobante') or resultado.get('tipo_afip')
+        mismatch = (int(esperado_tipo) != int(obtenido_tipo)) if (esperado_tipo is not None and obtenido_tipo is not None) else None
+        cuit_usado = resultado.get('cuit_emisor') or resultado.get('debug_cuit_usado')
+        cuit_mismatch = (str(cuit_usado) != str(emisor_cuit)) if cuit_usado is not None else None
+        return {
+            'solicitud': {
+                'emisor_cuit': emisor_cuit,
+                'tipo_forzado': tipo_forzado,
+                'total': total,
+                'documento': documento,
+                'condicion_receptor': condicion_receptor
+            },
+            'resultado': resultado,
+            'diagnostico': {
+                'tipo_obtenido': obtenido_tipo,
+                'tipo_mismatch': mismatch,
+                'cuit_usado': cuit_usado,
+                'cuit_mismatch': cuit_mismatch
+            }
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f'Error en contract test: {e}')

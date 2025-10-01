@@ -125,7 +125,6 @@ class Articulo(SQLModel, table=True):
     codigos: List["ArticuloCodigo"] = Relationship(back_populates="articulo")
     movimientos_stock: List["StockMovimiento"] = Relationship(back_populates="articulo")
     
-    # === LA CORRECCIÓN CLAVE ESTÁ AQUÍ ===
     items_compra: List["CompraDetalle"] = Relationship(back_populates="articulo")
     items_venta: List["VentaDetalle"] = Relationship(back_populates="articulo")
     
@@ -268,7 +267,6 @@ class CompraDetalle(SQLModel, table=True):
     id_compra: int = Field(foreign_key="compras.id")
     id_articulo: int = Field(foreign_key="articulos.id")
     compra: Compra = Relationship(back_populates="items")
-    # === LA CORRECCIÓN CLAVE ESTÁ AQUÍ ===
     articulo: Articulo = Relationship(back_populates="items_compra")
     movimiento_stock: Optional[StockMovimiento] = Relationship(back_populates="compra_detalle")
 
@@ -307,7 +305,6 @@ class VentaDetalle(SQLModel, table=True):
     id_venta: int = Field(foreign_key="ventas.id")
     id_articulo: int = Field(foreign_key="articulos.id")
     venta: Venta = Relationship(back_populates="items")
-    # === LA CORRECCIÓN CLAVE ESTÁ AQUÍ ===
     articulo: Articulo = Relationship(back_populates="items_venta")
     movimiento_stock: Optional[StockMovimiento] = Relationship(back_populates="venta_detalle")
 
@@ -355,8 +352,8 @@ class ConfiguracionEmpresa(SQLModel, table=True):
     # --- Configuración de Apariencia ---
     nombre_negocio: Optional[str] # Nombre a mostrar en los tickets
     color_principal: str = Field(default="bg-sky-800")
-    ruta_logo: Optional[str] = Field(default="front\public\default-logo.png")
-    ruta_icono: Optional[str] = Field(default="front\public\favicon.ico")
+    ruta_logo: Optional[str] = Field(default="front/public/default-logo.png")
+    ruta_icono: Optional[str] = Field(default="front/public/favicon.ico")
     recargo_transferencia: float = Field(default=0.0)
     concepto_recargo_transferencia: str = Field(default="Recargo por Transferencia")
     recargo_banco: float = Field(default=0.0)
@@ -422,6 +419,42 @@ class FacturaElectronica(SQLModel, table=True):
     # de serialización cuando la respuesta contenga objetos complejos.
     raw_response: Optional[str] = Field(default=None, sa_column=Column(Text))
     qr_url_afip: Optional[str] = Field(default=None, sa_column=Column(String(512)))
+    # --- Campos de diagnóstico y control (nuevos) ---
+    tipo_forzado_intentado: Optional[int] = Field(default=None, description="Tipo de comprobante solicitado/forzado por el front (1=A,6=B,11=C)")
+    tipo_mismatch: Optional[bool] = Field(default=None, description="True si el microservicio devolvió un tipo distinto al solicitado")
+    tipo_comprobante_microservicio: Optional[int] = Field(default=None, description="Tipo devuelto originalmente por el microservicio antes de overrides locales")
+    debug_cuit_usado: Optional[str] = Field(default=None, max_length=11, description="CUIT finalmente usado en la llamada (credenciales resueltas)")
+    debug_fuente_credenciales: Optional[str] = Field(default=None, max_length=32, description="Fuente de las credenciales: boveda|env|none")
+
+
+class AfipCredencial(SQLModel, table=True):
+    __tablename__ = "afip_credenciales"
+    id: Optional[int] = Field(default=None, primary_key=True)
+    cuit: str = Field(index=True, unique=True, max_length=11, description="CUIT del emisor asociado a este material criptográfico")
+    # Usamos TEXT porque un certificado/clave PEM supera fácilmente 255 chars.
+    certificado_pem: Optional[str] = Field(default=None, description="Certificado PEM almacenado (en texto) si se permite. Idealmente encriptado.", sa_column=Column(Text))
+    clave_privada_pem: Optional[str] = Field(default=None, description="Clave privada PEM (encriptada o null si se almacena fuera).", sa_column=Column(Text))
+    fingerprint_cert: Optional[str] = Field(default=None, max_length=64, description="SHA1/SHA256 fingerprint para verificación rápida")
+    fingerprint_key: Optional[str] = Field(default=None, max_length=64, description="Fingerprint de la clave privada")
+    activo: bool = Field(default=True, description="Permite desactivar credenciales sin borrarlas")
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    notas: Optional[str] = Field(default=None, description="Campo libre para observaciones / fuente / proveedor")
+
+class AfipEmisorEmpresa(SQLModel, table=True):
+    __tablename__ = "afip_emisores_empresa"
+    id: Optional[int] = Field(default=None, primary_key=True)
+    id_empresa: int = Field(foreign_key="empresas.id")
+    cuit: str = Field(index=True, max_length=11)
+    razon_social: str = Field(index=True)
+    nombre_fantasia: Optional[str] = Field(default=None)
+    condicion_iva: Optional[str] = Field(default=None)
+    punto_venta: Optional[int] = Field(default=None)
+    direccion: Optional[str] = Field(default=None)
+    telefono: Optional[str] = Field(default=None)
+    email: Optional[str] = Field(default=None)
+    habilitado: bool = Field(default=True)
+    # Índice compuesto sugerido (nombre+empresa) si se requiere unicidad lógica adicional en migraciones futuras.
     created_at: Optional[datetime] = Field(
         default_factory=datetime.utcnow,
         sa_column=Column(TIMESTAMP, server_default=func.now())

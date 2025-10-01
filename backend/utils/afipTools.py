@@ -21,6 +21,10 @@ try:
 except Exception:
     AFIP_ENABLE_ENV_CREDS = False
 
+# Modo estricto: si se solicita emisor_cuit y no se pueden obtener credenciales de bóveda para ese CUIT,
+# no continuar con fallback a otro CUIT (evita confusiones). Activable via env STRICT_AFIP_CREDENTIALS=1
+STRICT_AFIP_CREDENTIALS = os.getenv('STRICT_AFIP_CREDENTIALS','0').strip() in ('1','true','on','yes')
+
 from typing import Dict, Any
 
 TASA_IVA_21 = 0.21
@@ -58,14 +62,37 @@ except Exception:
 def _resolve_afip_credentials(emisor_cuit: str | None = None):
     """Devuelve (cuit, certificado_pem, clave_privada_pem, fuente)
     Fuente: 'boveda', 'env', 'none'. Prioridad:
-      1) CUIT solicitado en bóveda
-      2) Cualquier certificado disponible en bóveda
-      3) Entorno (solo si AFIP_ENABLE_ENV_CREDS True y hay cert+key)
+      1) Registro activo en base de datos (afip_credenciales) para CUIT solicitado
+      2) Cualquier registro activo en base de datos (si no se solicitó CUIT específico)
+      3) CUIT solicitado en bóveda
+      4) Cualquier certificado disponible en bóveda
+      5) Entorno (solo si AFIP_ENABLE_ENV_CREDS True y hay cert+key)
     """
     try:
+        # 1) Base de datos (prioridad absoluta si hay credenciales activas)
+        try:
+            from sqlmodel import select as _select
+            from backend.database import SessionLocal as _SessionLocal
+            from backend.modelos import AfipCredencial as _AfipCredencial
+            with _SessionLocal() as _db:
+                if emisor_cuit:
+                    row = _db.exec(_select(_AfipCredencial).where(_AfipCredencial.cuit == str(emisor_cuit).strip(), _AfipCredencial.activo == True)).first()
+                    if row and row.certificado_pem and row.clave_privada_pem:
+                        return row.cuit, row.certificado_pem, row.clave_privada_pem, 'db'
+                # Si no se pidió CUIT o el CUIT pedido no estaba en DB y NO estamos en modo estricto, tomar primera activa
+                if not emisor_cuit or not STRICT_AFIP_CREDENTIALS:
+                    row_any = _db.exec(_select(_AfipCredencial).where(_AfipCredencial.activo == True)).first()
+                    if row_any and row_any.certificado_pem and row_any.clave_privada_pem:
+                        return row_any.cuit, row_any.certificado_pem, row_any.clave_privada_pem, 'db'
+        except Exception:
+            # Silencioso: si la BD aún no está migrada o faltan dependencias seguimos flujo existente
+            pass
+
+        # 2) Bóveda específica
         if afip_tools_manager:
             # 1) Bóveda para CUIT específico
             if emisor_cuit:
+                emisor_cuit = str(emisor_cuit).strip()
                 try:
                     cfg = afip_tools_manager.obtener_configuracion_emisor(emisor_cuit)
                 except Exception:
@@ -79,11 +106,17 @@ def _resolve_afip_credentials(emisor_cuit: str | None = None):
                                 cert_pem = f.read()
                             with open(key_path, 'r', encoding='utf-8') as f:
                                 key_pem = f.read()
+                            print(f"[AFIP_CREDS] Usando credenciales solicitadas de bóveda para CUIT {emisor_cuit}")
                             return emisor_cuit, cert_pem, key_pem, 'boveda'
                         except Exception:
+                            print(f"[AFIP_CREDS][WARN] Falló lectura de archivos de bóveda para CUIT {emisor_cuit}")
                             pass
+                else:
+                    if STRICT_AFIP_CREDENTIALS:
+                        print(f"[AFIP_CREDS][STRICT] CUIT solicitado {emisor_cuit} no existe en bóveda y modo estricto activo -> no fallback")
+                        return None, None, None, 'none'
 
-            # 2) Cualquier certificado en bóveda (iterar)
+            # 3) Cualquier certificado en bóveda (iterar)
             try:
                 disponibles = afip_tools_manager.listar_certificados_disponibles()
             except Exception:
@@ -93,6 +126,8 @@ def _resolve_afip_credentials(emisor_cuit: str | None = None):
                     if not item.get('tiene_clave'):
                         continue
                     cuit = item.get('cuit')
+                    if isinstance(cuit, str):
+                        cuit = cuit.strip()
                     cert_path = item.get('certificado_path')
                     key_path = _os.path.join(afip_tools_manager.BOVEDA_TEMPORAL_PATH, f"{cuit}.key")
                     if not (_os.path.exists(cert_path) and _os.path.exists(key_path)):
@@ -102,18 +137,112 @@ def _resolve_afip_credentials(emisor_cuit: str | None = None):
                             cert_pem = f.read()
                         with open(key_path, 'r', encoding='utf-8') as f:
                             key_pem = f.read()
+                        print(f"[AFIP_CREDS] Usando primer certificado disponible en bóveda (CUIT {cuit})")
                         return cuit, cert_pem, key_pem, 'boveda'
                     except Exception:
+                        print(f"[AFIP_CREDS][WARN] No se pudo leer par cert/key para CUIT {cuit} en bóveda, probando siguiente...")
                         continue
 
-            # 3) Entorno (solo si flag habilita y hay datos)
+            # 4) Entorno (solo si flag habilita y hay datos)
             if AFIP_ENABLE_ENV_CREDS and AFIP_CUIT and AFIP_CERT and AFIP_KEY:
+                print(f"[AFIP_CREDS] Usando credenciales desde variables de entorno para CUIT {AFIP_CUIT}")
                 return AFIP_CUIT, AFIP_CERT, AFIP_KEY, 'env'
+            else:
+                if AFIP_ENABLE_ENV_CREDS:
+                    print("[AFIP_CREDS][WARN] AFIP_ENABLE_ENV_CREDS=1 pero faltan AFIP_CUIT/AFIP_CERT/AFIP_KEY")
+                else:
+                    print("[AFIP_CREDS] AFIP_ENABLE_ENV_CREDS desactivado; no se usarán credenciales del entorno")
     except Exception:
         # Cualquier fallo cae en 'none'
+        print("[AFIP_CREDS][ERROR] Excepción inesperada resolviendo credenciales; devolviendo none")
         pass
 
     return None, None, None, 'none'
+
+def _sanitize_pem(pem: str | None, kind: str) -> str | None:
+    """Normaliza un bloque PEM.
+    - Quita espacios a los extremos
+    - Asegura \n como separador de línea
+    - Elimina líneas vacías al inicio/fin
+    - Reinyecta encabezado y footer si detecta que están en la primera/última línea
+    - No intenta rewrap base64 (mantiene líneas internas originales para no invalidar)
+    Retorna None si input es None.
+    """
+    if not pem:
+        return pem
+    pem_strip = pem.strip().replace('\r\n', '\n').replace('\r', '\n')
+    lines = [l for l in pem_strip.split('\n') if l.strip()]
+    if not lines:
+        return None
+    head_map = {
+        'cert': '-----BEGIN CERTIFICATE-----',
+        'key': '-----BEGIN PRIVATE KEY-----',
+        'rsakey': '-----BEGIN RSA PRIVATE KEY-----',
+        'ec': '-----BEGIN EC PRIVATE KEY-----'
+    }
+    tail_map = {
+        'cert': '-----END CERTIFICATE-----',
+        'key': '-----END PRIVATE KEY-----',
+        'rsakey': '-----END RSA PRIVATE KEY-----',
+        'ec': '-----END EC PRIVATE KEY-----'
+    }
+    # Detectar tipo real
+    first = lines[0].strip()
+    last = lines[-1].strip()
+    # Si ya tienen encabezados correctos, sólo normalizamos
+    if first.startswith('-----BEGIN') and last.startswith('-----END'):  # asumimos bien formado
+        norm = '\n'.join(lines)
+        if not norm.endswith('\n'):
+            norm += '\n'
+        return norm
+    # Caso extraño: sin encabezados; intentamos envolver como certificado si parece base64
+    # Heurística: todas las líneas solo base64 + '=' opcional
+    import re
+    b64_re = re.compile(r'^[A-Za-z0-9+/=]+$')
+    if all(b64_re.match(l) for l in lines):
+        header = head_map['cert'] if kind == 'cert' else head_map['key']
+        footer = tail_map['cert'] if kind == 'cert' else tail_map['key']
+        body = '\n'.join(lines)
+        return f"{header}\n{body}\n{footer}\n"
+    # Dejarlo como estaba (posible formato no estándar)
+    norm = '\n'.join(lines)
+    if not norm.endswith('\n'):
+        norm += '\n'
+    return norm
+
+def _fingerprint_material(material: str | None) -> str | None:
+    import hashlib
+    if not material:
+        return None
+    try:
+        data = material.encode('utf-8', errors='ignore')
+        return hashlib.sha1(data).hexdigest()  # fingerprint simple
+    except Exception:
+        return None
+
+def preflight_afip_credentials(emisor_cuit: str | None = None) -> Dict[str, Any]:
+    """Devuelve un dict con la selección de credenciales sin llamar al microservicio.
+    Incluye fingerprints de cert/clave y fuente final.
+    """
+    cuit_res, cert_res, key_res, fuente = _resolve_afip_credentials(emisor_cuit)
+    # Listar certificados en bóveda (si existe manager)
+    disponibles = []
+    try:
+        if afip_tools_manager:
+            disponibles = afip_tools_manager.listar_certificados_disponibles()
+    except Exception:
+        disponibles = []
+    return {
+        'solicitado': emisor_cuit,
+        'resuelto_cuit': cuit_res,
+        'fuente': fuente,
+        'cert_fingerprint': _fingerprint_material(cert_res),
+        'key_fingerprint': _fingerprint_material(key_res),
+        'cert_len': len(cert_res) if cert_res else 0,
+        'key_len': len(key_res) if key_res else 0,
+        'AFIP_ENABLE_ENV_CREDS': AFIP_ENABLE_ENV_CREDS,
+        'boveda_disponibles': disponibles,
+    }
 
 @dataclass 
 class ReceptorData():
@@ -161,22 +290,26 @@ def generar_factura_para_venta(
     total: float,
     cliente_data: ReceptorData,
     emisor_cuit: str | None = None,
+    tipo_forzado: int | None = None,
 ) -> Dict[str, Any]:
     
-    print(f"Iniciando proceso de facturación (emisor solicitado: {emisor_cuit})")
+    print(f"Iniciando proceso de facturación (emisor solicitado: {emisor_cuit}) | AFIP_ENABLE_ENV_CREDS={AFIP_ENABLE_ENV_CREDS}")
 
     # Resolver credenciales dando preferencia al emisor solicitado (si se proporcionó)
     cuit_res, cert_res, key_res, fuente = _resolve_afip_credentials(emisor_cuit)
 
-    print(f"Credenciales resueltas: cuit={cuit_res} (fuente={fuente})")
+    print(f"Credenciales resueltas: cuit={cuit_res} (fuente={fuente}) | cert_fp={_fingerprint_material(cert_res)} key_fp={_fingerprint_material(key_res)}")
 
     if not (cuit_res and cert_res and key_res):
         raise ValueError("Faltan credenciales críticas de AFIP (CUIT, Certificado, o Clave Privada). Revise variables de entorno o bóveda.")
 
+    # Sanear PEM antes de enviarlo (evita errores de longitud / CRLF)
+    cert_res_sane = _sanitize_pem(cert_res, 'cert')
+    key_res_sane = _sanitize_pem(key_res, 'key')
     credenciales = {
         "cuit": cuit_res,
-        "certificado": cert_res,
-        "clave_privada": key_res
+        "certificado": cert_res_sane,
+        "clave_privada": key_res_sane
     }
         
 
@@ -208,7 +341,27 @@ def generar_factura_para_venta(
         condicion_receptor=condicion_receptor,
         total=total
     )
-    print(f"Lógica determinada: {logica_factura}")
+    # Validación / override de tipo comprobante si se solicitó tipo_forzado
+    if tipo_forzado is not None:
+        try:
+            tipo_forzado_int = int(tipo_forzado)
+        except Exception:
+            raise ValueError(f"tipo_forzado inválido: {tipo_forzado}")
+        # Reglas: 1 (A) y 6 (B) solo si emisor es RESPONSABLE_INSCRIPTO. 11 (C) permitido siempre, pero
+        # en escenarios de emisor Responsable Inscripto + receptor Responsable Inscripto, A tiene sentido;
+        # receptor no RI -> B. Permitimos override manual consciente.
+        if tipo_forzado_int in (1, 6):
+            if condicion_emisor != CondicionIVA.RESPONSABLE_INSCRIPTO:
+                raise ValueError("No se puede forzar Factura A/B porque el emisor no es RESPONSABLE_INSCRIPTO")
+        elif tipo_forzado_int == 11:
+            # Siempre aceptable (Monotributo / Exento / forzar C)
+            pass
+        else:
+            raise ValueError("tipo_forzado debe ser uno de: 1 (A), 6 (B), 11 (C)")
+        # Sobrescribir tipo_afip manteniendo cálculos de neto/iva previos (no recalculamos)
+        logica_factura["tipo_afip"] = tipo_forzado_int
+        print(f"Override manual: usando tipo_afip={tipo_forzado_int} en lugar de lógica automática")
+    print(f"Lógica determinada (final): {logica_factura}")
 
     datos_factura = {
         "tipo_afip": logica_factura["tipo_afip"],
@@ -220,7 +373,7 @@ def generar_factura_para_venta(
         "neto": logica_factura["neto"],
         "iva": logica_factura["iva"],
     }
-    print(f"LAS CREDENCIALES QUE ESTOY ENVIANDO SON : {credenciales}")
+    print(f"LAS CREDENCIALES QUE ESTOY ENVIANDO SON : {{'cuit': credenciales['cuit'], 'cert_len': len(credenciales['certificado']) if credenciales.get('certificado') else 0, 'key_len': len(credenciales['clave_privada']) if credenciales.get('clave_privada') else 0}}")
     print(f"LOS DATOS QUE LE ESTOY ENVIANDO A FACTURAR SON : {datos_factura}")
 
     payload = {

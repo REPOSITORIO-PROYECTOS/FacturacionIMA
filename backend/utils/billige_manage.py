@@ -146,10 +146,10 @@ def generar_qr_afip(afip_data: Dict[str, Any]) -> tuple[str | None, str | None]:
     ),
     reraise=True
 )
-def _attempt_generate_invoice(total: float, cliente_data: ReceptorData, invoice_id: str, emisor_cuit: str | None = None) -> Dict[str, Any]:
+def _attempt_generate_invoice(total: float, cliente_data: ReceptorData, invoice_id: str, emisor_cuit: str | None = None, tipo_forzado: int | None = None) -> Dict[str, Any]:
     logger.debug(f"[{invoice_id}] Intentando facturar (Total: {total}, CUIT/DNI: {cliente_data.cuit_o_dni})...")
     try:
-        afip_result = generar_factura_para_venta(total=total, cliente_data=cliente_data, emisor_cuit=emisor_cuit)
+        afip_result = generar_factura_para_venta(total=total, cliente_data=cliente_data, emisor_cuit=emisor_cuit, tipo_forzado=tipo_forzado)
         logger.info(f"[{invoice_id}] Factura generada exitosamente. CAE: {afip_result.get('cae')}")
         return afip_result
     except Exception as e:
@@ -220,7 +220,8 @@ def process_invoice_batch_for_endpoint(
                     continue
 
                 emisor_cuit = original_invoice_data.get('emisor_cuit')
-                future = executor.submit(_attempt_generate_invoice, total, cliente_data, invoice_id, emisor_cuit)
+                tipo_forzado = original_invoice_data.get('tipo_forzado')
+                future = executor.submit(_attempt_generate_invoice, total, cliente_data, invoice_id, emisor_cuit, tipo_forzado)
                 futures_map[future] = {"id": invoice_id, "original_data": original_invoice_data}
 
             for future in as_completed(futures_map):
@@ -239,6 +240,17 @@ def process_invoice_batch_for_endpoint(
                         "status": "SUCCESS",
                         "result": afip_data
                     })
+                    # Detectar mismatch entre tipo_forzado solicitado y tipo final
+                    try:
+                        if tipo_forzado is not None:
+                            if int(afip_data.get('tipo_comprobante')) != int(tipo_forzado):
+                                single_invoice_result['tipo_forzado_intentado'] = int(tipo_forzado)
+                                single_invoice_result['tipo_mismatch'] = True
+                            else:
+                                single_invoice_result['tipo_forzado_intentado'] = int(tipo_forzado)
+                                single_invoice_result['tipo_mismatch'] = False
+                    except Exception:
+                        pass
                     logger.info(f"[{invoice_id}] Procesamiento de AFIP completado: SUCCESS")
 
                     # --- NUEVO: INICIO Bloque de generación de QR ---
@@ -332,6 +344,16 @@ def process_invoice_batch_for_endpoint(
                         except Exception:
                             cuit_emisor_val = None
 
+                        # Construir datos de diagnóstico de tipo forzado/mismatch
+                        tipo_forzado_intentado = original_invoice_data.get('tipo_forzado') if original_invoice_data.get('tipo_forzado') is not None else None
+                        tipo_comprobante_micro = afip_data.get('tipo_comprobante') or afip_data.get('tipo_afip')
+                        tipo_mismatch = None
+                        try:
+                            if tipo_forzado_intentado is not None and tipo_comprobante_micro is not None:
+                                tipo_mismatch = int(tipo_forzado_intentado) != int(tipo_comprobante_micro)
+                        except Exception:
+                            tipo_mismatch = None
+
                         insert_values = {
                             "ingreso_id": str(invoice_id),
                             "cae": afip_data.get("cae"),
@@ -349,6 +371,12 @@ def process_invoice_batch_for_endpoint(
                             "importe_iva": (float(afip_data.get("iva")) if afip_data.get("iva") is not None else None),
                             "raw_response": raw_response_text,
                             "qr_url_afip": qr_url,
+                            # Nuevos campos de diagnóstico
+                            "tipo_forzado_intentado": tipo_forzado_intentado,
+                            "tipo_mismatch": tipo_mismatch,
+                            "tipo_comprobante_microservicio": tipo_comprobante_micro,
+                            "debug_cuit_usado": afip_data.get('debug_cuit_usado'),
+                            "debug_fuente_credenciales": afip_data.get('debug_fuente_credenciales'),
                             # Not including created_at/updated_at so DB server defaults apply
                         }
 
@@ -356,7 +384,7 @@ def process_invoice_batch_for_endpoint(
                         # las columnas que enviamos y evitar pasar created_at/updated_at
                         from sqlalchemy import text as sa_text
                         sql = sa_text(
-                            "INSERT INTO facturas_electronicas (ingreso_id, cae, numero_comprobante, punto_venta, tipo_comprobante, fecha_comprobante, vencimiento_cae, resultado_afip, cuit_emisor, tipo_doc_receptor, nro_doc_receptor, importe_total, importe_neto, importe_iva, raw_response, qr_url_afip) VALUES (:ingreso_id, :cae, :numero_comprobante, :punto_venta, :tipo_comprobante, :fecha_comprobante, :vencimiento_cae, :resultado_afip, :cuit_emisor, :tipo_doc_receptor, :nro_doc_receptor, :importe_total, :importe_neto, :importe_iva, :raw_response, :qr_url_afip)"
+                            "INSERT INTO facturas_electronicas (ingreso_id, cae, numero_comprobante, punto_venta, tipo_comprobante, fecha_comprobante, vencimiento_cae, resultado_afip, cuit_emisor, tipo_doc_receptor, nro_doc_receptor, importe_total, importe_neto, importe_iva, raw_response, qr_url_afip, tipo_forzado_intentado, tipo_mismatch, tipo_comprobante_microservicio, debug_cuit_usado, debug_fuente_credenciales) VALUES (:ingreso_id, :cae, :numero_comprobante, :punto_venta, :tipo_comprobante, :fecha_comprobante, :vencimiento_cae, :resultado_afip, :cuit_emisor, :tipo_doc_receptor, :nro_doc_receptor, :importe_total, :importe_neto, :importe_iva, :raw_response, :qr_url_afip, :tipo_forzado_intentado, :tipo_mismatch, :tipo_comprobante_microservicio, :debug_cuit_usado, :debug_fuente_credenciales)"
                         )
                         try:
                             # DEBUG: log types to detect non-serializable values

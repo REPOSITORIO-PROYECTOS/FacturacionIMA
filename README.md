@@ -72,7 +72,7 @@ El backend expone ahora `GET /healthz` devolviendo JSON:
 - Se añadió `.env.example` con las variables mínimas: copia a `.env` y ajusta valores reales.
 - Asegurado `.gitignore` para no filtrar: claves AFIP, credenciales, DB locales, logs, bóvedas temporales.
 - Verifica antes de subir: `git ls-files | grep -E '\\.(key|crt|pem|p12|pfx)$'` debería estar vacío.
-- No subir `auth.db` ni otros `*.db` (ya ignorados).
+- (Deprecado) El antiguo `auth.db` (SQLite) ya no se usa; si queda algún archivo puede eliminarse. Bases *.db siguen ignoradas por higiene.
 
 ## Flujo recomendado de primeras pruebas
 1. Copiar `.env.example` a `.env` y ajustar.

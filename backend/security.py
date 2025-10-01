@@ -23,7 +23,7 @@ ACCESS_TOKEN_EXPIRE_MINUTES = getattr(config, 'ACCESS_TOKEN_EXPIRE_MINUTES', 210
 
 # Usamos bcrypt_sha256 para evitar el acceso al atributo __about__ que dispara traceback
 # y añadimos robustez contra inputs extremadamente largos.
-pwd_context = CryptContext(schemes=["bcrypt_sha256"], deprecated="auto")
+pwd_context = CryptContext(schemes=["bcrypt", "bcrypt_sha256"], deprecated="auto")
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/token")
 
 # --- Funciones de Contraseñas y Tokens (Estándar) ---

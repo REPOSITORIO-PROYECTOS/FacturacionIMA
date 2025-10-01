@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Response
+from fastapi import APIRouter, Depends, HTTPException, Response, Query
 from pydantic import BaseModel
 from backend.sqlite_security import obtener_usuario_actual_sqlite
 from backend.app.blueprints import boletas
@@ -20,9 +20,9 @@ def imprimir_html(ingreso_id: str, usuario_actual: dict = Depends(obtener_usuari
 
 
 @router.get("/{ingreso_id}/imagen")
-def imprimir_imagen(ingreso_id: str, usuario_actual: dict = Depends(obtener_usuario_actual_sqlite)):
+def imprimir_imagen(ingreso_id: str, formato: str = Query('jpg', pattern='^(jpg|jpeg|png)$'), usuario_actual: dict = Depends(obtener_usuario_actual_sqlite)):
     try:
-        return boletas.imprimir_imagen_por_ingreso(ingreso_id, usuario_actual)
+        return boletas.imprimir_imagen_por_ingreso(ingreso_id, usuario_actual, formato=formato)
     except HTTPException:
         raise
     except Exception as e:
@@ -30,9 +30,9 @@ def imprimir_imagen(ingreso_id: str, usuario_actual: dict = Depends(obtener_usua
 
 
 @router.post("/{ingreso_id}/facturar-imagen")
-def facturar_e_imprimir_img(ingreso_id: str, usuario_actual: dict = Depends(obtener_usuario_actual_sqlite)):
+def facturar_e_imprimir_img(ingreso_id: str, formato: str = Query('jpg', pattern='^(jpg|jpeg|png)$'), tipo_forzado: int | None = Query(None, description='Override tipo comprobante: 1=A,6=B,11=C'), usuario_actual: dict = Depends(obtener_usuario_actual_sqlite)):
     try:
-        return boletas.facturar_e_imprimir_img(ingreso_id, usuario_actual)
+        return boletas.facturar_e_imprimir_img(ingreso_id, usuario_actual, formato=formato, tipo_forzado=tipo_forzado)
     except HTTPException:
         raise
     except Exception as e:

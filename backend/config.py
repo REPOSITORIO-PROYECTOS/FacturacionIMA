@@ -42,6 +42,18 @@ DB_HOST = os.getenv("DB_HOST")
 DB_USER = os.getenv("DB_USER")
 DB_PASSWORD = os.getenv("DB_PASSWORD")
 DB_NAME = os.getenv("DB_NAME")
+
+# Permitir redirigir la app completa a la nueva base si se exporta USE_NEW_DB=1
+if os.getenv('USE_NEW_DB','0').strip() in ('1','true','yes','on'):
+    NEW_DB_HOST = os.getenv('NEW_DB_HOST') or DB_HOST
+    NEW_DB_USER = os.getenv('NEW_DB_USER') or DB_USER
+    NEW_DB_PASSWORD = os.getenv('NEW_DB_PASSWORD') or DB_PASSWORD
+    NEW_DB_NAME = os.getenv('NEW_DB_NAME') or DB_NAME
+    if NEW_DB_HOST and NEW_DB_USER and NEW_DB_PASSWORD and NEW_DB_NAME:
+        print('DEBUG_CFG: Redirigiendo conexión principal a NUEVA BD (USE_NEW_DB=1)')
+        DB_HOST, DB_USER, DB_PASSWORD, DB_NAME = NEW_DB_HOST, NEW_DB_USER, NEW_DB_PASSWORD, NEW_DB_NAME
+    else:
+        print('ADVERTENCIA: USE_NEW_DB=1 pero faltan variables NEW_DB_*, se mantiene BD original.')
 # ===================================
 
 

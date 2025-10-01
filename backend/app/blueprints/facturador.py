@@ -22,6 +22,8 @@ class InvoiceItemPayload(BaseModel):
     id: Optional[str] = Field(None, description="ID único para esta factura en el lote (opcional).")
     total: float = Field(..., gt=0, description="Monto total de la factura.")
     cliente_data: ClienteDataPayload = Field(..., description="Datos del cliente receptor.")
+    emisor_cuit: Optional[str] = Field(None, description="CUIT del emisor a usar (override/selección).")
+    tipo_forzado: Optional[int] = Field(None, description="Override de tipo comprobante: 1=A, 6=B, 11=C")
 
 
 @router.post("/facturar-por-cantidad",
@@ -42,11 +44,32 @@ async def create_batch_invoices(
     # process_invoice_batch_for_endpoint. Aquí también validamos la entrada.
     invoices_for_processing = []
     for invoice_item in invoices:
-        invoices_for_processing.append({
+        item_dict = {
             "id": invoice_item.id,
             "total": invoice_item.total,
-            "cliente_data": invoice_item.cliente_data.dict() # Convertir Pydantic a dict
-        })
+            "cliente_data": invoice_item.cliente_data.dict()
+        }
+        if invoice_item.emisor_cuit:
+            item_dict["emisor_cuit"] = invoice_item.emisor_cuit
+        if invoice_item.tipo_forzado is not None:
+            item_dict["tipo_forzado"] = invoice_item.tipo_forzado
+        invoices_for_processing.append(item_dict)
+
+    try:
+        # Log seguro del payload resumido (sin datos sensibles extra)
+        preview = [
+            {
+                'id': x.get('id'),
+                'total': x.get('total'),
+                'emisor_cuit': x.get('emisor_cuit'),
+                'tipo_forzado': x.get('tipo_forzado'),
+                'cliente_cond_iva': x.get('cliente_data',{}).get('condicion_iva'),
+                'cliente_doc': x.get('cliente_data',{}).get('cuit_o_dni')
+            } for x in invoices_for_processing
+        ]
+        logger.info(f"Batch detalle (resumen): {preview}")
+    except Exception:
+        pass
 
     try:
         results = process_invoice_batch_for_endpoint(
