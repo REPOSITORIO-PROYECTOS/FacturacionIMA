@@ -5,7 +5,7 @@ export const dynamic = 'force-dynamic';
 export async function GET(request: NextRequest) {
     const token = request.headers.get('authorization');
     const { searchParams } = new URL(request.url);
-    
+
     const tipo = searchParams.get('tipo');
     const limit = searchParams.get('limit') || '300';
 
@@ -23,10 +23,10 @@ export async function GET(request: NextRequest) {
             const params = new URLSearchParams();
             if (tipo) params.append('tipo', tipo);
             params.append('limit', limit);
-            
+
             const url = `${base.replace(/\/$/, '')}/sheets/boletas?${params.toString()}`;
             console.log(`[Sheets Boletas] Intentando: ${url}`);
-            
+
             const res = await fetch(url, {
                 headers: { Authorization: token },
             });

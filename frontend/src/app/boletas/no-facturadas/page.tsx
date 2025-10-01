@@ -40,13 +40,13 @@ export default function BoletasNoFacturadasPage() {
     async function facturarBoleta(boleta: BoletaRecord) {
         const token = localStorage.getItem('token');
         if (!token) { alert('No autenticado'); return; }
-        
+
         const ventaId = String((boleta as Record<string, unknown>)['ID Ingresos'] || boleta.id || '');
-        
+
         // Marcar como en proceso
         setProcessingIds(prev => new Set([...prev, ventaId]));
         setIsProcessing(true);
-        
+
         try {
             const built = buildInvoiceItem(boleta);
             if ('error' in built) {
@@ -77,13 +77,13 @@ export default function BoletasNoFacturadasPage() {
             if (Array.isArray(data) && data.length > 0) {
                 const firstResult = data[0];
                 console.log('📋 Primer resultado:', JSON.stringify(firstResult, null, 2));
-                
+
                 const okCount = data.filter((r: any) => r && typeof r === 'object' && r.ok !== false && r.status === 'SUCCESS').length;
                 successMsg = `Facturación procesada: ${okCount} / ${data.length}`;
 
                 // Buscar factura_id en diferentes ubicaciones posibles
                 const facturaId = firstResult?.factura_id || firstResult?.result?.factura_id;
-                
+
                 console.log('🔍 factura_id encontrado:', facturaId);
 
                 if (facturaId && firstResult.status === 'SUCCESS') {
@@ -99,7 +99,7 @@ export default function BoletasNoFacturadasPage() {
                         if (pdfRes.ok) {
                             const blob = await pdfRes.blob();
                             console.log('📦 Blob recibido, tamaño:', blob.size, 'bytes');
-                            
+
                             const url = window.URL.createObjectURL(blob);
                             const a = document.createElement('a');
                             a.href = url;
@@ -329,20 +329,20 @@ export default function BoletasNoFacturadasPage() {
 
     // descargar por imagen ya no se usa en este flujo
 
-        // Facturar varias boletas seleccionadas a la vez (usa el endpoint que acepta array)
+    // Facturar varias boletas seleccionadas a la vez (usa el endpoint que acepta array)
     async function facturarSeleccionadas() {
         const token = localStorage.getItem('token');
         if (!token) { alert('No autenticado'); return; }
         const ids = Object.keys(selectedIds).filter(k => selectedIds[k]);
         if (ids.length === 0) { alert('No hay boletas seleccionadas'); return; }
-        
+
         // Confirmar acción
         if (!confirm(`¿Facturar ${ids.length} boleta(s) seleccionada(s)?`)) return;
-        
+
         // Marcar todas como en proceso
         setProcessingIds(new Set(ids));
         setIsProcessing(true);
-        
+
         try {
             // Sin confirm: acción directa
             const selectedRaw = ids.map(id => items.find(b => String((b as any)['ID Ingresos'] || (b as any).id || '') === id)).filter(Boolean);
@@ -355,115 +355,115 @@ export default function BoletasNoFacturadasPage() {
                 console.warn('[facturarSeleccionadas] Saltando boletas inválidas:', invalid);
             }
 
-        // Cargar conceptos para cada boleta válida
-        console.log(`📦 Cargando conceptos para ${valid.length} boletas...`);
-        const itemsConConceptos = await Promise.all(
-            valid.map(async (item: any) => {
-                const ventaId = String(item.id || '');
-                if (ventaId) {
-                    const conceptos = await getVentaConceptos(ventaId, token);
-                    if (conceptos.length > 0) {
-                        return { ...item, conceptos };
-                    }
-                }
-                return item;
-            })
-        );
-
-        const result = await facturarItems(itemsConConceptos as any, token);
-        if (!result.ok) {
-            alert(result.error || 'Error al facturar');
-            return;
-        }
-        const data = result.data;
-        
-        console.log('📦 Respuesta múltiple de facturación:', JSON.stringify(data, null, 2));
-        
-        let successMsg = 'Facturación procesada';
-        if (Array.isArray(data)) {
-            const okCount = data.filter((r: any) => r && typeof r === 'object' && r.ok !== false && r.status === 'SUCCESS').length;
-            successMsg = `Facturación procesada: ${okCount} / ${data.length}`;
-
-            // ⭐ Descargar PDFs automáticamente para facturas exitosas
-            const exitosas = data.filter((r: any) => {
-                if (!r || r.status !== 'SUCCESS') return false;
-                // Buscar factura_id en ambas ubicaciones posibles
-                return r.factura_id || (r.result && r.result.factura_id);
-            });
-            
-            if (exitosas.length > 0) {
-                console.log(`📄 Descargando ${exitosas.length} comprobantes...`);
-
-                for (const item of exitosas) {
-                    const facturaId = item.factura_id || item.result?.factura_id;
-                    if (!facturaId) continue;
-                    
-                    console.log(`📥 Descargando comprobante #${facturaId}...`);
-                    
-                    try {
-                        const pdfRes = await fetch(`/api/comprobantes/${facturaId}/pdf`, {
-                            headers: { Authorization: `Bearer ${token}` }
-                        });
-
-                        if (pdfRes.ok) {
-                            const blob = await pdfRes.blob();
-                            console.log(`✅ PDF #${facturaId} descargado (${blob.size} bytes)`);
-                            
-                            const url = window.URL.createObjectURL(blob);
-                            const a = document.createElement('a');
-                            a.href = url;
-                            a.download = `comprobante_${facturaId}.pdf`;
-                            document.body.appendChild(a);
-                            a.click();
-                            window.URL.revokeObjectURL(url);
-                            document.body.removeChild(a);
-                            // Pequeña pausa entre descargas
-                            await new Promise(resolve => setTimeout(resolve, 500));
-                        } else {
-                            const errorText = await pdfRes.text();
-                            console.error(`❌ Error PDF #${facturaId}:`, pdfRes.status, errorText);
+            // Cargar conceptos para cada boleta válida
+            console.log(`📦 Cargando conceptos para ${valid.length} boletas...`);
+            const itemsConConceptos = await Promise.all(
+                valid.map(async (item: any) => {
+                    const ventaId = String(item.id || '');
+                    if (ventaId) {
+                        const conceptos = await getVentaConceptos(ventaId, token);
+                        if (conceptos.length > 0) {
+                            return { ...item, conceptos };
                         }
-                    } catch (pdfError) {
-                        console.error(`❌ Excepción descargando PDF #${facturaId}:`, pdfError);
                     }
-                }
-                console.log('✅ Proceso de descarga completado');
-            }
+                    return item;
+                })
+            );
 
-            // ⭐ Marcar boletas como facturadas automáticamente
-            if (okCount > 0) {
-                console.log(`📝 Marcando ${okCount} boletas como facturadas...`);
-                
-                // Obtener solo los IDs de las facturas exitosas
-                const exitosasConId = data.filter((r: any) => r && r.status === 'SUCCESS');
-                const ventasIdsExitosas = exitosasConId.map((r: any) => String(r.id || '')).filter(Boolean);
-                
-                console.log('🔍 IDs a marcar:', ventasIdsExitosas);
-                
-                const marcadosPromises = ventasIdsExitosas.map(async (ventaId) => {
-                    try {
-                        const resultado = await marcarVentaFacturada(ventaId, token);
-                        console.log(`${resultado ? '✅' : '⚠️'} Venta ${ventaId}: ${resultado ? 'marcada' : 'falló'}`);
-                        return resultado;
-                    } catch (err) {
-                        console.error(`❌ Error marcando ${ventaId}:`, err);
-                        return false;
-                    }
+            const result = await facturarItems(itemsConConceptos as any, token);
+            if (!result.ok) {
+                alert(result.error || 'Error al facturar');
+                return;
+            }
+            const data = result.data;
+
+            console.log('📦 Respuesta múltiple de facturación:', JSON.stringify(data, null, 2));
+
+            let successMsg = 'Facturación procesada';
+            if (Array.isArray(data)) {
+                const okCount = data.filter((r: any) => r && typeof r === 'object' && r.ok !== false && r.status === 'SUCCESS').length;
+                successMsg = `Facturación procesada: ${okCount} / ${data.length}`;
+
+                // ⭐ Descargar PDFs automáticamente para facturas exitosas
+                const exitosas = data.filter((r: any) => {
+                    if (!r || r.status !== 'SUCCESS') return false;
+                    // Buscar factura_id en ambas ubicaciones posibles
+                    return r.factura_id || (r.result && r.result.factura_id);
                 });
-                
-                const resultados = await Promise.all(marcadosPromises);
-                const exitososMarcado = resultados.filter(Boolean).length;
-                console.log(`✅ Resultado final: ${exitososMarcado}/${ventasIdsExitosas.length} boletas marcadas`);
-                
-                if (exitososMarcado > 0) {
-                    successMsg += ` (${exitososMarcado} actualizadas en BD)`;
+
+                if (exitosas.length > 0) {
+                    console.log(`📄 Descargando ${exitosas.length} comprobantes...`);
+
+                    for (const item of exitosas) {
+                        const facturaId = item.factura_id || item.result?.factura_id;
+                        if (!facturaId) continue;
+
+                        console.log(`📥 Descargando comprobante #${facturaId}...`);
+
+                        try {
+                            const pdfRes = await fetch(`/api/comprobantes/${facturaId}/pdf`, {
+                                headers: { Authorization: `Bearer ${token}` }
+                            });
+
+                            if (pdfRes.ok) {
+                                const blob = await pdfRes.blob();
+                                console.log(`✅ PDF #${facturaId} descargado (${blob.size} bytes)`);
+
+                                const url = window.URL.createObjectURL(blob);
+                                const a = document.createElement('a');
+                                a.href = url;
+                                a.download = `comprobante_${facturaId}.pdf`;
+                                document.body.appendChild(a);
+                                a.click();
+                                window.URL.revokeObjectURL(url);
+                                document.body.removeChild(a);
+                                // Pequeña pausa entre descargas
+                                await new Promise(resolve => setTimeout(resolve, 500));
+                            } else {
+                                const errorText = await pdfRes.text();
+                                console.error(`❌ Error PDF #${facturaId}:`, pdfRes.status, errorText);
+                            }
+                        } catch (pdfError) {
+                            console.error(`❌ Excepción descargando PDF #${facturaId}:`, pdfError);
+                        }
+                    }
+                    console.log('✅ Proceso de descarga completado');
+                }
+
+                // ⭐ Marcar boletas como facturadas automáticamente
+                if (okCount > 0) {
+                    console.log(`📝 Marcando ${okCount} boletas como facturadas...`);
+
+                    // Obtener solo los IDs de las facturas exitosas
+                    const exitosasConId = data.filter((r: any) => r && r.status === 'SUCCESS');
+                    const ventasIdsExitosas = exitosasConId.map((r: any) => String(r.id || '')).filter(Boolean);
+
+                    console.log('🔍 IDs a marcar:', ventasIdsExitosas);
+
+                    const marcadosPromises = ventasIdsExitosas.map(async (ventaId) => {
+                        try {
+                            const resultado = await marcarVentaFacturada(ventaId, token);
+                            console.log(`${resultado ? '✅' : '⚠️'} Venta ${ventaId}: ${resultado ? 'marcada' : 'falló'}`);
+                            return resultado;
+                        } catch (err) {
+                            console.error(`❌ Error marcando ${ventaId}:`, err);
+                            return false;
+                        }
+                    });
+
+                    const resultados = await Promise.all(marcadosPromises);
+                    const exitososMarcado = resultados.filter(Boolean).length;
+                    console.log(`✅ Resultado final: ${exitososMarcado}/${ventasIdsExitosas.length} boletas marcadas`);
+
+                    if (exitososMarcado > 0) {
+                        successMsg += ` (${exitososMarcado} actualizadas en BD)`;
+                    }
                 }
             }
-        }
-        if (invalid.length > 0) successMsg += ` (Saltadas ${invalid.length})`;
-        alert(successMsg);
-        setRefreshTick(t => t + 1);
-        
+            if (invalid.length > 0) successMsg += ` (Saltadas ${invalid.length})`;
+            alert(successMsg);
+            setRefreshTick(t => t + 1);
+
         } catch (error) {
             console.error('❌ Error en facturación múltiple:', error);
             alert('Error durante la facturación múltiple');
@@ -513,12 +513,11 @@ export default function BoletasNoFacturadasPage() {
             {!loading && !error && (
                 <div className="overflow-auto border rounded bg-white">
                     <div className="p-2 flex flex-wrap items-center gap-2 sticky top-0 bg-white z-10 border-b">
-                        <button 
-                            className={`px-3 py-2 rounded text-xs transition-colors flex items-center gap-2 ${
-                                isProcessing 
-                                    ? 'bg-gray-400 cursor-not-allowed' 
+                        <button
+                            className={`px-3 py-2 rounded text-xs transition-colors flex items-center gap-2 ${isProcessing
+                                    ? 'bg-gray-400 cursor-not-allowed'
                                     : 'bg-green-600 hover:bg-green-700 text-white'
-                            }`}
+                                }`}
                             onClick={facturarSeleccionadas}
                             disabled={isProcessing}
                         >
@@ -558,11 +557,10 @@ export default function BoletasNoFacturadasPage() {
                                     <div className="shrink-0 flex gap-2">
                                         {!(b['Nro Comprobante']) && (
                                             <button
-                                                className={`text-xs px-2 py-1 rounded transition-colors ${
-                                                    processingIds.has(String(id)) 
-                                                        ? 'bg-gray-400 cursor-not-allowed' 
+                                                className={`text-xs px-2 py-1 rounded transition-colors ${processingIds.has(String(id))
+                                                        ? 'bg-gray-400 cursor-not-allowed'
                                                         : 'bg-green-600 hover:bg-green-700 text-white'
-                                                }`}
+                                                    }`}
                                                 onClick={() => facturarBoleta(b)}
                                                 disabled={processingIds.has(String(id)) || isProcessing}
                                             >
@@ -615,11 +613,10 @@ export default function BoletasNoFacturadasPage() {
                                             <td className="p-2 flex gap-2">
                                                 {!(b['Nro Comprobante']) && (
                                                     <button
-                                                        className={`px-2 py-1 rounded transition ${
-                                                            processingIds.has(String(id)) 
-                                                                ? 'bg-gray-400 cursor-not-allowed' 
+                                                        className={`px-2 py-1 rounded transition ${processingIds.has(String(id))
+                                                                ? 'bg-gray-400 cursor-not-allowed'
                                                                 : 'bg-green-500 hover:bg-green-600 text-white'
-                                                        }`}
+                                                            }`}
                                                         onClick={() => facturarBoleta(b)}
                                                         disabled={processingIds.has(String(id)) || isProcessing}
                                                     >
