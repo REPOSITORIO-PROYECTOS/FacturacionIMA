@@ -146,10 +146,10 @@ def generar_qr_afip(afip_data: Dict[str, Any]) -> tuple[str | None, str | None]:
     ),
     reraise=True
 )
-def _attempt_generate_invoice(total: float, cliente_data: ReceptorData, invoice_id: str, emisor_cuit: str | None = None, tipo_forzado: int | None = None) -> Dict[str, Any]:
-    logger.debug(f"[{invoice_id}] Intentando facturar (Total: {total}, CUIT/DNI: {cliente_data.cuit_o_dni})...")
+def _attempt_generate_invoice(total: float, cliente_data: ReceptorData, invoice_id: str, emisor_cuit: str | None = None, tipo_forzado: int | None = None, conceptos: List[Dict[str, Any]] | None = None) -> Dict[str, Any]:
+    logger.debug(f"[{invoice_id}] Intentando facturar (Total: {total}, CUIT/DNI: {cliente_data.cuit_o_dni}, Conceptos: {len(conceptos) if conceptos else 0})...")
     try:
-        afip_result = generar_factura_para_venta(total=total, cliente_data=cliente_data, emisor_cuit=emisor_cuit, tipo_forzado=tipo_forzado)
+        afip_result = generar_factura_para_venta(total=total, cliente_data=cliente_data, emisor_cuit=emisor_cuit, tipo_forzado=tipo_forzado, conceptos=conceptos)
         logger.info(f"[{invoice_id}] Factura generada exitosamente. CAE: {afip_result.get('cae')}")
         return afip_result
     except Exception as e:
@@ -221,7 +221,8 @@ def process_invoice_batch_for_endpoint(
 
                 emisor_cuit = original_invoice_data.get('emisor_cuit')
                 tipo_forzado = original_invoice_data.get('tipo_forzado')
-                future = executor.submit(_attempt_generate_invoice, total, cliente_data, invoice_id, emisor_cuit, tipo_forzado)
+                conceptos = original_invoice_data.get('conceptos')  # Nuevo: obtener conceptos
+                future = executor.submit(_attempt_generate_invoice, total, cliente_data, invoice_id, emisor_cuit, tipo_forzado, conceptos)
                 futures_map[future] = {"id": invoice_id, "original_data": original_invoice_data}
 
             for future in as_completed(futures_map):
@@ -409,6 +410,7 @@ def process_invoice_batch_for_endpoint(
 
                         db.commit()
                         single_invoice_result["db_save_status"] = "SUCCESS"
+                        single_invoice_result["factura_id"] = new_id  # ⭐ NUEVO: Devolver ID de la factura
                         logger.info(f"[{invoice_id}] Factura insertada en la base de datos. ID (si disponible): {new_id}")
 
                     except Exception as db_error:

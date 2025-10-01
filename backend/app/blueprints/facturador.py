@@ -18,10 +18,17 @@ class ClienteDataPayload(BaseModel):
     domicilio: Optional[str] = Field(None, description="Domicilio del receptor.")
     condicion_iva: str = Field(..., description="Condición de IVA del receptor (ej. 'CONSUMIDOR_FINAL', 'RESPONSABLE_INSCRIPTO').")
 
+class ConceptoPayload(BaseModel):
+    descripcion: str = Field(..., description="Descripción del producto/servicio.")
+    cantidad: float = Field(..., gt=0, description="Cantidad de unidades.")
+    precio_unitario: float = Field(..., gt=0, description="Precio unitario del concepto.")
+    subtotal: Optional[float] = Field(None, description="Subtotal calculado (cantidad * precio_unitario).")
+
 class InvoiceItemPayload(BaseModel):
     id: Optional[str] = Field(None, description="ID único para esta factura en el lote (opcional).")
     total: float = Field(..., gt=0, description="Monto total de la factura.")
     cliente_data: ClienteDataPayload = Field(..., description="Datos del cliente receptor.")
+    conceptos: Optional[List[ConceptoPayload]] = Field(None, description="Lista de conceptos/productos de la factura.")
     emisor_cuit: Optional[str] = Field(None, description="CUIT del emisor a usar (override/selección).")
     tipo_forzado: Optional[int] = Field(None, description="Override de tipo comprobante: 1=A, 6=B, 11=C")
 
@@ -49,6 +56,8 @@ async def create_batch_invoices(
             "total": invoice_item.total,
             "cliente_data": invoice_item.cliente_data.dict()
         }
+        if invoice_item.conceptos:
+            item_dict["conceptos"] = [c.dict() for c in invoice_item.conceptos]
         if invoice_item.emisor_cuit:
             item_dict["emisor_cuit"] = invoice_item.emisor_cuit
         if invoice_item.tipo_forzado is not None:

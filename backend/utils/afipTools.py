@@ -297,6 +297,7 @@ def generar_factura_para_venta(
     cliente_data: ReceptorData,
     emisor_cuit: str | None = None,
     tipo_forzado: int | None = None,
+    conceptos: list[Dict[str, Any]] | None = None,
 ) -> Dict[str, Any]:
     
     print(f"Iniciando proceso de facturación (emisor solicitado: {emisor_cuit}) | AFIP_ENABLE_ENV_CREDS={AFIP_ENABLE_ENV_CREDS}")
@@ -419,6 +420,12 @@ def generar_factura_para_venta(
         "neto": logica_factura["neto"],
         "iva": logica_factura["iva"],
     }
+    
+    # Agregar conceptos si están disponibles
+    if conceptos and isinstance(conceptos, list) and len(conceptos) > 0:
+        datos_factura["conceptos"] = conceptos
+        print(f"Agregando {len(conceptos)} conceptos a la factura")
+    
     print(f"LAS CREDENCIALES QUE ESTOY ENVIANDO SON : {{'cuit': credenciales['cuit'], 'cert_len': len(credenciales['certificado']) if credenciales.get('certificado') else 0, 'key_len': len(credenciales['clave_privada']) if credenciales.get('clave_privada') else 0}}")
     print(f"LOS DATOS QUE LE ESTOY ENVIANDO A FACTURAR SON : {datos_factura}")
 

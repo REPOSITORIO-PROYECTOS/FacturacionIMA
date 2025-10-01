@@ -4,7 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from backend import config # (y otros que necesites)
 from backend.utils.mysql_handler import get_db_connection
-from backend.app.blueprints import auth_router, boletas, facturador, tablas, afip, setup, usuarios, impresion
+from backend.app.blueprints import auth_router, boletas, facturador, tablas, afip, setup, usuarios, impresion, ventas_detalle, comprobantes
 
 app = FastAPI(
     title="API Facturacion IMA",
@@ -38,6 +38,10 @@ _mount(boletas.router)
 _mount(impresion.router)
 _mount(auth_router.router)
 _mount(facturador.router)
+if ventas_detalle:  # Condicional: solo montar si el módulo se importó
+    _mount(ventas_detalle.router)
+if comprobantes:  # Condicional: solo montar si el módulo se importó
+    _mount(comprobantes.router)
 # tablas.router no existe, se comenta para evitar error
 # app.include_router(tablas.router)
 # afip.router already uses prefix '/api' internally; include it directly
