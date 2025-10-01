@@ -31,6 +31,14 @@ function LoginPageInner() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchParams]);
 
+  interface UserInfo {
+    username: string;
+    role: string;
+    empresa_nombre?: string;
+    empresa_cuit?: string | number;
+    empresa_id?: string | number;
+  }
+
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setError("");
@@ -73,7 +81,7 @@ function LoginPageInner() {
             const meData = await meRes.json().catch(() => null);
             if (meData) {
               // Normalizamos estructura mínima esperada
-              const baseInfo: any = {
+              const baseInfo: UserInfo = {
                 username: meData.username || meData.user || meData.email || email,
                 role: meData.role || meData.rol || data.user_info?.role || 'Desconocido',
               };

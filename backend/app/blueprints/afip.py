@@ -240,6 +240,10 @@ async def afip_root(action: Optional[str] = None):
         "tip": "Llama a /api/afip/condiciones-iva para listado de condiciones o agrega ?action=condiciones-iva",
         "ok": True
     }
+@router.get("/")
+async def afip_root_slash(action: Optional[str] = None):
+    # Delegar al mismo handler para soportar trailing slash
+    return await afip_root(action=action)
 
 
 # ================== NUEVO: CRUD SIMPLE PARA CREDENCIALES EN BD ==================

@@ -2,6 +2,15 @@
 import React, { useEffect, useState } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 
+// Tipado mínimo de la información de usuario que persistimos en localStorage.
+interface UserInfo {
+    username: string;
+    role: string;
+    empresa_nombre?: string;
+    empresa_cuit?: string | number;
+    empresa_id?: string | number;
+}
+
 export default function AuthGuard({ children }: { children: React.ReactNode }) {
     const pathname = usePathname();
     const router = useRouter();
@@ -33,7 +42,7 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
                         if (meRes.ok) {
                             const meData = await meRes.json().catch(() => null);
                             if (meData) {
-                                const baseInfo: any = {
+                                const baseInfo: UserInfo = {
                                     username: meData.username || meData.user || meData.email || 'usuario',
                                     role: meData.role || meData.rol || 'Desconocido'
                                 };

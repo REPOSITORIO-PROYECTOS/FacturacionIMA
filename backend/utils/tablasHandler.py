@@ -76,6 +76,19 @@ class TablasHandler:
                                 if not new.get('ID Ingresos'):
                                     new['ID Ingresos'] = v
 
+                        # Estado de facturación: consolidar en 'facturacion'
+                        if key_compact in ('facturacion', 'estadofacturacion', 'estado'):
+                            # Preferir mantener valor original pero en minúsculas para facilitar comparación
+                            try:
+                                val = str(v).strip()
+                            except Exception:
+                                val = str(v) if v is not None else ''
+                            if val and not new.get('facturacion'):
+                                new['facturacion'] = val
+                                # Mantener también la forma original si existía otra capitalización
+                                if 'Facturacion' not in new:
+                                    new['Facturacion'] = val
+
                     return new
 
                 normalized = [normalize_row(r) for r in datos_clientes]

@@ -21,12 +21,33 @@ fi
 
 PORT="${FRONTEND_PORT:-3001}"
 
-# Verificar si existe build de producción (.next/BUILD_ID). Si no, ejecutar build.
+# Verificar integridad de build de producción.
+NEEDS_BUILD=0
+
+# 1. Forzar rebuild si variable de entorno lo pide
+if [ "${FORCE_REBUILD_FRONTEND:-0}" = "1" ]; then
+  echo "[FRONTEND] FORCE_REBUILD_FRONTEND=1 -> se forzará reconstrucción"
+  NEEDS_BUILD=1
+fi
+
+# 2. Faltante de BUILD_ID
 if [ ! -f .next/BUILD_ID ]; then
-  echo "[FRONTEND] No existe build de producción (.next/BUILD_ID). Ejecutando 'npm run build'..."
-  npm run build
+  echo "[FRONTEND] Falta .next/BUILD_ID -> build requerido"
+  NEEDS_BUILD=1
+fi
+
+# 3. Artefacto crítico que Next.js intenta leer (required-server-files.json)
+if [ ! -f .next/required-server-files.json ]; then
+  echo "[FRONTEND] Falta .next/required-server-files.json -> build incompleto, se regenerará"
+  NEEDS_BUILD=1
+fi
+
+if [ "$NEEDS_BUILD" -eq 1 ]; then
+  echo "[FRONTEND] Ejecutando build limpio"
+  rm -rf .next
+  npm run build || { echo "[FRONTEND] ERROR: fallo el build"; exit 1; }
 else
-  echo "[FRONTEND] Build existente detectado (.next/BUILD_ID)."
+  echo "[FRONTEND] Build existente válido. (Usa FORCE_REBUILD_FRONTEND=1 para forzar)"
 fi
 
 echo "[FRONTEND] Iniciando Next en puerto $PORT"
