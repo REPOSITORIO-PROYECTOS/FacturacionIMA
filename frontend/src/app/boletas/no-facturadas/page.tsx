@@ -21,7 +21,7 @@ interface BoletaRecord {
 export default function BoletasNoFacturadasPage() {
     // Toast notifications
     const { toasts, removeToast, success: showSuccess, error: showError, warning: showWarning, info: showInfo } = useToast();
-    
+
     // user role not needed in this view
     const [repartidoresMap, setRepartidoresMap] = useState<Record<string, string[]> | null>(null);
     const [selectedIds, setSelectedIds] = useState<Record<string, boolean>>({});
@@ -475,7 +475,7 @@ export default function BoletasNoFacturadasPage() {
         <div className="p-4 md:p-6 space-y-4">
             {/* Toast notifications container */}
             <ToastContainer toasts={toasts} onRemove={removeToast} />
-            
+
             <h1 className="text-xl font-bold text-purple-700">Boletas No Facturadas</h1>
             <div className="flex flex-col gap-3 mb-4">
                 {/* Resumen eliminado en esta vista */}

@@ -31,36 +31,66 @@ export default function BoletasFacturadasPage() {
     const { toasts, removeToast, success: showSuccess, error: showError } = useToast();
 
     function imprimirComprobante(b: BoletaRecord) {
-        // Descarga directa de la imagen del comprobante usando el endpoint /api/impresion/{id}
+        // Descarga directa del PDF usando el factura_id
         (async () => {
             const token = localStorage.getItem('token');
             if (!token) { showError('No autenticado'); return; }
-            const id = b.ingreso_id || b['ID Ingresos'] || b.id;
-            if (!id) { showError('ID no disponible'); return; }
+
+            // Buscar el factura_id en la boleta
+            const facturaId = b.id; // En boletas facturadas, el ID es el factura_id
+            if (!facturaId) {
+                showError('ID de factura no disponible');
+                return;
+            }
+
             try {
-                const res = await fetch(`/api/impresion/${encodeURIComponent(String(id))}`, { method: 'POST', headers: { Authorization: `Bearer ${token}` } });
+                showSuccess('Descargando comprobante...');
+
+                const res = await fetch(`/api/comprobantes/${facturaId}/pdf`, {
+                    headers: { Authorization: `Bearer ${token}` }
+                });
+
                 if (!res.ok) {
                     const txt = await res.text().catch(() => res.statusText || 'Error');
                     showError(`Error al descargar comprobante: ${txt}`);
                     return;
                 }
+
                 const blob = await res.blob();
-                let filename = `comprobante_${String(id)}.jpg`;
-                try {
-                    const cd = res.headers.get('content-disposition') || '';
-                    const m = cd.match(/filename\*?=([^;]+)/i);
-                    if (m && m[1]) {
-                        filename = decodeURIComponent(m[1].replace(/UTF-8''/, '').replace(/^"'|"'$/g, ''));
-                    }
-                } catch { }
+
+                // Verificar que sea un PDF
+                if (blob.type !== 'application/pdf') {
+                    showError('El archivo descargado no es un PDF válido');
+                    return;
+                }
+
+                const filename = `comprobante_${String(facturaId)}.pdf`;
                 const url = URL.createObjectURL(blob);
                 const a = document.createElement('a');
+                a.style.display = 'none';
                 a.href = url;
                 a.download = filename;
+                a.target = '_blank';
                 document.body.appendChild(a);
+
+                await new Promise(resolve => setTimeout(resolve, 100));
                 a.click();
-                a.remove();
-                setTimeout(() => { try { URL.revokeObjectURL(url); } catch { } }, 5000);
+
+                // Intentar abrir en ventana nueva como fallback
+                try {
+                    window.open(url, '_blank');
+                } catch (e) {
+                    console.log('ℹ️ No se pudo abrir en ventana nueva');
+                }
+
+                setTimeout(() => {
+                    URL.revokeObjectURL(url);
+                    if (document.body.contains(a)) {
+                        document.body.removeChild(a);
+                    }
+                }, 2000);
+
+                showSuccess('✅ Comprobante descargado exitosamente');
             } catch (error) {
                 showError('Error al descargar comprobante: ' + String(error));
             }
@@ -187,7 +217,7 @@ export default function BoletasFacturadasPage() {
         <div className="p-4 md:p-6 space-y-4">
             {/* Toast notifications container */}
             <ToastContainer toasts={toasts} onRemove={removeToast} />
-            
+
             <h1 className="text-xl font-bold text-purple-700">Boletas Facturadas</h1>
             <div className="flex flex-col gap-3 mb-4">
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 max-w-3xl">
