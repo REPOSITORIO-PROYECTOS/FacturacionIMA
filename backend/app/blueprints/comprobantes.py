@@ -23,140 +23,205 @@ try:
 except ImportError:
     REPORTLAB_AVAILABLE = False
 
+# QR Code para generar imagen del código QR
+try:
+    import qrcode
+    from reportlab.lib.utils import ImageReader
+    QR_AVAILABLE = True
+except ImportError:
+    QR_AVAILABLE = False
+
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/comprobantes", tags=["comprobantes"])
 
 def generar_pdf_comprobante(factura: FacturaElectronica, conceptos: list = None) -> bytes:
     """
-    Genera un PDF del comprobante fiscal con todos los datos obligatorios de AFIP
+    Genera un PDF del comprobante fiscal estilo ticket térmico de 50mm
     """
     if not REPORTLAB_AVAILABLE:
         raise RuntimeError("ReportLab no está instalado. Ejecute: pip install reportlab")
     
     buffer = BytesIO()
     
-    # Crear canvas (80mm de ancho para ticket térmico, o A4 para hoja completa)
-    # Usamos A4 por defecto
-    c = canvas.Canvas(buffer, pagesize=A4)
-    width, height = A4
+    # Tamaño ticket: 50mm de ancho (142 puntos), altura variable
+    ticket_width = 50 * mm  # 50mm ≈ 142 puntos
+    ticket_height = 297 * mm  # A4 height como máximo
     
-    # Posición inicial
-    y = height - 40
+    c = canvas.Canvas(buffer, pagesize=(ticket_width, ticket_height))
+    
+    # Márgenes
+    margin_left = 3 * mm
+    margin_right = 3 * mm
+    usable_width = ticket_width - margin_left - margin_right
+    
+    # Posición inicial (desde arriba)
+    y = ticket_height - 10 * mm
+    
+    # Función auxiliar para texto centrado
+    def draw_centered(text, y_pos, font_name="Helvetica", font_size=8):
+        c.setFont(font_name, font_size)
+        text_width = c.stringWidth(text, font_name, font_size)
+        x_centered = margin_left + (usable_width - text_width) / 2
+        c.drawString(x_centered, y_pos, text)
+        return y_pos
+    
+    # Función auxiliar para texto izquierda
+    def draw_left(text, y_pos, font_name="Helvetica", font_size=7):
+        c.setFont(font_name, font_size)
+        c.drawString(margin_left, y_pos, text)
+        return y_pos
+    
+    # Función auxiliar para línea separadora
+    def draw_separator(y_pos):
+        c.line(margin_left, y_pos, ticket_width - margin_right, y_pos)
+        return y_pos - 2 * mm
     
     # ===== ENCABEZADO =====
-    c.setFont("Helvetica-Bold", 16)
-    c.drawString(50, y, "COMPROBANTE FISCAL")
-    y -= 30
+    y = draw_centered("SKAL FAM", y, "Helvetica-Bold", 10)
+    y -= 4 * mm
     
-    # Tipo de comprobante
+    y = draw_centered(f"CUIT: {factura.cuit_emisor}", y, "Helvetica", 7)
+    y -= 3 * mm
+    
+    y = draw_centered("RESPONSABLE INSCRIPTO", y, "Helvetica", 6)
+    y -= 3 * mm
+    
+    y = draw_centered(f"Punto de Venta: {str(factura.punto_venta).zfill(4)}", y, "Helvetica", 7)
+    y -= 5 * mm
+    
+    y = draw_separator(y)
+    y -= 3 * mm
+    
+    # ===== TIPO DE COMPROBANTE =====
     tipo_map = {1: "FACTURA A", 6: "FACTURA B", 11: "FACTURA C"}
     tipo_nombre = tipo_map.get(factura.tipo_comprobante, f"Tipo {factura.tipo_comprobante}")
-    c.setFont("Helvetica-Bold", 14)
-    c.drawString(50, y, tipo_nombre)
-    y -= 25
+    y = draw_centered(tipo_nombre, y, "Helvetica-Bold", 11)
+    y -= 5 * mm
     
-    # ===== DATOS DEL EMISOR =====
-    c.setFont("Helvetica-Bold", 12)
-    c.drawString(50, y, "DATOS DEL EMISOR")
-    y -= 20
-    c.setFont("Helvetica", 10)
-    
-    # Estos datos deberían venir de la configuración o BD
-    c.drawString(50, y, f"Razón Social: IMA SISTEM")
-    y -= 15
-    c.drawString(50, y, f"CUIT: {factura.cuit_emisor}")
-    y -= 15
-    c.drawString(50, y, f"Condición IVA: RESPONSABLE INSCRIPTO")
-    y -= 15
-    c.drawString(50, y, f"Domicilio: [Domicilio Comercial]")
-    y -= 15
-    c.drawString(50, y, f"Punto de Venta: {str(factura.punto_venta).zfill(4)}")
-    y -= 25
-    
-    # ===== DATOS DEL COMPROBANTE =====
-    c.setFont("Helvetica-Bold", 12)
-    c.drawString(50, y, "DATOS DEL COMPROBANTE")
-    y -= 20
-    c.setFont("Helvetica", 10)
-    
+    # Número de comprobante
     numero_completo = f"{str(factura.punto_venta).zfill(4)}-{str(factura.numero_comprobante).zfill(8)}"
-    c.drawString(50, y, f"Número: {numero_completo}")
-    y -= 15
-    c.drawString(50, y, f"Fecha: {factura.fecha_comprobante.strftime('%d/%m/%Y')}")
-    y -= 15
-    c.drawString(50, y, f"CAE: {factura.cae}")
-    y -= 15
-    c.drawString(50, y, f"Vencimiento CAE: {factura.vencimiento_cae.strftime('%d/%m/%Y')}")
-    y -= 25
+    y = draw_centered(f"Nro: {numero_completo}", y, "Helvetica-Bold", 9)
+    y -= 4 * mm
     
-    # ===== DATOS DEL CLIENTE =====
-    c.setFont("Helvetica-Bold", 12)
-    c.drawString(50, y, "DATOS DEL CLIENTE")
-    y -= 20
-    c.setFont("Helvetica", 10)
+    # Fecha
+    y = draw_centered(f"Fecha: {factura.fecha_comprobante.strftime('%d/%m/%Y %H:%M')}", y, "Helvetica", 7)
+    y -= 5 * mm
     
-    tipo_doc_map = {80: "CUIT", 96: "DNI", 99: "Consumidor Final"}
-    tipo_doc_nombre = tipo_doc_map.get(factura.tipo_doc_receptor, "Documento")
-    c.drawString(50, y, f"{tipo_doc_nombre}: {factura.nro_doc_receptor}")
-    y -= 25
+    y = draw_separator(y)
+    y -= 3 * mm
     
-    # ===== DETALLE DE LA OPERACIÓN =====
-    c.setFont("Helvetica-Bold", 12)
-    c.drawString(50, y, "DETALLE DE LA OPERACIÓN")
-    y -= 20
+    # ===== CLIENTE =====
+    tipo_doc_map = {80: "CUIT", 96: "DNI", 99: "CF"}
+    tipo_doc_nombre = tipo_doc_map.get(factura.tipo_doc_receptor, "Doc")
+    y = draw_left(f"{tipo_doc_nombre}: {factura.nro_doc_receptor}", y, "Helvetica", 7)
+    y -= 5 * mm
+    
+    y = draw_separator(y)
+    y -= 3 * mm
+    
+    # ===== DETALLE DE PRODUCTOS =====
+    y = draw_centered("DETALLE", y, "Helvetica-Bold", 8)
+    y -= 3 * mm
     
     if conceptos and len(conceptos) > 0:
-        # Encabezado de tabla
-        c.setFont("Helvetica-Bold", 9)
-        c.drawString(50, y, "Descripción")
-        c.drawString(300, y, "Cant.")
-        c.drawString(350, y, "P. Unit.")
-        c.drawString(420, y, "Subtotal")
-        y -= 15
-        
-        # Items
-        c.setFont("Helvetica", 9)
         for concepto in conceptos:
-            desc = concepto.get('descripcion', '')[:40]  # Limitar longitud
+            desc = concepto.get('descripcion', '')
             cant = concepto.get('cantidad', 1)
             precio = concepto.get('precio_unitario', 0)
             subtotal = concepto.get('subtotal', 0)
             
-            c.drawString(50, y, desc)
-            c.drawString(300, y, f"{cant:.2f}")
-            c.drawString(350, y, f"${precio:.2f}")
-            c.drawString(420, y, f"${subtotal:.2f}")
-            y -= 12
-        y -= 10
+            # Descripción (puede ocupar 2 líneas si es larga)
+            if len(desc) > 25:
+                y = draw_left(desc[:25], y, "Helvetica", 7)
+                y -= 3 * mm
+                y = draw_left(desc[25:50], y, "Helvetica", 7)
+                y -= 3 * mm
+            else:
+                y = draw_left(desc, y, "Helvetica", 7)
+                y -= 3 * mm
+            
+            # Cantidad x Precio = Subtotal
+            detalle_linea = f"{cant:.2f} x ${precio:.2f} = ${subtotal:.2f}"
+            y = draw_left(detalle_linea, y, "Helvetica", 7)
+            y -= 4 * mm
     else:
-        c.setFont("Helvetica", 10)
-        c.drawString(50, y, "Venta general")
-        y -= 20
+        y = draw_left("Venta general", y, "Helvetica", 7)
+        y -= 4 * mm
+    
+    y = draw_separator(y)
+    y -= 3 * mm
     
     # ===== TOTALES =====
-    c.setFont("Helvetica-Bold", 11)
-    c.drawString(300, y, "Neto:")
-    c.drawString(420, y, f"${float(factura.importe_neto):.2f}")
-    y -= 15
-    c.drawString(300, y, "IVA:")
-    c.drawString(420, y, f"${float(factura.importe_iva):.2f}")
-    y -= 15
-    c.setFont("Helvetica-Bold", 13)
-    c.drawString(300, y, "TOTAL:")
-    c.drawString(420, y, f"${float(factura.importe_total):.2f}")
-    y -= 30
+    y = draw_left(f"Neto:  $ {float(factura.importe_neto):.2f}", y, "Helvetica", 8)
+    y -= 3 * mm
+    
+    y = draw_left(f"IVA:   $ {float(factura.importe_iva):.2f}", y, "Helvetica", 8)
+    y -= 4 * mm
+    
+    y = draw_left(f"TOTAL: $ {float(factura.importe_total):.2f}", y, "Helvetica-Bold", 10)
+    y -= 5 * mm
+    
+    y = draw_separator(y)
+    y -= 3 * mm
+    
+    # ===== CAE =====
+    y = draw_left(f"CAE: {factura.cae}", y, "Helvetica", 6)
+    y -= 3 * mm
+    
+    y = draw_left(f"Venc: {factura.vencimiento_cae.strftime('%d/%m/%Y')}", y, "Helvetica", 6)
+    y -= 5 * mm
     
     # ===== CÓDIGO QR =====
-    if factura.qr_url_afip:
-        c.setFont("Helvetica", 8)
-        c.drawString(50, y, "Código QR AFIP:")
-        y -= 12
-        # Aquí se puede agregar el QR real con qrcode + reportlab
-        c.drawString(50, y, factura.qr_url_afip[:80])
-        y -= 12
-        if len(factura.qr_url_afip) > 80:
-            c.drawString(50, y, factura.qr_url_afip[80:])
+    if factura.qr_url_afip and QR_AVAILABLE:
+        try:
+            # Generar código QR
+            qr = qrcode.QRCode(
+                version=1,
+                error_correction=qrcode.constants.ERROR_CORRECT_L,
+                box_size=2,
+                border=1,
+            )
+            qr.add_data(factura.qr_url_afip)
+            qr.make(fit=True)
+            
+            # Crear imagen del QR
+            qr_img = qr.make_image(fill_color="black", back_color="white")
+            
+            # Convertir a formato que ReportLab puede usar
+            qr_buffer = BytesIO()
+            qr_img.save(qr_buffer, format='PNG')
+            qr_buffer.seek(0)
+            
+            # Dimensiones del QR (25mm x 25mm centrado)
+            qr_size = 25 * mm
+            qr_x = margin_left + (usable_width - qr_size) / 2
+            
+            # Dibujar QR centrado
+            c.drawImage(ImageReader(qr_buffer), qr_x, y - qr_size, 
+                       width=qr_size, height=qr_size)
+            y -= qr_size + 3 * mm
+            
+            y = draw_centered("Verificá en QR.AFIP.GOB.AR", y, "Helvetica", 5)
+            y -= 5 * mm
+            
+        except Exception as e:
+            logger.warning(f"Error generando QR: {e}")
+            # Fallback: mostrar URL como texto
+            y = draw_left("QR AFIP:", y, "Helvetica", 6)
+            y -= 3 * mm
+            # Dividir URL en líneas
+            url = factura.qr_url_afip
+            chunk_size = 30
+            for i in range(0, len(url), chunk_size):
+                y = draw_left(url[i:i+chunk_size], y, "Helvetica", 5)
+                y -= 2.5 * mm
+            y -= 3 * mm
+    
+    y = draw_separator(y)
+    y -= 2 * mm
+    
+    y = draw_centered("¡Gracias por su compra!", y, "Helvetica-Bold", 7)
     
     # Finalizar PDF
     c.showPage()

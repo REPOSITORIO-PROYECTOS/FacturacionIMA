@@ -33,32 +33,37 @@ async def obtener_boletas_desde_sheets(
         sheets_handler = TablasHandler()
         
         # Cargar todos los ingresos desde el Sheet
-        logger.info("Cargando boletas desde Google Sheets...")
+        logger.info(f"📊 Cargando boletas desde Google Sheets (tipo={tipo}, limit={limit})...")
         boletas = sheets_handler.cargar_ingresos()
         
         if not boletas:
-            logger.warning("No se encontraron boletas en Google Sheets")
+            logger.warning("⚠️ No se encontraron boletas en Google Sheets")
             return []
         
-        logger.info(f"Boletas cargadas desde Sheets: {len(boletas)}")
+        logger.info(f"✅ Boletas cargadas desde Sheets: {len(boletas)}")
         
         # Filtrar según el tipo solicitado
         if tipo == "no-facturadas":
+            boletas_antes = len(boletas)
             boletas = [
                 b for b in boletas
                 if str(b.get('facturacion', '')).strip().lower() not in ['facturado', 'facturada', 'si', 'sí', 'yes', 'true']
             ]
-            logger.info(f"Boletas no facturadas filtradas: {len(boletas)}")
+            logger.info(f"🔍 Filtro 'no-facturadas': {boletas_antes} → {len(boletas)} boletas")
         elif tipo == "facturadas":
+            boletas_antes = len(boletas)
             boletas = [
                 b for b in boletas
                 if str(b.get('facturacion', '')).strip().lower() in ['facturado', 'facturada', 'si', 'sí', 'yes', 'true']
             ]
-            logger.info(f"Boletas facturadas filtradas: {len(boletas)}")
+            logger.info(f"🔍 Filtro 'facturadas': {boletas_antes} → {len(boletas)} boletas")
         
         # Aplicar límite
         if limit and limit > 0:
             boletas = boletas[:limit]
+            logger.info(f"📏 Límite aplicado: mostrando {len(boletas)} boletas")
+        
+        logger.info(f"🎯 Retornando {len(boletas)} boletas al frontend")
         
         # Normalizar campos para el frontend
         boletas_normalizadas = []

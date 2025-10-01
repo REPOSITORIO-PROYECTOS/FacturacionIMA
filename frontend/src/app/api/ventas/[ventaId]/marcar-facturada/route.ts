@@ -2,10 +2,10 @@ import { NextRequest, NextResponse } from 'next/server';
 
 export async function POST(
     request: NextRequest,
-    { params }: { params: { ventaId: string } }
+    context: { params: Promise<{ ventaId: string }> }
 ) {
     try {
-        const { ventaId } = params;
+        const { ventaId } = await context.params;
 
         // Obtener el token de autenticación
         const authHeader = request.headers.get('authorization');

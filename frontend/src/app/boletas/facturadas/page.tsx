@@ -2,6 +2,8 @@
 import { useEffect, useState } from 'react';
 // Image import removed because data-URL QR previews use plain <img>
 import { LoadingSpinner } from "../../components/LoadingSpinner";
+import { useToast } from "@/hooks/useToast";
+import { ToastContainer } from "@/components/Toast";
 
 interface BoletaRecord {
     id?: number | string;
@@ -25,19 +27,21 @@ interface BoletaRecord {
 }
 
 export default function BoletasFacturadasPage() {
+    // Toast notifications
+    const { toasts, removeToast, success: showSuccess, error: showError } = useToast();
 
     function imprimirComprobante(b: BoletaRecord) {
         // Descarga directa de la imagen del comprobante usando el endpoint /api/impresion/{id}
         (async () => {
             const token = localStorage.getItem('token');
-            if (!token) { alert('No autenticado'); return; }
+            if (!token) { showError('No autenticado'); return; }
             const id = b.ingreso_id || b['ID Ingresos'] || b.id;
-            if (!id) { alert('ID no disponible'); return; }
+            if (!id) { showError('ID no disponible'); return; }
             try {
                 const res = await fetch(`/api/impresion/${encodeURIComponent(String(id))}`, { method: 'POST', headers: { Authorization: `Bearer ${token}` } });
                 if (!res.ok) {
                     const txt = await res.text().catch(() => res.statusText || 'Error');
-                    alert(`Error al descargar comprobante: ${txt}`);
+                    showError(`Error al descargar comprobante: ${txt}`);
                     return;
                 }
                 const blob = await res.blob();
@@ -58,7 +62,7 @@ export default function BoletasFacturadasPage() {
                 a.remove();
                 setTimeout(() => { try { URL.revokeObjectURL(url); } catch { } }, 5000);
             } catch (error) {
-                alert('Error al descargar comprobante: ' + String(error));
+                showError('Error al descargar comprobante: ' + String(error));
             }
         })();
     }
@@ -181,6 +185,9 @@ export default function BoletasFacturadasPage() {
 
     return (
         <div className="p-4 md:p-6 space-y-4">
+            {/* Toast notifications container */}
+            <ToastContainer toasts={toasts} onRemove={removeToast} />
+            
             <h1 className="text-xl font-bold text-purple-700">Boletas Facturadas</h1>
             <div className="flex flex-col gap-3 mb-4">
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 max-w-3xl">
