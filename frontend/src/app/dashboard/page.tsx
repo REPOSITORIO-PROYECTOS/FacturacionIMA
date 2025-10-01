@@ -107,16 +107,17 @@ export default function DashboardPage() {
       return;
     }
     const result = await facturarItems([built], token);
+    const mode = result.meta?.mode || 'desconocido';
     if (!result.ok) {
-      toast.error(String(result.error || 'Error al facturar'));
+      toast.error(String(result.error || 'Error al facturar'), `modo=${mode}`);
       return;
     }
     const data = result.data;
     if (Array.isArray(data)) {
       const okCount = data.filter(r => r && typeof r === 'object' && (r as any).ok !== false).length;
-      toast.success(`Facturación procesada ${okCount}/${data.length}`, `Medio: ${medio}`);
+      toast.success(`Facturación procesada ${okCount}/${data.length}`, `modo=${mode} · Medio: ${medio}`);
     } else {
-      toast.success(`Facturación exitosa`, `Medio: ${medio}`);
+      toast.success(`Facturación exitosa`, `modo=${mode} · Medio: ${medio}`);
     }
   }
 

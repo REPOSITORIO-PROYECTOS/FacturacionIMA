@@ -36,9 +36,15 @@ if [ ! -f .next/BUILD_ID ]; then
   NEEDS_BUILD=1
 fi
 
-# 3. Artefacto crítico que Next.js intenta leer (required-server-files.json)
+# 3. Artefactos críticos
 if [ ! -f .next/required-server-files.json ]; then
   echo "[FRONTEND] Falta .next/required-server-files.json -> build incompleto, se regenerará"
+  NEEDS_BUILD=1
+fi
+
+# 4. Manifest de middleware (si falta, forza rebuild para evitar MODULE_NOT_FOUND)
+if [ -d .next ] && [ ! -f .next/server/middleware-manifest.json ]; then
+  echo "[FRONTEND] Falta .next/server/middleware-manifest.json -> se forzará rebuild"
   NEEDS_BUILD=1
 fi
 

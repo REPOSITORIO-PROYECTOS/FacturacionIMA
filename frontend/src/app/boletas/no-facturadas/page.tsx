@@ -44,15 +44,16 @@ export default function BoletasNoFacturadasPage() {
             return;
         }
         const result = await facturarItems([built as any], token);
+        const mode = result.meta?.mode || '¿?';
         if (!result.ok) {
-            alert(result.error || 'Error al facturar');
+            alert((result.error || 'Error al facturar') + ` (modo=${mode})`);
             return;
         }
         const data = result.data;
         let successMsg = 'Facturación exitosa';
         if (Array.isArray(data)) {
             const okCount = data.filter((r: any) => r && typeof r === 'object' && r.ok !== false).length;
-            successMsg = `Facturación procesada: ${okCount} / ${data.length}`;
+            successMsg = `Facturación procesada: ${okCount} / ${data.length} (modo=${mode})`;
         }
         alert(successMsg);
         setRefreshTick(t => t + 1);
@@ -160,29 +161,48 @@ export default function BoletasNoFacturadasPage() {
         } catch { /* noop */ }
     }, [fechaDesde, fechaHasta]);
 
-    const normalizaFecha = (texto: string): string | null => {
-        if (!texto) return null;
-        const t = String(texto).trim();
+    // --- Filtrado por fecha robusto ---
+    // Acepta formatos comunes: YYYY-MM-DD, DD/MM/YYYY, DD-MM-YYYY, YYYY/MM/DD, DD/MM/YY
+    function parseFechaToKey(raw: string): number | null {
+        if (!raw) return null;
+        const t = String(raw).trim();
         const base = t.split(' ')[0].split('T')[0];
-        if (/^\d{4}-\d{2}-\d{2}$/.test(base)) return base; // YYYY-MM-DD
-        if (/^\d{2}\/\d{2}\/\d{4}$/.test(base)) {
-            const [dd, mm, yyyy] = base.split('/');
-            return `${yyyy}-${mm}-${dd}`;
+        let yyyy: number, mm: number, dd: number;
+        if (/^\d{4}-\d{2}-\d{2}$/.test(base)) { // 2025-10-01
+            [yyyy, mm, dd] = base.split('-').map(n => parseInt(n, 10));
+        } else if (/^\d{2}\/\d{2}\/\d{4}$/.test(base)) { // 01/10/2025
+            const [d, m, y] = base.split('/');
+            dd = parseInt(d, 10); mm = parseInt(m, 10); yyyy = parseInt(y, 10);
+        } else if (/^\d{2}-\d{2}-\d{4}$/.test(base)) { // 01-10-2025
+            const [d, m, y] = base.split('-');
+            dd = parseInt(d, 10); mm = parseInt(m, 10); yyyy = parseInt(y, 10);
+        } else if (/^\d{4}\/\d{2}\/\d{2}$/.test(base)) { // 2025/10/01
+            const [y, m, d] = base.split('/');
+            yyyy = parseInt(y, 10); mm = parseInt(m, 10); dd = parseInt(d, 10);
+        } else if (/^\d{2}\/\d{2}\/\d{2}$/.test(base)) { // 01/10/25 -> asumir 20xx
+            const [d, m, y] = base.split('/');
+            dd = parseInt(d, 10); mm = parseInt(m, 10); yyyy = 2000 + parseInt(y, 10);
+        } else {
+            return null;
         }
-        if (/^\d{4}\/\d{2}\/\d{2}$/.test(base)) {
-            const [yyyy, mm, dd] = base.split('/');
-            return `${yyyy}-${mm}-${dd}`;
-        }
-        return null;
-    };
+        if (!yyyy || !mm || !dd || mm < 1 || mm > 12 || dd < 1 || dd > 31) return null;
+        return (yyyy * 10000) + (mm * 100) + dd; // clave comparable
+    }
+
+    const desdeKey = fechaDesde ? parseFechaToKey(fechaDesde) : null; // fechaDesde ya viene en YYYY-MM-DD
+    const hastaKey = fechaHasta ? parseFechaToKey(fechaHasta) : null;
 
     const itemsConFecha = items.filter((b) => {
-        if (!fechaDesde && !fechaHasta) return true;
-        const fechaRaw = String((b as Record<string, unknown>)['Fecha'] || (b as Record<string, unknown>)['fecha'] || (b as Record<string, unknown>)['FECHA'] || '');
-        const f = normalizaFecha(fechaRaw);
-        if (!f) return false;
-        if (fechaDesde && f < fechaDesde) return false;
-        if (fechaHasta && f > fechaHasta) return false;
+        if (!desdeKey && !hastaKey) return true;
+        const fechaRaw = String(
+            (b as Record<string, unknown>)['Fecha'] ||
+            (b as Record<string, unknown>)['fecha'] ||
+            (b as Record<string, unknown>)['FECHA'] || ''
+        );
+        const key = parseFechaToKey(fechaRaw);
+        if (key == null) return false; // si no se pudo parsear, excluir
+        if (desdeKey && key < desdeKey) return false;
+        if (hastaKey && key > hastaKey) return false;
         return true;
     });
 
@@ -229,15 +249,16 @@ export default function BoletasNoFacturadasPage() {
             console.warn('[facturarSeleccionadas] Saltando boletas inválidas:', invalid);
         }
         const result = await facturarItems(valid as any, token);
+        const mode = result.meta?.mode || '¿?';
         if (!result.ok) {
-            alert(result.error || 'Error al facturar');
+            alert((result.error || 'Error al facturar') + ` (modo=${mode})`);
             return;
         }
         const data = result.data;
         let successMsg = 'Facturación procesada';
         if (Array.isArray(data)) {
             const okCount = data.filter((r: any) => r && typeof r === 'object' && r.ok !== false).length;
-            successMsg = `Facturación procesada: ${okCount} / ${data.length}`;
+            successMsg = `Facturación procesada: ${okCount} / ${data.length} (modo=${mode})`;
         }
         if (invalid.length > 0) successMsg += ` (Saltadas ${invalid.length})`;
         alert(successMsg);
