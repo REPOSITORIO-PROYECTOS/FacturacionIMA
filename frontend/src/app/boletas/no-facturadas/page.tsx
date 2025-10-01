@@ -44,16 +44,15 @@ export default function BoletasNoFacturadasPage() {
             return;
         }
         const result = await facturarItems([built as any], token);
-        const mode = result.meta?.mode || '¿?';
         if (!result.ok) {
-            alert((result.error || 'Error al facturar') + ` (modo=${mode})`);
+            alert(result.error || 'Error al facturar');
             return;
         }
         const data = result.data;
         let successMsg = 'Facturación exitosa';
         if (Array.isArray(data)) {
             const okCount = data.filter((r: any) => r && typeof r === 'object' && r.ok !== false).length;
-            successMsg = `Facturación procesada: ${okCount} / ${data.length} (modo=${mode})`;
+            successMsg = `Facturación procesada: ${okCount} / ${data.length}`;
         }
         alert(successMsg);
         setRefreshTick(t => t + 1);
@@ -249,16 +248,15 @@ export default function BoletasNoFacturadasPage() {
             console.warn('[facturarSeleccionadas] Saltando boletas inválidas:', invalid);
         }
         const result = await facturarItems(valid as any, token);
-        const mode = result.meta?.mode || '¿?';
         if (!result.ok) {
-            alert((result.error || 'Error al facturar') + ` (modo=${mode})`);
+            alert(result.error || 'Error al facturar');
             return;
         }
         const data = result.data;
         let successMsg = 'Facturación procesada';
         if (Array.isArray(data)) {
             const okCount = data.filter((r: any) => r && typeof r === 'object' && r.ok !== false).length;
-            successMsg = `Facturación procesada: ${okCount} / ${data.length} (modo=${mode})`;
+            successMsg = `Facturación procesada: ${okCount} / ${data.length}`;
         }
         if (invalid.length > 0) successMsg += ` (Saltadas ${invalid.length})`;
         alert(successMsg);
