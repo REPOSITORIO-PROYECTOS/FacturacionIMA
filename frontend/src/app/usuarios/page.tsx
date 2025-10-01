@@ -10,7 +10,7 @@ export default function UsuariosPage() {
   const [modalNombre, setModalNombre] = useState("");
   const [modalPassword, setModalPassword] = useState("");
   const [modalMode, setModalMode] = useState<'edit' | 'create'>("edit");
-  const rolesDisponibles = ["Admin", "Cajero", "Gerente", "Soporte"];
+  const rolesDisponibles = ["Admin", "Cajero", "Gerente", "Soporte"]; // Se podría cargar dinámico en futuro
 
   function openEditModal(u: Usuario) {
     setModalUsuario(u);
@@ -22,7 +22,7 @@ export default function UsuariosPage() {
   }
   function openCreateModal() {
     setModalUsuario(null);
-    setModalRol("");
+    setModalRol("Cajero");
     setModalNombre("");
     setModalPassword("");
     setModalMode("create");
@@ -59,24 +59,24 @@ export default function UsuariosPage() {
     } else if (modalMode === "create") {
       const token = localStorage.getItem("token");
       const nombre_usuario = (modalNombre || "").trim();
-      if (!nombre_usuario) return alert("Debes ingresar un nombre de usuario");
+      if (!nombre_usuario) { alert("Debes ingresar un nombre de usuario"); return; }
       const password = (modalPassword || "").trim();
-      if (!password) return alert("Debes ingresar una contraseña");
-      fetch(`/api/setup?action=create-user`, {
+      if (!password) { alert("Debes ingresar una contraseña"); return; }
+      if (!modalRol) { alert("Selecciona un rol"); return; }
+      fetch(`/api/usuarios`, {
         method: "POST",
         headers: {
           "Authorization": `Bearer ${token}`,
           "Content-Type": "application/json"
         },
-        body: JSON.stringify({ nombre_usuario, password, rol_nombre: modalRol || "Cajero" })
+        body: JSON.stringify({ username: nombre_usuario, password, rol: modalRol })
       })
-        .then(res => res.ok ? res.json() : Promise.reject(res))
+        .then(res => res.ok ? res.json() : res.json().then(j => Promise.reject(j)))
         .then(() => {
           alert("Usuario creado exitosamente.");
           window.location.reload();
         })
-        .catch(() => alert("Error al crear usuario"));
-      closeModal();
+        .catch((err) => alert("Error al crear usuario: " + (err?.detail || "")));
     }
   }
   // --- Funciones para desactivar ---
@@ -162,7 +162,7 @@ export default function UsuariosPage() {
       <button
         className="bg-blue-600 text-white px-4 py-2 rounded shadow hover:bg-blue-700 transition mb-4"
         onClick={openCreateModal}
-      >Registrar nuevo usuario</button>
+      >Crear usuario</button>
       {loading ? (
         <p>Cargando...</p>
       ) : error ? (
@@ -223,6 +223,8 @@ export default function UsuariosPage() {
             <div className="space-y-3">
               <div>
                 <label className="block text-gray-700 mb-1">Nombre de usuario</label>
+                <label className="block text-gray-700 mb-1">Nombre de usuario *</label>
+                <label className="block text-gray-700 mb-1">Contrase f1a {modalMode === 'edit' ? "(opcional)" : "*"}</label>
                 <input
                   type="text"
                   className="border px-3 py-2 rounded w-full"
@@ -244,6 +246,7 @@ export default function UsuariosPage() {
               </div>
               <div>
                 <label htmlFor="modalRolSelect" className="block text-gray-700 mb-1">Rol</label>
+                <label htmlFor="modalRolSelect" className="block text-gray-700 mb-1">Rol *</label>
                 <select
                   id="modalRolSelect"
                   className="border px-3 py-2 rounded w-full"

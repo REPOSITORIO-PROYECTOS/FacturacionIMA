@@ -1,6 +1,5 @@
 "use client";
 import { useState, useEffect } from "react";
-import Navbar from "../components/Navbar";
 
 interface CertificadoEstado {
     cuit: string;
@@ -27,6 +26,16 @@ interface CondicionIVA {
     descripcion: string;
 }
 
+interface UserMe {
+    id: number;
+    username: string;
+    role: string;
+    id_empresa: number;
+    empresa_cuit?: string | null;
+    empresa_nombre?: string | null;
+    activo: boolean;
+}
+
 export default function AFIPPage() {
     const [cuit, setCuit] = useState("");
     const [razonSocial, setRazonSocial] = useState("");
@@ -49,11 +58,48 @@ export default function AFIPPage() {
         email: ""
     });
     const [condicionesIVA, setCondicionesIVA] = useState<CondicionIVA[]>([]);
+    const [userMe, setUserMe] = useState<UserMe | null>(null);
+    const [autoLoaded, setAutoLoaded] = useState(false); // evita dobles cargas
 
     useEffect(() => {
         cargarCertificados();
         cargarCondicionesIVA();
     }, []);
+
+    // Cargar info del usuario autenticado para auto rellenar CUIT/Configuración si es Admin / Soporte
+    useEffect(() => {
+        (async () => {
+            const token = localStorage.getItem('token');
+            if (!token) return;
+            try {
+                const res = await fetch('/api/auth/me', { headers: { Authorization: `Bearer ${token}` } });
+                if (!res.ok) return;
+                const data: UserMe = await res.json();
+                setUserMe(data);
+            } catch {/* noop */ }
+        })();
+    }, []);
+
+    // Cuando tenemos userMe y aún no auto cargamos, intentar precargar configuración
+    useEffect(() => {
+        if (!userMe || autoLoaded) return;
+        const role = (userMe.role || '').toLowerCase();
+        const esAdmin = ['admin', 'soporte'].includes(role);
+        const cuitEmpresa = (userMe.empresa_cuit || '').trim();
+        if (esAdmin && cuitEmpresa.length === 11) {
+            // Pre rellenar campos CUIT y disparar carga de configuración
+            setConfiguracionEmisor(prev => ({ ...prev, cuit_empresa: cuitEmpresa }));
+            setCuit(cuitEmpresa);
+            // Intentar cargar configuracion
+            cargarConfiguracionEmisor(cuitEmpresa).then(() => {
+                // Después de cargar, si la configuración trae razón social, usarla para CSR
+                // (solo actualizar si el usuario no comenzó a tipear algo distinto)
+                setAutoLoaded(true);
+            });
+        } else {
+            setAutoLoaded(true); // no aplicable
+        }
+    }, [userMe, autoLoaded]);
 
     const cargarCondicionesIVA = async () => {
         try {
@@ -79,6 +125,10 @@ export default function AFIPPage() {
             if (res.ok) {
                 const data = await res.json();
                 setConfiguracionEmisor(data);
+                // Si la config existente trae razon social y el usuario no ha escrito otra, sincronizar para CSR
+                if (data?.razon_social && !razonSocial) {
+                    setRazonSocial(data.razon_social);
+                }
             }
         } catch {
             console.error("Error cargando configuración emisor");
@@ -275,310 +325,319 @@ export default function AFIPPage() {
     };
 
     return (
-        <div className="flex">
-            <Navbar />
-            <main className="flex-1 md:ml-64 p-6">
-                <div className="max-w-4xl mx-auto">
-                    <h1 className="text-2xl font-bold text-blue-700 mb-6">🏛️ Gestión Certificados AFIP</h1>
+        // Ya no incluimos <Navbar /> aquí porque el layout global lo provee (NavbarVisible + MainContent)
+        <div className="p-6">
+            <div className="max-w-4xl mx-auto">
+                <h1 className="text-2xl font-bold text-blue-700 mb-6">🏛️ Gestión Certificados AFIP</h1>
 
-                    {mensaje && (
-                        <div className={`p-4 rounded-lg mb-6 ${mensaje.includes('✅') ? 'bg-green-50 text-green-800' : 'bg-red-50 text-red-800'}`}>
-                            {mensaje}
-                        </div>
-                    )}
-
-                    {/* Selector de operación */}
-                    <div className="bg-white rounded-lg shadow p-6 mb-6">
-                        <h2 className="text-lg font-semibold mb-4">Seleccionar operación</h2>
-                        <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mb-4">
-                            <button
-                                onClick={() => setTipoOperacion("configurar")}
-                                className={`px-3 py-2 rounded text-sm ${tipoOperacion === "configurar" ? "bg-purple-600 text-white" : "bg-gray-200"}`}
-                            >
-                                ⚙️ Configurar Emisor
-                            </button>
-                            <button
-                                onClick={() => setTipoOperacion("generar")}
-                                className={`px-3 py-2 rounded text-sm ${tipoOperacion === "generar" ? "bg-blue-600 text-white" : "bg-gray-200"}`}
-                            >
-                                1️⃣ Generar CSR
-                            </button>
-                            <button
-                                onClick={() => setTipoOperacion("archivo")}
-                                className={`px-3 py-2 rounded text-sm ${tipoOperacion === "archivo" ? "bg-green-600 text-white" : "bg-gray-200"}`}
-                            >
-                                2️⃣ Archivo completo ⭐
-                            </button>
-                            <button
-                                onClick={() => setTipoOperacion("subir")}
-                                className={`px-3 py-2 rounded text-sm ${tipoOperacion === "subir" ? "bg-orange-600 text-white" : "bg-gray-200"}`}
-                            >
-                                🔧 Manual
-                            </button>
-                        </div>
+                {mensaje && (
+                    <div className={`p-4 rounded-lg mb-6 ${mensaje.includes('✅') ? 'bg-green-50 text-green-800' : 'bg-red-50 text-red-800'}`}>
+                        {mensaje}
                     </div>
+                )}
 
-                    {/* Campos comunes - Solo para operaciones de certificados */}
-                    {tipoOperacion !== "configurar" && (
-                        <div className="bg-white rounded-lg shadow p-6 mb-6">
-                            <div className="grid md:grid-cols-2 gap-4">
-                                <div>
-                                    <label className="block text-sm font-medium mb-2">CUIT (sin guiones)</label>
-                                    <input
-                                        type="text"
-                                        value={cuit}
-                                        onChange={(e) => setCuit(e.target.value)}
-                                        placeholder="20123456789"
-                                        className="w-full p-2 border rounded"
-                                    />
-                                </div>
-                                {tipoOperacion === "generar" && (
-                                    <div>
-                                        <label className="block text-sm font-medium mb-2">Razón Social</label>
-                                        <input
-                                            type="text"
-                                            value={razonSocial}
-                                            onChange={(e) => setRazonSocial(e.target.value)}
-                                            placeholder="Nombre de la empresa"
-                                            className="w-full p-2 border rounded"
-                                        />
-                                    </div>
-                                )}
-                            </div>
-                        </div>
-                    )}
-
-                    {/* Operaciones específicas */}
-                    {tipoOperacion === "configurar" && (
-                        <div className="bg-white rounded-lg shadow p-6 mb-6">
-                            <h3 className="text-lg font-semibold mb-4">⚙️ Configuración del Emisor</h3>
-                            <p className="text-sm text-gray-600 mb-4">
-                                Configure los datos de su empresa para la facturación electrónica. Esta información se usará como emisor en todas las facturas.
-                            </p>
-
-                            <div className="grid md:grid-cols-2 gap-4 mb-4">
-                                <div>
-                                    <label className="block text-sm font-medium mb-2">CUIT Empresa *</label>
-                                    <input
-                                        type="text"
-                                        value={configuracionEmisor.cuit_empresa}
-                                        onChange={(e) => {
-                                            const newValue = e.target.value;
-                                            setConfiguracionEmisor({ ...configuracionEmisor, cuit_empresa: newValue });
-                                            if (newValue && newValue.length === 11) {
-                                                cargarConfiguracionEmisor(newValue);
-                                            }
-                                        }}
-                                        placeholder="20123456789"
-                                        className="w-full p-2 border rounded"
-                                    />
-                                </div>
-                                <div>
-                                    <label className="block text-sm font-medium mb-2">Razón Social *</label>
-                                    <input
-                                        type="text"
-                                        value={configuracionEmisor.razon_social}
-                                        onChange={(e) => setConfiguracionEmisor({ ...configuracionEmisor, razon_social: e.target.value })}
-                                        placeholder="Empresa S.A."
-                                        className="w-full p-2 border rounded"
-                                    />
-                                </div>
-                                <div>
-                                    <label className="block text-sm font-medium mb-2">Nombre Fantasía</label>
-                                    <input
-                                        type="text"
-                                        value={configuracionEmisor.nombre_fantasia || ""}
-                                        onChange={(e) => setConfiguracionEmisor({ ...configuracionEmisor, nombre_fantasia: e.target.value })}
-                                        placeholder="Nombre comercial"
-                                        className="w-full p-2 border rounded"
-                                    />
-                                </div>
-                                <div>
-                                    <label className="block text-sm font-medium mb-2">Condición IVA *</label>
-                                    <select
-                                        value={configuracionEmisor.condicion_iva}
-                                        onChange={(e) => setConfiguracionEmisor({ ...configuracionEmisor, condicion_iva: e.target.value })}
-                                        className="w-full p-2 border rounded"
-                                    >
-                                        {condicionesIVA.map((condicion) => (
-                                            <option key={condicion.nombre} value={condicion.nombre}>
-                                                {condicion.descripcion}
-                                            </option>
-                                        ))}
-                                    </select>
-                                </div>
-                                <div>
-                                    <label className="block text-sm font-medium mb-2">Punto de Venta</label>
-                                    <input
-                                        type="number"
-                                        value={configuracionEmisor.punto_venta}
-                                        onChange={(e) => setConfiguracionEmisor({ ...configuracionEmisor, punto_venta: parseInt(e.target.value) || 1 })}
-                                        min="1"
-                                        max="9999"
-                                        className="w-full p-2 border rounded"
-                                    />
-                                </div>
-                                <div>
-                                    <label className="block text-sm font-medium mb-2">Email</label>
-                                    <input
-                                        type="email"
-                                        value={configuracionEmisor.email || ""}
-                                        onChange={(e) => setConfiguracionEmisor({ ...configuracionEmisor, email: e.target.value })}
-                                        placeholder="empresa@ejemplo.com"
-                                        className="w-full p-2 border rounded"
-                                    />
-                                </div>
-                            </div>
-
-                            <div className="mb-4">
-                                <label className="block text-sm font-medium mb-2">Dirección</label>
-                                <input
-                                    type="text"
-                                    value={configuracionEmisor.direccion || ""}
-                                    onChange={(e) => setConfiguracionEmisor({ ...configuracionEmisor, direccion: e.target.value })}
-                                    placeholder="Calle 123, Ciudad, Provincia"
-                                    className="w-full p-2 border rounded"
-                                />
-                            </div>
-
-                            <div className="mb-4">
-                                <label className="block text-sm font-medium mb-2">Teléfono</label>
-                                <input
-                                    type="text"
-                                    value={configuracionEmisor.telefono || ""}
-                                    onChange={(e) => setConfiguracionEmisor({ ...configuracionEmisor, telefono: e.target.value })}
-                                    placeholder="+54 11 1234-5678"
-                                    className="w-full p-2 border rounded"
-                                />
-                            </div>
-
-                            <div className="flex gap-2">
-                                <button
-                                    onClick={guardarConfiguracionEmisor}
-                                    disabled={loading}
-                                    className="bg-purple-600 text-white px-6 py-2 rounded hover:bg-purple-700 disabled:opacity-50"
-                                >
-                                    {loading ? "Guardando..." : "Guardar Configuración"}
-                                </button>
-                                {configuracionEmisor.existe && (
-                                    <span className="text-sm text-green-600 self-center">✅ Configuración existente cargada</span>
-                                )}
-                            </div>
-                        </div>
-                    )}
-
-                    {tipoOperacion === "generar" && (
-                        <div className="bg-white rounded-lg shadow p-6 mb-6">
-                            <h3 className="text-lg font-semibold mb-4">1️⃣ Generar CSR</h3>
-                            <p className="text-sm text-gray-600 mb-4">
-                                Genera un Certificate Signing Request para enviar a AFIP. El sistema guardará la clave privada automáticamente.
-                            </p>
-                            <button
-                                onClick={generarCSR}
-                                disabled={loading}
-                                className="bg-blue-600 text-white px-6 py-2 rounded hover:bg-blue-700 disabled:opacity-50"
-                            >
-                                {loading ? "Generando..." : "Generar y descargar CSR"}
-                            </button>
-                        </div>
-                    )}
-
-                    {tipoOperacion === "archivo" && (
-                        <div className="bg-white rounded-lg shadow p-6 mb-6">
-                            <h3 className="text-lg font-semibold mb-4">2️⃣ Subir archivo completo ⭐ (Recomendado)</h3>
-                            <p className="text-sm text-gray-600 mb-4">
-                                Sube directamente el archivo descargado de AFIP. El sistema automáticamente extraerá el certificado y la clave.
-                            </p>
-                            <div className="mb-4">
-                                <label className="block text-sm font-medium mb-2">Archivo de certificado</label>
-                                <input
-                                    type="file"
-                                    accept=".crt,.pem,.p7b,.cer"
-                                    onChange={(e) => setArchivoCompleto(e.target.files?.[0] || null)}
-                                    className="w-full p-2 border rounded"
-                                />
-                            </div>
-                            <button
-                                onClick={procesarArchivoCompleto}
-                                disabled={loading}
-                                className="bg-green-600 text-white px-6 py-2 rounded hover:bg-green-700 disabled:opacity-50"
-                            >
-                                {loading ? "Procesando..." : "Procesar archivo completo"}
-                            </button>
-                        </div>
-                    )}
-
-                    {tipoOperacion === "subir" && (
-                        <div className="bg-white rounded-lg shadow p-6 mb-6">
-                            <h3 className="text-lg font-semibold mb-4">🔧 Subir certificado manual</h3>
-                            <p className="text-sm text-gray-600 mb-4">
-                                Copia y pega el contenido del certificado PEM descargado de AFIP.
-                            </p>
-                            <div className="mb-4">
-                                <label className="block text-sm font-medium mb-2">Certificado PEM</label>
-                                <textarea
-                                    value={certificadoPem}
-                                    onChange={(e) => setCertificadoPem(e.target.value)}
-                                    placeholder="-----BEGIN CERTIFICATE-----&#10;...&#10;-----END CERTIFICATE-----"
-                                    rows={8}
-                                    className="w-full p-2 border rounded font-mono text-sm"
-                                />
-                            </div>
-                            <button
-                                onClick={subirCertificado}
-                                disabled={loading}
-                                className="bg-orange-600 text-white px-6 py-2 rounded hover:bg-orange-700 disabled:opacity-50"
-                            >
-                                {loading ? "Guardando..." : "Guardar certificado"}
-                            </button>
-                        </div>
-                    )}
-
-                    {/* Lista de certificados */}
-                    <div className="bg-white rounded-lg shadow p-6">
-                        <div className="flex justify-between items-center mb-4">
-                            <h3 className="text-lg font-semibold">📋 Certificados existentes</h3>
-                            <button
-                                onClick={cargarCertificados}
-                                className="text-blue-600 hover:text-blue-800 text-sm"
-                            >
-                                🔄 Actualizar
-                            </button>
-                        </div>
-
-                        {certificados.length === 0 ? (
-                            <p className="text-gray-500 text-center py-4">No hay certificados configurados</p>
-                        ) : (
-                            <div className="space-y-3">
-                                {certificados.map((cert, idx) => (
-                                    <div key={idx} className="border rounded p-4 flex justify-between items-center">
-                                        <div>
-                                            <div className="font-medium">CUIT: {cert.cuit}</div>
-                                            <div className="text-sm text-gray-600">{cert.mensaje}</div>
-                                        </div>
-                                        <div className="flex items-center gap-2">
-                                            <span className={`px-2 py-1 rounded text-xs font-medium ${cert.estado === 'completo' ? 'bg-green-100 text-green-800' :
-                                                cert.estado === 'pendiente' ? 'bg-yellow-100 text-yellow-800' :
-                                                    'bg-gray-100 text-gray-800'
-                                                }`}>
-                                                {cert.estado === 'completo' ? '✅ Completo' :
-                                                    cert.estado === 'pendiente' ? '⏳ Pendiente' :
-                                                        '❌ Sin generar'}
-                                            </span>
-                                            <button
-                                                onClick={() => verificarEstado(cert.cuit)}
-                                                className="text-blue-600 hover:text-blue-800 text-sm"
-                                            >
-                                                🔍 Verificar
-                                            </button>
-                                        </div>
-                                    </div>
-                                ))}
-                            </div>
-                        )}
+                {/* Selector de operación */}
+                <div className="bg-white rounded-lg shadow p-6 mb-6">
+                    <h2 className="text-lg font-semibold mb-4">Seleccionar operación</h2>
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mb-4">
+                        <button
+                            onClick={() => setTipoOperacion("configurar")}
+                            className={`px-3 py-2 rounded text-sm ${tipoOperacion === "configurar" ? "bg-purple-600 text-white" : "bg-gray-200"}`}
+                        >
+                            ⚙️ Configurar Emisor
+                        </button>
+                        <button
+                            onClick={() => setTipoOperacion("generar")}
+                            className={`px-3 py-2 rounded text-sm ${tipoOperacion === "generar" ? "bg-blue-600 text-white" : "bg-gray-200"}`}
+                        >
+                            1️⃣ Generar CSR
+                        </button>
+                        <button
+                            onClick={() => setTipoOperacion("archivo")}
+                            className={`px-3 py-2 rounded text-sm ${tipoOperacion === "archivo" ? "bg-green-600 text-white" : "bg-gray-200"}`}
+                        >
+                            2️⃣ Archivo completo ⭐
+                        </button>
+                        <button
+                            onClick={() => setTipoOperacion("subir")}
+                            className={`px-3 py-2 rounded text-sm ${tipoOperacion === "subir" ? "bg-orange-600 text-white" : "bg-gray-200"}`}
+                        >
+                            🔧 Manual
+                        </button>
                     </div>
                 </div>
-            </main>
+
+                {/* Campos comunes - Solo para operaciones de certificados */}
+                {tipoOperacion !== "configurar" && (
+                    <div className="bg-white rounded-lg shadow p-6 mb-6">
+                        <div className="grid md:grid-cols-2 gap-4">
+                            <div>
+                                <label className="block text-sm font-medium mb-2">CUIT (sin guiones)</label>
+                                <input
+                                    type="text"
+                                    value={cuit}
+                                    onChange={(e) => setCuit(e.target.value)}
+                                    placeholder="20123456789"
+                                    className="w-full p-2 border rounded"
+                                />
+                            </div>
+                            {tipoOperacion === "generar" && (
+                                <div>
+                                    <label className="block text-sm font-medium mb-2">Razón Social</label>
+                                    <input
+                                        type="text"
+                                        value={razonSocial}
+                                        onChange={(e) => setRazonSocial(e.target.value)}
+                                        placeholder="Nombre de la empresa"
+                                        className="w-full p-2 border rounded"
+                                    />
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                )}
+
+                {/* Operaciones específicas */}
+                {tipoOperacion === "configurar" && (
+                    <div className="bg-white rounded-lg shadow p-6 mb-6">
+                        <h3 className="text-lg font-semibold mb-4">⚙️ Configuración del Emisor</h3>
+                        <p className="text-sm text-gray-600 mb-4">
+                            Configure los datos de su empresa para la facturación electrónica. Esta información se usará como emisor en todas las facturas.
+                        </p>
+                        {userMe && (
+                            <div className="mb-3 text-xs text-gray-500 flex flex-wrap gap-2">
+                                <span>Usuario: <strong>{userMe.username}</strong></span>
+                                <span>Rol: <strong>{userMe.role}</strong></span>
+                                {userMe.empresa_cuit && <span>CUIT Empresa: <strong>{userMe.empresa_cuit}</strong></span>}
+                                {autoLoaded && userMe.empresa_cuit && <span className="text-green-600">(Auto cargado)</span>}
+                            </div>
+                        )}
+
+                        <div className="grid md:grid-cols-2 gap-4 mb-4">
+                            <div>
+                                <label className="block text-sm font-medium mb-2">CUIT Empresa *</label>
+                                <input
+                                    type="text"
+                                    value={configuracionEmisor.cuit_empresa}
+                                    onChange={(e) => {
+                                        const newValue = e.target.value;
+                                        setConfiguracionEmisor({ ...configuracionEmisor, cuit_empresa: newValue });
+                                        if (newValue && newValue.length === 11) {
+                                            cargarConfiguracionEmisor(newValue);
+                                        }
+                                    }}
+                                    placeholder="20123456789"
+                                    className="w-full p-2 border rounded"
+                                />
+                                {!configuracionEmisor.existe && configuracionEmisor.cuit_empresa.length === 11 && (
+                                    <div className="mt-1 text-[11px] text-yellow-600">No hay configuración previa — complete los campos y guarde.</div>
+                                )}
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium mb-2">Razón Social *</label>
+                                <input
+                                    type="text"
+                                    value={configuracionEmisor.razon_social}
+                                    onChange={(e) => setConfiguracionEmisor({ ...configuracionEmisor, razon_social: e.target.value })}
+                                    placeholder="Empresa S.A."
+                                    className="w-full p-2 border rounded"
+                                />
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium mb-2">Nombre Fantasía</label>
+                                <input
+                                    type="text"
+                                    value={configuracionEmisor.nombre_fantasia || ""}
+                                    onChange={(e) => setConfiguracionEmisor({ ...configuracionEmisor, nombre_fantasia: e.target.value })}
+                                    placeholder="Nombre comercial"
+                                    className="w-full p-2 border rounded"
+                                />
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium mb-2">Condición IVA *</label>
+                                <select
+                                    value={configuracionEmisor.condicion_iva}
+                                    onChange={(e) => setConfiguracionEmisor({ ...configuracionEmisor, condicion_iva: e.target.value })}
+                                    className="w-full p-2 border rounded"
+                                >
+                                    {condicionesIVA.map((condicion) => (
+                                        <option key={condicion.nombre} value={condicion.nombre}>
+                                            {condicion.descripcion}
+                                        </option>
+                                    ))}
+                                </select>
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium mb-2">Punto de Venta</label>
+                                <input
+                                    type="number"
+                                    value={configuracionEmisor.punto_venta}
+                                    onChange={(e) => setConfiguracionEmisor({ ...configuracionEmisor, punto_venta: parseInt(e.target.value) || 1 })}
+                                    min="1"
+                                    max="9999"
+                                    className="w-full p-2 border rounded"
+                                />
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium mb-2">Email</label>
+                                <input
+                                    type="email"
+                                    value={configuracionEmisor.email || ""}
+                                    onChange={(e) => setConfiguracionEmisor({ ...configuracionEmisor, email: e.target.value })}
+                                    placeholder="empresa@ejemplo.com"
+                                    className="w-full p-2 border rounded"
+                                />
+                            </div>
+                        </div>
+
+                        <div className="mb-4">
+                            <label className="block text-sm font-medium mb-2">Dirección</label>
+                            <input
+                                type="text"
+                                value={configuracionEmisor.direccion || ""}
+                                onChange={(e) => setConfiguracionEmisor({ ...configuracionEmisor, direccion: e.target.value })}
+                                placeholder="Calle 123, Ciudad, Provincia"
+                                className="w-full p-2 border rounded"
+                            />
+                        </div>
+
+                        <div className="mb-4">
+                            <label className="block text-sm font-medium mb-2">Teléfono</label>
+                            <input
+                                type="text"
+                                value={configuracionEmisor.telefono || ""}
+                                onChange={(e) => setConfiguracionEmisor({ ...configuracionEmisor, telefono: e.target.value })}
+                                placeholder="+54 11 1234-5678"
+                                className="w-full p-2 border rounded"
+                            />
+                        </div>
+
+                        <div className="flex gap-2">
+                            <button
+                                onClick={guardarConfiguracionEmisor}
+                                disabled={loading}
+                                className="bg-purple-600 text-white px-6 py-2 rounded hover:bg-purple-700 disabled:opacity-50"
+                            >
+                                {loading ? "Guardando..." : "Guardar Configuración"}
+                            </button>
+                            {configuracionEmisor.existe && (
+                                <span className="text-sm text-green-600 self-center">✅ Configuración existente cargada</span>
+                            )}
+                        </div>
+                    </div>
+                )}
+
+                {tipoOperacion === "generar" && (
+                    <div className="bg-white rounded-lg shadow p-6 mb-6">
+                        <h3 className="text-lg font-semibold mb-4">1️⃣ Generar CSR</h3>
+                        <p className="text-sm text-gray-600 mb-4">
+                            Genera un Certificate Signing Request para enviar a AFIP. El sistema guardará la clave privada automáticamente.
+                        </p>
+                        <button
+                            onClick={generarCSR}
+                            disabled={loading}
+                            className="bg-blue-600 text-white px-6 py-2 rounded hover:bg-blue-700 disabled:opacity-50"
+                        >
+                            {loading ? "Generando..." : "Generar y descargar CSR"}
+                        </button>
+                    </div>
+                )}
+
+                {tipoOperacion === "archivo" && (
+                    <div className="bg-white rounded-lg shadow p-6 mb-6">
+                        <h3 className="text-lg font-semibold mb-4">2️⃣ Subir archivo completo ⭐ (Recomendado)</h3>
+                        <p className="text-sm text-gray-600 mb-4">
+                            Sube directamente el archivo descargado de AFIP. El sistema automáticamente extraerá el certificado y la clave.
+                        </p>
+                        <div className="mb-4">
+                            <label className="block text-sm font-medium mb-2">Archivo de certificado</label>
+                            <input
+                                type="file"
+                                accept=".crt,.pem,.p7b,.cer"
+                                onChange={(e) => setArchivoCompleto(e.target.files?.[0] || null)}
+                                className="w-full p-2 border rounded"
+                            />
+                        </div>
+                        <button
+                            onClick={procesarArchivoCompleto}
+                            disabled={loading}
+                            className="bg-green-600 text-white px-6 py-2 rounded hover:bg-green-700 disabled:opacity-50"
+                        >
+                            {loading ? "Procesando..." : "Procesar archivo completo"}
+                        </button>
+                    </div>
+                )}
+
+                {tipoOperacion === "subir" && (
+                    <div className="bg-white rounded-lg shadow p-6 mb-6">
+                        <h3 className="text-lg font-semibold mb-4">🔧 Subir certificado manual</h3>
+                        <p className="text-sm text-gray-600 mb-4">
+                            Copia y pega el contenido del certificado PEM descargado de AFIP.
+                        </p>
+                        <div className="mb-4">
+                            <label className="block text-sm font-medium mb-2">Certificado PEM</label>
+                            <textarea
+                                value={certificadoPem}
+                                onChange={(e) => setCertificadoPem(e.target.value)}
+                                placeholder="-----BEGIN CERTIFICATE-----&#10;...&#10;-----END CERTIFICATE-----"
+                                rows={8}
+                                className="w-full p-2 border rounded font-mono text-sm"
+                            />
+                        </div>
+                        <button
+                            onClick={subirCertificado}
+                            disabled={loading}
+                            className="bg-orange-600 text-white px-6 py-2 rounded hover:bg-orange-700 disabled:opacity-50"
+                        >
+                            {loading ? "Guardando..." : "Guardar certificado"}
+                        </button>
+                    </div>
+                )}
+
+                {/* Lista de certificados */}
+                <div className="bg-white rounded-lg shadow p-6">
+                    <div className="flex justify-between items-center mb-4">
+                        <h3 className="text-lg font-semibold">📋 Certificados existentes</h3>
+                        <button
+                            onClick={cargarCertificados}
+                            className="text-blue-600 hover:text-blue-800 text-sm"
+                        >
+                            🔄 Actualizar
+                        </button>
+                    </div>
+
+                    {certificados.length === 0 ? (
+                        <p className="text-gray-500 text-center py-4">No hay certificados configurados</p>
+                    ) : (
+                        <div className="space-y-3">
+                            {certificados.map((cert, idx) => (
+                                <div key={idx} className="border rounded p-4 flex justify-between items-center">
+                                    <div>
+                                        <div className="font-medium">CUIT: {cert.cuit}</div>
+                                        <div className="text-sm text-gray-600">{cert.mensaje}</div>
+                                    </div>
+                                    <div className="flex items-center gap-2">
+                                        <span className={`px-2 py-1 rounded text-xs font-medium ${cert.estado === 'completo' ? 'bg-green-100 text-green-800' :
+                                            cert.estado === 'pendiente' ? 'bg-yellow-100 text-yellow-800' :
+                                                'bg-gray-100 text-gray-800'
+                                            }`}>
+                                            {cert.estado === 'completo' ? '✅ Completo' :
+                                                cert.estado === 'pendiente' ? '⏳ Pendiente' :
+                                                    '❌ Sin generar'}
+                                        </span>
+                                        <button
+                                            onClick={() => verificarEstado(cert.cuit)}
+                                            className="text-blue-600 hover:text-blue-800 text-sm"
+                                        >
+                                            🔍 Verificar
+                                        </button>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+                </div>
+            </div>
         </div>
     );
 }

@@ -1,3 +1,4 @@
+// Links permitidos para rol Cajero: solo boletas facturadas / no facturadas
 
 "use client";
 import Link from "next/link";
@@ -62,6 +63,8 @@ export default function Navbar() {
 
   // Ya no se muestra info de backend ni toggle de tema para simplificar UI móvil.
 
+  const isSeller = (userRole || '').toLowerCase() === 'cajero' || (userRole || '').toLowerCase() === 'vendedor';
+
   return (
     <>
       {/* Botón hamburguesa visible sólo en mobile */}
@@ -89,11 +92,13 @@ export default function Navbar() {
                 </Link>
               </li>
             )}
-            <li>
-              <Link href="/dashboard" className="flex items-center px-3 py-2 text-sm font-medium text-gray-700 rounded-lg hover:bg-blue-50 hover:text-blue-700 transition-colors">
-                <span className="ml-3">📊 Dashboard</span>
-              </Link>
-            </li>
+            {!isSeller && (
+              <li>
+                <Link href="/dashboard" className="flex items-center px-3 py-2 text-sm font-medium text-gray-700 rounded-lg hover:bg-blue-50 hover:text-blue-700 transition-colors">
+                  <span className="ml-3">📊 Dashboard</span>
+                </Link>
+              </li>
+            )}
             <li>
               <Link href="/boletas/no-facturadas" className="flex items-center px-3 py-2 text-sm font-medium text-gray-700 rounded-lg hover:bg-blue-50 hover:text-blue-700 transition-colors">
                 <span className="ml-3">🧾 No Facturadas</span>
@@ -105,18 +110,20 @@ export default function Navbar() {
               </Link>
             </li>
             {/* Solo mostrar Usuarios si el usuario es admin */}
-            {typeof window !== 'undefined' && (JSON.parse(localStorage.getItem("user_info") || "{}").role === "Admin") && (
+            {!isSeller && typeof window !== 'undefined' && (JSON.parse(localStorage.getItem("user_info") || "{}").role === "Admin") && (
               <li>
                 <Link href="/usuarios" className="flex items-center px-3 py-2 text-sm font-medium text-gray-700 rounded-lg hover:bg-blue-50 hover:text-blue-700 transition-colors">
                   <span className="ml-3">👥 Usuarios</span>
                 </Link>
               </li>
             )}
-            <li>
-              <Link href="/afip" className="flex items-center px-3 py-2 text-sm font-medium text-gray-700 rounded-lg hover:bg-blue-50 hover:text-blue-700 transition-colors">
-                <span className="ml-3">🏛️ AFIP</span>
-              </Link>
-            </li>
+            {!isSeller && (
+              <li>
+                <Link href="/afip" className="flex items-center px-3 py-2 text-sm font-medium text-gray-700 rounded-lg hover:bg-blue-50 hover:text-blue-700 transition-colors">
+                  <span className="ml-3">🏛️ AFIP</span>
+                </Link>
+              </li>
+            )}
           </ul>
         </nav>
 
@@ -134,9 +141,11 @@ export default function Navbar() {
 
           {/* Enlaces de configuración */}
           <div className="space-y-1">
-            <Link href="/afip" className="flex items-center px-2 py-1 text-xs text-gray-600 hover:text-blue-600 rounded">
-              🔧 AFIP Config
-            </Link>
+            {!isSeller && (
+              <Link href="/afip" className="flex items-center px-2 py-1 text-xs text-gray-600 hover:text-blue-600 rounded">
+                🔧 AFIP Config
+              </Link>
+            )}
             <button
               onClick={async () => {
                 try { await fetch('/api/auth/logout', { method: 'POST' }); } catch { }

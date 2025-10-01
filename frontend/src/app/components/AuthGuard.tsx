@@ -59,6 +59,18 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
             } else {
                 setChecked(true);
             }
+            // Restricción de navegación para rol Cajero/Vendedor
+            try {
+                const info = JSON.parse(localStorage.getItem('user_info') || '{}');
+                const role = (info.role || info.rol || '').toLowerCase();
+                if (role === 'cajero' || role === 'vendedor') {
+                    const allowed = ['/boletas/no-facturadas', '/boletas/facturadas', '/boletas/mobile'];
+                    if (!allowed.some(a => pathname.startsWith(a))) {
+                        router.replace('/boletas/no-facturadas');
+                        return;
+                    }
+                }
+            } catch { /* ignore */ }
         } catch {
             router.replace(`/login?from=${encodeURIComponent(pathname ?? '/')}`);
         }

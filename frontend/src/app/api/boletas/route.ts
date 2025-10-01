@@ -40,8 +40,8 @@ export async function GET(request: Request): Promise<Response> {
     return `${base}/boletas?skip=${skip}&limit=${limit}`;
   };
 
-  for (let base of bases) {
-    base = sanitizeBase(base);
+  for (let i = 0; i < bases.length; i++) {
+    let base = sanitizeBase(bases[i]);
     try {
       const h = new URL(base).host;
       if (h === incomingHost && !internalOverride) {
@@ -60,11 +60,24 @@ export async function GET(request: Request): Promise<Response> {
       let parsed: unknown = {};
       try {
         raw = await response.text();
+        // Detección temprana de HTML (misconfiguración apunta al frontend)
+        const trimmed = raw.trim();
+        const looksHtml = /^<!DOCTYPE|<html[\s>]/i.test(trimmed);
+        if (looksHtml) {
+          console.warn(`[api/boletas] Respuesta HTML inesperada en ${endpoint} (posible NEXT_PUBLIC_BACKEND_URL incorrecta).`);
+          if (i < bases.length - 1) continue; // intentar siguiente base
+          return new Response(JSON.stringify({ detalle: 'Respuesta HTML inesperada', endpoint, hint: 'Revisar NEXT_PUBLIC_BACKEND_URL o configurar BACKEND_INTERNAL_URL', preview: trimmed.slice(0, 160) }), { status: 502, headers: { 'Content-Type': 'application/json' } });
+        }
         parsed = raw ? JSON.parse(raw) : [];
       } catch {
         parsed = {};
       }
       if (response.ok && !Array.isArray(parsed)) {
+        // Intentar fallback si no es último intento
+        if (i < bases.length - 1) {
+          console.warn(`[api/boletas] Objeto recibido en ${endpoint} cuando se esperaba array. Intentando siguiente base...`);
+          continue;
+        }
         const diag = { detalle: 'Respuesta no es array', esperado: 'array', recibido: typeof parsed, keys: parsed && typeof parsed === 'object' ? Object.keys(parsed as Record<string, unknown>) : [], endpoint };
         return new Response(JSON.stringify(diag), { status: 206, headers: { 'Content-Type': 'application/json' } });
       }
