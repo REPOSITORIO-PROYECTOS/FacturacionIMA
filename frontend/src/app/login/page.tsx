@@ -106,8 +106,11 @@ function LoginPageInner() {
         const isMobile = typeof window !== 'undefined' && window.innerWidth < 768;
         const fallback = isMobile ? '/inicio' : '/dashboard';
         const target = (from && from.startsWith('/') && !from.startsWith('/login')) ? from : fallback;
-        // Pequeño delay para asegurar persistencia de user_info antes de navegar
-        setTimeout(() => router.replace(target), 50);
+
+        // Recargar la página automáticamente después del login exitoso
+        setTimeout(() => {
+          window.location.href = target;
+        }, 100);
       } else {
         // Mostrar un resumen del body recibido para facilitar diagnóstico en desarrollo
         const preview = data
