@@ -35,6 +35,85 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/comprobantes", tags=["comprobantes"])
 
+@router.get("/test/sheets-cliente/{ingreso_id}")
+async def test_sheets_cliente(
+    ingreso_id: str
+):
+    """
+    Test para verificar si se pueden obtener datos del cliente desde Google Sheets
+    """
+    resultado = {
+        "ingreso_id": ingreso_id,
+        "sheets_disponible": False,
+        "cliente_encontrado": False,
+        "datos_cliente": None,
+        "cajero_encontrado": False,
+        "datos_cajero": None,
+        "error": None
+    }
+    
+    try:
+        from backend.utils.tablasHandler import TablasHandler
+        sheets_handler = TablasHandler()
+        resultado["sheets_disponible"] = True
+        
+        # Obtener datos del ingreso desde Google Sheets
+        ingresos_data = sheets_handler.cargar_ingresos()
+        
+        if ingresos_data:
+            logger.info(f"Sheets cargados: {len(ingresos_data)} registros")
+            
+            # Buscar el ingreso por ID
+            for ingreso in ingresos_data:
+                if str(ingreso.get('ID Ingresos', '')) == str(ingreso_id):
+                    logger.info(f"Ingreso encontrado: {ingreso}")
+                    
+                    # Extraer nombre del cliente
+                    nombre_cliente = (ingreso.get('Razon Social') or 
+                                    ingreso.get('cliente') or
+                                    ingreso.get('nombre') or
+                                    ingreso.get('Cliente'))
+                    
+                    if nombre_cliente:
+                        resultado["cliente_encontrado"] = True
+                        resultado["datos_cliente"] = {
+                            "nombre": nombre_cliente,
+                            "razon_social": ingreso.get('Razon Social'),
+                            "cliente": ingreso.get('cliente'),
+                            "nombre_campo": ingreso.get('nombre'),
+                            "Cliente": ingreso.get('Cliente')
+                        }
+                    
+                    # Extraer cajero/repartidor
+                    cajero_nombre = (ingreso.get('Repartidor') or
+                                   ingreso.get('repartidor') or
+                                   ingreso.get('cajero') or
+                                   ingreso.get('vendedor') or
+                                   ingreso.get('operador'))
+                    
+                    if cajero_nombre:
+                        resultado["cajero_encontrado"] = True
+                        resultado["datos_cajero"] = {
+                            "nombre": cajero_nombre,
+                            "Repartidor": ingreso.get('Repartidor'),
+                            "repartidor": ingreso.get('repartidor'),
+                            "cajero": ingreso.get('cajero'),
+                            "vendedor": ingreso.get('vendedor'),
+                            "operador": ingreso.get('operador')
+                        }
+                    
+                    break
+            else:
+                resultado["error"] = f"No se encontró ingreso con ID {ingreso_id}"
+        else:
+            resultado["error"] = "No se pudieron cargar datos de Google Sheets"
+            
+    except Exception as e:
+        resultado["error"] = str(e)
+        logger.error(f"Error en test de Google Sheets: {e}", exc_info=True)
+    
+    return resultado
+
 def generar_pdf_comprobante(factura: FacturaElectronica, conceptos: list = None) -> bytes:
     """
     Genera un PDF del comprobante fiscal estilo ticket térmico de 50mm
@@ -77,14 +156,62 @@ def generar_pdf_comprobante(factura: FacturaElectronica, conceptos: list = None)
         c.line(margin_left, y_pos, ticket_width - margin_right, y_pos)
         return y_pos - 2 * mm
     
+    # ===== CARGAR DATOS DEL EMISOR =====
+    # Intentar cargar datos desde el archivo de configuración del emisor
+    emisor_data = {
+        "nombre_fantasia": "SKAL FAM",
+        "razon_social": "SKAL FAM DISTRIBUCIONES S. A. S.",
+        "direccion": "Las Chacritas, San Juan",
+        "fecha_inicio": "01/01/2024",
+        "nro_ingresos_brutos": "30718331680",
+        "telefono": "+54 264 5704748"
+    }
+    
+    # Intentar cargar desde archivo JSON si existe
+    try:
+        import json
+        import os
+        boveda_path = os.path.join(os.path.dirname(__file__), '..', '..', '..', 'boveda_afip_temporal')
+        emisor_file = os.path.join(boveda_path, f'emisor_{factura.cuit_emisor.strip()}.json')
+        if os.path.exists(emisor_file):
+            with open(emisor_file, 'r', encoding='utf-8') as f:
+                file_data = json.load(f)
+                if file_data:
+                    emisor_data.update({
+                        "nombre_fantasia": file_data.get('nombre_fantasia', emisor_data["nombre_fantasia"]),
+                        "razon_social": file_data.get('razon_social', emisor_data["razon_social"]),
+                        "direccion": file_data.get('direccion', emisor_data["direccion"]),
+                        "fecha_inicio": file_data.get('Fecha Inicio', emisor_data["fecha_inicio"]),
+                        "nro_ingresos_brutos": file_data.get('Nro Ingresos Brutos', emisor_data["nro_ingresos_brutos"]),
+                        "telefono": file_data.get('telefono', emisor_data["telefono"])
+                    })
+    except Exception as e:
+        logger.warning(f"No se pudo cargar datos del emisor: {e}")
+    
     # ===== ENCABEZADO =====
-    y = draw_centered("SKAL FAM", y, "Helvetica-Bold", 10)
+    y = draw_centered(emisor_data["nombre_fantasia"], y, "Helvetica-Bold", 10)
     y -= 4 * mm
     
     y = draw_centered(f"CUIT: {factura.cuit_emisor}", y, "Helvetica", 7)
     y -= 3 * mm
     
     y = draw_centered("RESPONSABLE INSCRIPTO", y, "Helvetica", 6)
+    y -= 3 * mm
+    
+    # Dirección del emisor
+    y = draw_centered(emisor_data["direccion"], y, "Helvetica", 6)
+    y -= 3 * mm
+    
+    # Teléfono
+    y = draw_centered(emisor_data["telefono"], y, "Helvetica", 6)
+    y -= 3 * mm
+    
+    # Inicio de actividades
+    y = draw_centered(f"Inicio Act.: {emisor_data['fecha_inicio']}", y, "Helvetica", 6)
+    y -= 3 * mm
+    
+    # Ingresos Brutos
+    y = draw_centered(f"IIBB: {emisor_data['nro_ingresos_brutos']}", y, "Helvetica", 6)
     y -= 3 * mm
     
     y = draw_centered(f"Punto de Venta: {str(factura.punto_venta).zfill(4)}", y, "Helvetica", 7)
@@ -94,8 +221,17 @@ def generar_pdf_comprobante(factura: FacturaElectronica, conceptos: list = None)
     y -= 3 * mm
     
     # ===== TIPO DE COMPROBANTE =====
+    # Determinar el tipo basado en el cliente y el tipo de factura
     tipo_map = {1: "FACTURA A", 6: "FACTURA B", 11: "FACTURA C"}
-    tipo_nombre = tipo_map.get(factura.tipo_comprobante, f"Tipo {factura.tipo_comprobante}")
+    tipo_base = tipo_map.get(factura.tipo_comprobante, f"Tipo {factura.tipo_comprobante}")
+    
+    # Si no es consumidor final (tiene CUIT), mostrar como FACTURA A
+    es_consumidor_final_check = (factura.tipo_doc_receptor == 99 and factura.nro_doc_receptor == 0)
+    if not es_consumidor_final_check and factura.tipo_doc_receptor == 80:  # CUIT
+        tipo_nombre = "FACTURA A"
+    else:
+        tipo_nombre = tipo_base
+    
     y = draw_centered(tipo_nombre, y, "Helvetica-Bold", 11)
     y -= 5 * mm
     
@@ -112,10 +248,89 @@ def generar_pdf_comprobante(factura: FacturaElectronica, conceptos: list = None)
     y -= 3 * mm
     
     # ===== CLIENTE =====
-    tipo_doc_map = {80: "CUIT", 96: "DNI", 99: "CF"}
-    tipo_doc_nombre = tipo_doc_map.get(factura.tipo_doc_receptor, "Doc")
-    y = draw_left(f"{tipo_doc_nombre}: {factura.nro_doc_receptor}", y, "Helvetica", 7)
-    y -= 5 * mm
+    # Determinar si es consumidor final o cliente con datos
+    es_consumidor_final = (factura.tipo_doc_receptor == 99 and factura.nro_doc_receptor == 0)
+    
+    if es_consumidor_final:
+        # Consumidor final
+        y = draw_centered("CLIENTE FINAL", y, "Helvetica-Bold", 8)
+        y -= 5 * mm
+    else:
+        # Cliente con datos específicos - mostrar CUIT/DNI y nombre si está disponible
+        tipo_doc_map = {80: "CUIT", 96: "DNI", 99: "CF"}
+        tipo_doc_nombre = tipo_doc_map.get(factura.tipo_doc_receptor, "Doc")
+        
+        # Mostrar documento
+        y = draw_left(f"{tipo_doc_nombre}: {factura.nro_doc_receptor}", y, "Helvetica", 7)
+        y -= 3 * mm
+        
+        # Intentar obtener nombre del cliente desde múltiples fuentes
+        nombre_cliente = None
+        try:
+            import json
+            
+            # 1. Buscar en raw_response de la factura
+            if factura.raw_response:
+                raw_data = json.loads(factura.raw_response)
+                nombre_cliente = (raw_data.get('cliente_nombre') or 
+                                raw_data.get('nombre_cliente') or 
+                                raw_data.get('razon_social') or
+                                raw_data.get('cliente_data', {}).get('nombre_razon_social'))
+            
+            # 2. Si no se encontró, buscar en Google Sheets usando ingreso_id
+            if not nombre_cliente and factura.ingreso_id:
+                try:
+                    from backend.utils.tablasHandler import TablasHandler
+                    sheets_handler = TablasHandler()
+                    
+                    # Obtener datos del ingreso desde Google Sheets
+                    ingresos_data = sheets_handler.cargar_ingresos()
+                    if ingresos_data:
+                        # Buscar el ingreso por ID
+                        ingreso_encontrado = None
+                        for ingreso in ingresos_data:
+                            if str(ingreso.get('ID Ingresos', '')) == str(factura.ingreso_id):
+                                ingreso_encontrado = ingreso
+                                break
+                        
+                        if ingreso_encontrado:
+                            # Extraer nombre del cliente desde diferentes campos posibles
+                            nombre_cliente = (ingreso_encontrado.get('Razon Social') or 
+                                            ingreso_encontrado.get('cliente') or
+                                            ingreso_encontrado.get('nombre') or
+                                            ingreso_encontrado.get('Cliente'))
+                            
+                            # Extraer CUIT del cliente si está disponible
+                            cuit_cliente = (ingreso_encontrado.get('CUIT') or
+                                          ingreso_encontrado.get('cuit') or
+                                          ingreso_encontrado.get('Cuit') or
+                                          ingreso_encontrado.get('cuit_cliente'))
+                            
+                            logger.info(f"Cliente encontrado en Sheets para ingreso {factura.ingreso_id}: {nombre_cliente}, CUIT: {cuit_cliente}")
+                    
+                except Exception as sheet_error:
+                    logger.warning(f"Error buscando cliente en Google Sheets: {sheet_error}")
+                    
+        except Exception as e:
+            logger.warning(f"Error obteniendo datos del cliente: {e}")
+        
+        if nombre_cliente:
+            # Si el nombre es muy largo, dividirlo en dos líneas
+            if len(nombre_cliente) > 25:
+                y = draw_left(nombre_cliente[:25], y, "Helvetica", 7)
+                y -= 3 * mm
+                y = draw_left(nombre_cliente[25:50], y, "Helvetica", 7)
+                y -= 3 * mm
+            else:
+                y = draw_left(nombre_cliente, y, "Helvetica", 7)
+                y -= 3 * mm
+            
+            # Mostrar CUIT del cliente si está disponible desde Google Sheets
+            if 'cuit_cliente' in locals() and cuit_cliente:
+                y = draw_left(f"CUIT Cliente: {cuit_cliente}", y, "Helvetica", 6)
+                y -= 3 * mm
+        
+        y -= 2 * mm
     
     y = draw_separator(y)
     y -= 3 * mm
@@ -146,7 +361,7 @@ def generar_pdf_comprobante(factura: FacturaElectronica, conceptos: list = None)
             y = draw_left(detalle_linea, y, "Helvetica", 7)
             y -= 4 * mm
     else:
-        y = draw_left("Venta general", y, "Helvetica", 7)
+        y = draw_left("Productos varios", y, "Helvetica", 7)
         y -= 4 * mm
     
     y = draw_separator(y)
@@ -218,8 +433,74 @@ def generar_pdf_comprobante(factura: FacturaElectronica, conceptos: list = None)
                 y -= 2.5 * mm
             y -= 3 * mm
     
+    # ===== CAJERO/VENDEDOR =====
+    # Intentar obtener información del cajero/vendedor desde múltiples fuentes
+    cajero_nombre = None
+    try:
+        import json
+        
+        # 1. Buscar en raw_response de la factura
+        if factura.raw_response:
+            raw_data = json.loads(factura.raw_response)
+            cajero_nombre = (raw_data.get('cajero') or 
+                           raw_data.get('vendedor') or 
+                           raw_data.get('usuario') or
+                           raw_data.get('repartidor') or
+                           raw_data.get('operador'))
+        
+        # 2. Si no se encontró, buscar en Google Sheets usando ingreso_id
+        if not cajero_nombre and factura.ingreso_id:
+            try:
+                from backend.utils.tablasHandler import TablasHandler
+                sheets_handler = TablasHandler()
+                
+                # Obtener datos del ingreso desde Google Sheets
+                ingresos_data = sheets_handler.cargar_ingresos()
+                if ingresos_data:
+                    # Buscar el ingreso por ID
+                    for ingreso in ingresos_data:
+                        if str(ingreso.get('ID Ingresos', '')) == str(factura.ingreso_id):
+                            # Buscar repartidor/cajero en diferentes campos
+                            cajero_nombre = (ingreso.get('Repartidor') or
+                                           ingreso.get('repartidor') or
+                                           ingreso.get('cajero') or
+                                           ingreso.get('vendedor') or
+                                           ingreso.get('operador'))
+                            
+                            if cajero_nombre:
+                                logger.info(f"Cajero encontrado en Sheets para ingreso {factura.ingreso_id}: {cajero_nombre}")
+                            break
+            except Exception as sheet_error:
+                logger.warning(f"Error buscando cajero en Google Sheets: {sheet_error}")
+                
+    except Exception as e:
+        logger.warning(f"Error obteniendo datos del cajero: {e}")
+    
+    if cajero_nombre:
+        y = draw_centered(f"Cajero: {cajero_nombre}", y, "Helvetica", 6)
+        y -= 4 * mm
+    else:
+        # Fallback: mostrar cajero genérico
+        y = draw_centered("Cajero: [Operador]", y, "Helvetica", 6)
+        y -= 4 * mm
+    
     y = draw_separator(y)
     y -= 2 * mm
+    
+    # ===== INFORMACIÓN LEGAL OBLIGATORIA =====
+    y = draw_centered("Defensa del Consumidor", y, "Helvetica-Bold", 6)
+    y -= 2.5 * mm
+    
+    y = draw_centered("0800-333-6634", y, "Helvetica", 6)
+    y -= 4 * mm
+    
+    # Régimen de Transparencia Fiscal (texto dividido en líneas)
+    y = draw_centered("Régimen de Transparencia", y, "Helvetica", 5)
+    y -= 2.5 * mm
+    y = draw_centered("Fiscal al Consumidor", y, "Helvetica", 5)
+    y -= 2.5 * mm
+    y = draw_centered("Ley 27.743", y, "Helvetica", 5)
+    y -= 5 * mm
     
     y = draw_centered("¡Gracias por su compra!", y, "Helvetica-Bold", 7)
     
