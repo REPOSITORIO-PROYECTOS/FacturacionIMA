@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useState } from 'react';
+import { useBoletas } from '@/context/BoletasStore';
 import { LoadingSpinner } from "../../components/LoadingSpinner";
 import { buildInvoiceItem, facturarItems, buildValidItems, getVentaConceptos } from "@/app/lib/facturacion";
 import { useToast } from "@/hooks/useToast";
@@ -181,81 +182,18 @@ export default function BoletasNoFacturadasPage() {
 
     // helper removed (not used)
 
-    const [items, setItems] = useState<BoletaRecord[]>([]);
-    const [loading, setLoading] = useState(true);
-    const [error, setError] = useState('');
+    const { boletasNoFacturadas, loading: storeLoading, error: storeError, reload } = useBoletas();
     const [search, setSearch] = useState('');
     const [fechaDesde, setFechaDesde] = useState<string>('');
     const [fechaHasta, setFechaHasta] = useState<string>('');
-    // Tick para controlar refrescos manuales / programados sin recargar al seleccionar checkboxes
-    const [refreshTick, setRefreshTick] = useState(0);
+    // items provienen del store
+    const items = boletasNoFacturadas ?? [];
+    const loading = storeLoading;
+    const error = storeError ?? '';
 
-    // Cargar boletas y repartidores una sola vez o cuando se solicite refresco explícito
-    useEffect(() => {
-        let cancel = false;
-        (async () => {
-            setLoading(true); setError('');
-            const token = localStorage.getItem('token');
-            if (!token) { if (!cancel) { setError('No autenticado'); setLoading(false); } return; }
-            try {
-                // 🔥 NUEVO: Cargar boletas desde Google Sheets directamente
-                const [resBoletas, resReps] = await Promise.all([
-                    fetch('/api/sheets/boletas?tipo=no-facturadas&limit=300', { headers: { Authorization: `Bearer ${token}` } }),
-                    fetch('/api/boletas/repartidores', { headers: { Authorization: `Bearer ${token}` } })
-                ]);
+    // La carga de boletas ahora la gestiona el BoletasStore (carga inicial + polling cada 60s)
 
-                if (!resBoletas.ok) {
-                    const d: unknown = await resBoletas.json().catch(() => ({}));
-                    let detalle: string | undefined;
-                    if (d && typeof d === 'object' && 'detail' in d) {
-                        const val = (d as Record<string, unknown>).detail;
-                        if (typeof val === 'string') detalle = val; else if (val != null) detalle = JSON.stringify(val);
-                    }
-                    if (!cancel) setError(detalle || 'Error cargando boletas');
-                } else {
-                    let dRaw: unknown;
-                    try { dRaw = await resBoletas.json(); } catch { dRaw = []; }
-                    if (!Array.isArray(dRaw)) {
-                        console.warn('[no-facturadas] Respuesta no es array', dRaw);
-                    } else {
-                        const arr = dRaw as BoletaRecord[];
-                        console.log('[no-facturadas] Boletas recibidas (crudas):', arr.length);
-                        if (arr.length > 0) {
-                            console.log('[no-facturadas] Claves ejemplo primer registro:', Object.keys(arr[0] as Record<string, unknown>));
-                            console.log('[no-facturadas] Estado facturacion primeros 5:', arr.slice(0, 5).map(x => (x as Record<string, unknown>)['facturacion'] || (x as Record<string, unknown>)['Facturacion'] || (x as Record<string, unknown>)['estado'] || (x as Record<string, unknown>)['Estado']));
-                        }
-                        if (!cancel) setItems(arr);
-                    }
-                }
-
-                if (resReps.ok) {
-                    const data = await resReps.json().catch(() => []);
-                    if (Array.isArray(data) && !cancel) {
-                        const map: Record<string, string[]> = {};
-                        for (const row of data) {
-                            const rname = String(row.repartidor || '').trim();
-                            const razones = Array.isArray(row.razones_sociales) ? row.razones_sociales.map(String) : [];
-                            if (rname) map[rname] = razones;
-                        }
-                        setRepartidoresMap(map);
-                    }
-                }
-            } catch {
-                if (!cancel) setError('Error de conexión');
-            } finally {
-                if (!cancel) setLoading(false);
-            }
-        })();
-        return () => { cancel = true; };
-    }, [refreshTick]);
-
-    // Refrescar automáticamente cada 2 minutos (opcional). Se puede ajustar o eliminar.
-    useEffect(() => {
-        const id = setInterval(() => {
-            setRefreshTick(t => t + 1);
-        }, 120000); // 120s
-        return () => clearInterval(id);
-    }, []);
+    // El store hace polling periódicamente; eliminamos el intervalo local
 
     useEffect(() => {
         // reset selection when items change
@@ -458,7 +396,8 @@ export default function BoletasNoFacturadasPage() {
             }
             if (invalid.length > 0) successMsg += ` (Saltadas ${invalid.length})`;
             showSuccess(successMsg);
-            setRefreshTick(t => t + 1);
+            // Recarga manual solicitada: delegar al store
+            reload();
         } catch (error) {
             console.error('❌ Error en facturación múltiple:', error);
             showError('Error durante la facturación múltiple');
@@ -527,7 +466,7 @@ export default function BoletasNoFacturadasPage() {
                             )}
                             {isProcessing ? 'Procesando...' : 'Facturar seleccionadas'}
                         </button>
-                        <button className="px-3 py-2 bg-blue-500 text-white rounded text-xs" onClick={() => setRefreshTick(t => t + 1)}>Refrescar</button>
+                        <button className="px-3 py-2 bg-blue-500 text-white rounded text-xs" onClick={() => reload()}>Refrescar</button>
                         <span className="ml-auto text-[11px] text-gray-500">Mostrando {filteredItems.length} / {itemsNoFacturadas.length}</span>
                     </div>
                     {/* Mobile list */}

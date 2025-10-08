@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useState } from 'react';
+import { useBoletas } from '@/context/BoletasStore';
 // Image import removed because data-URL QR previews use plain <img>
 import { LoadingSpinner } from "../../components/LoadingSpinner";
 import { useToast } from "@/hooks/useToast";
@@ -112,6 +113,7 @@ export default function BoletasFacturadasPage() {
         const key2 = Object.keys(repartidoresMap).find(k => k.toLowerCase().includes(String(repartidor).toLowerCase()) || String(repartidor).toLowerCase().includes(k.toLowerCase()));
         return key2 ? (repartidoresMap[key2] ?? []) : [];
     }
+    const { boletasFacturadas, loading: storeLoading, error: storeError, reload, lastUpdated } = useBoletas();
     const [items, setItems] = useState<BoletaRecord[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
@@ -120,20 +122,12 @@ export default function BoletasFacturadasPage() {
     const [fechaDesde, setFechaDesde] = useState<string>('');
     const [fechaHasta, setFechaHasta] = useState<string>('');
     useEffect(() => {
-        let cancel = false;
-        async function load() {
-            setLoading(true); setError('');
-            const token = localStorage.getItem('token');
-            if (!token) { setError('No autenticado'); setLoading(false); return; }
-            try {
-                const res = await fetch('/api/boletas?tipo=facturadas&skip=0&limit=300', { headers: { Authorization: `Bearer ${token}` } });
-                if (!res.ok) { const d = await res.json().catch(() => ({})); if (!cancel) setError(String(d?.detail || 'Error')); }
-                else { const d = await res.json().catch(() => []); if (!cancel && Array.isArray(d)) setItems(d); }
-            } catch { if (!cancel) setError('Error de conexión'); }
-            finally { if (!cancel) setLoading(false); }
-        }
-        load();
-        // Cargar mapping de repartidores -> razones sociales
+        // Mirror store data to local state
+        setLoading(storeLoading);
+        setError(storeError ?? '');
+        setItems(boletasFacturadas as BoletaRecord[]);
+
+        // Load repartidores mapping independently (unchanged)
         (async function loadRepartidores() {
             try {
                 const token = localStorage.getItem('token');
@@ -153,8 +147,7 @@ export default function BoletasFacturadasPage() {
                 // no bloquear la carga de boletas si falla esta llamada
             }
         })();
-        return () => { cancel = true; };
-    }, []);
+    }, [boletasFacturadas, storeLoading, storeError]);
 
     // Restaurar/persistir fechas
     useEffect(() => {

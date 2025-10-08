@@ -1,5 +1,7 @@
 "use client";
+// 
 import React, { useEffect, useMemo, useState, useCallback } from "react";
+import { useBoletas } from "@/context/BoletasStore";
 import Link from "next/link";
 import type { Boleta } from "@/types/boleta";
 import { buildInvoiceItem, facturarItems } from "@/app/lib/facturacion";
@@ -155,8 +157,7 @@ export default function DashboardPage() {
   // Filtrado de listas de resumen
   const [filtroFacturadas, setFiltroFacturadas] = useState("");
   const [filtroNoFacturadas, setFiltroNoFacturadas] = useState("");
-  const [boletasFacturadas, _setBoletasFacturadas] = useState<Boleta[]>([]);
-  const [boletasNoFacturadas, _setBoletasNoFacturadas] = useState<Boleta[]>([]);
+  const { boletasFacturadas, boletasNoFacturadas, loading: storeLoading, reload } = useBoletas();
   const [cargando, setCargando] = useState(false);
   const [mostrarTodasFacturadas, setMostrarTodasFacturadas] = useState(false);
   const [mostrarTodasNoFacturadas, setMostrarTodasNoFacturadas] = useState(false);
@@ -334,37 +335,10 @@ export default function DashboardPage() {
   const sumaFacturadas = useMemo(() => boletasFacturadas.reduce((acc, b) => acc + parseMonto(b.total ?? b["INGRESOS"]), 0), [boletasFacturadas]);
   const sumaNoFacturadas = useMemo(() => boletasNoFacturadas.reduce((acc, b) => acc + parseMonto(b.total ?? b["INGRESOS"]), 0), [boletasNoFacturadas]);
 
-  // Carga de datos para Admin (y para cualquier usuario con token válido)
+  // Usar datos del store
   useEffect(() => {
-    if (!token) return;
-    let cancelado = false;
-    const headers = { Authorization: `Bearer ${token}` } as Record<string, string>;
-    const cargar = async () => {
-      try {
-        setCargando(true);
-        const [nfRes, fRes] = await Promise.all([
-          fetch(`/api/boletas?tipo=no-facturadas&limit=300`, { headers }),
-          fetch(`/api/boletas?tipo=facturadas&limit=300`, { headers })
-        ]);
-        const [nfData, fData] = await Promise.all([
-          nfRes.json().catch(() => ([])),
-          fRes.json().catch(() => ([]))
-        ]);
-        if (cancelado) return;
-        // Aceptar tanto forma de array directo como {items: []}
-        const arrNF = Array.isArray(nfData) ? nfData : (Array.isArray(nfData?.items) ? nfData.items : []);
-        const arrF = Array.isArray(fData) ? fData : (Array.isArray(fData?.items) ? fData.items : []);
-        _setBoletasNoFacturadas(arrNF as Boleta[]);
-        _setBoletasFacturadas(arrF as Boleta[]);
-      } catch {
-        // Silencio: la tarjeta ya avisa si no hay data
-      } finally {
-        if (!cancelado) setCargando(false);
-      }
-    };
-    cargar();
-    return () => { cancelado = true; };
-  }, [token]);
+    setCargando(storeLoading);
+  }, [storeLoading]);
 
   // Restaurar filtros de fecha desde localStorage
   useEffect(() => {
@@ -823,8 +797,8 @@ export default function DashboardPage() {
                               // Mostrar resumen simple
                               const okCount = Array.isArray(data) ? data.filter((r) => (r as { ok?: boolean }).ok !== false).length : 0;
                               toast.success(`Lote procesado`, `Éxitos: ${okCount} / ${seleccion.length}`);
-                              // Refrescar datos
-                              window.location.reload();
+                              // Refrescar datos desde store
+                              reload();
                             } catch {
                               toast.error('Error de conexión al facturar en lote');
                             }
@@ -924,8 +898,9 @@ export default function DashboardPage() {
                             return;
                           }
                           const okCount = Array.isArray(data) ? data.filter((r) => (r as { ok?: boolean }).ok !== false).length : seleccion.length;
-                          toast.success(`Lote procesado`, `Éxitos: ${okCount} / ${seleccion.length}`);
-                          window.location.reload();
+                              toast.success(`Lote procesado`, `Éxitos: ${okCount} / ${seleccion.length}`);
+                              // Refresh data via store instead of full reload
+                              reload();
                         } catch {
                           toast.error('Error de conexión al facturar seleccionadas');
                         }

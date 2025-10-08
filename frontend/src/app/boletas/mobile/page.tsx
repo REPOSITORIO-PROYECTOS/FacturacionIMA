@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useState, useMemo } from 'react';
+import { useBoletas } from '@/context/BoletasStore';
 
 type Tipo = 'facturadas' | 'no-facturadas';
 
@@ -20,30 +21,19 @@ import Navbar from '../../components/Navbar';
 
 export default function BoletasMobilePage() {
     const [tipo, setTipo] = useState<Tipo>('no-facturadas');
+    const { boletasFacturadas, boletasNoFacturadas, loading: storeLoading, error: storeError, reload, lastUpdated } = useBoletas();
     const [items, setItems] = useState<BoletaRecord[]>([]);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
 
     useEffect(() => {
-        let cancel = false;
-        async function load() {
-            setLoading(true); setError('');
-            try {
-                const res = await fetch(`/api/boletas?tipo=${tipo}&skip=0&limit=250`);
-                if (!res.ok) {
-                    const d: unknown = await res.json().catch(() => ({}));
-                    const detail = (typeof d === 'object' && d && 'detail' in d) ? (d as { detail: unknown }).detail : undefined;
-                    if (!cancel) setError(String(detail ?? 'Error'));
-                } else {
-                    const d = await res.json().catch(() => []);
-                    if (!cancel && Array.isArray(d)) setItems(d);
-                }
-            } catch { if (!cancel) setError('Error de conexión'); }
-            finally { if (!cancel) setLoading(false); }
-        }
-        load();
-        return () => { cancel = true; };
-    }, [tipo]);
+        // Mirror store lists into local items depending on selected tipo
+        setLoading(storeLoading);
+        setError(storeError ?? '');
+        if (tipo === 'no-facturadas') setItems(boletasNoFacturadas as BoletaRecord[]);
+        else setItems(boletasFacturadas as BoletaRecord[]);
+        // Keep in sync if store updates
+    }, [tipo, boletasFacturadas, boletasNoFacturadas, storeLoading, storeError]);
 
     const resumidos = useMemo(() => items.map((b, i) => {
         const rawTotal = b.total || b.INGRESOS || '';
@@ -61,10 +51,16 @@ export default function BoletasMobilePage() {
             <Navbar />
             <main className="flex-1 md:ml-64 p-3 space-y-4">
                 <div className="flex items-center justify-between">
-                    <h1 className="text-lg font-bold text-purple-700">Boletas {tipo === 'no-facturadas' ? 'Pendientes' : 'Facturadas'}</h1>
-                    <div className="flex gap-2">
-                        <button onClick={() => setTipo('no-facturadas')} className={`px-3 py-1 rounded text-sm font-medium border ${tipo === 'no-facturadas' ? 'bg-purple-600 text-white border-purple-600' : 'bg-white text-purple-600 border-purple-300'}`}>Pendientes</button>
-                        <button onClick={() => setTipo('facturadas')} className={`px-3 py-1 rounded text-sm font-medium border ${tipo === 'facturadas' ? 'bg-purple-600 text-white border-purple-600' : 'bg-white text-purple-600 border-purple-300'}`}>Facturadas</button>
+                    <div>
+                        <h1 className="text-lg font-bold text-purple-700">Boletas {tipo === 'no-facturadas' ? 'Pendientes' : 'Facturadas'}</h1>
+                        {lastUpdated && <div className="text-xs text-gray-500">Última actualización: {new Date(lastUpdated).toLocaleString()}</div>}
+                    </div>
+                    <div className="flex gap-2 items-center">
+                        <div className="flex gap-2">
+                            <button onClick={() => setTipo('no-facturadas')} className={`px-3 py-1 rounded text-sm font-medium border ${tipo === 'no-facturadas' ? 'bg-purple-600 text-white border-purple-600' : 'bg-white text-purple-600 border-purple-300'}`}>Pendientes</button>
+                            <button onClick={() => setTipo('facturadas')} className={`px-3 py-1 rounded text-sm font-medium border ${tipo === 'facturadas' ? 'bg-purple-600 text-white border-purple-600' : 'bg-white text-purple-600 border-purple-300'}`}>Facturadas</button>
+                        </div>
+                        <button onClick={() => reload()} className="px-3 py-1 rounded text-sm bg-gray-100 border">Actualizar</button>
                     </div>
                 </div>
 
