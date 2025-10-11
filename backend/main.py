@@ -4,7 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from backend import config # (y otros que necesites)
 from backend.utils.mysql_handler import get_db_connection
-from backend.app.blueprints import auth_router, boletas, facturador, tablas, afip, setup, usuarios, impresion, ventas_detalle, comprobantes, sheets_boletas
+from backend.app.blueprints import auth_router, boletas, facturador, tablas, afip, setup, usuarios, impresion, ventas_detalle, comprobantes, sheets_boletas, admin_empresa  # NUEVO: administración global de empresas
 
 app = FastAPI(
     title="API Facturacion IMA",
@@ -133,3 +133,7 @@ def healthz():
         "database": db_ok,
         "google_sheets": bool(config.GOOGLE_SHEET_ID),
     }
+
+# Al final del montaje de routers:
+if admin_empresa:
+    app.include_router(admin_empresa.router)

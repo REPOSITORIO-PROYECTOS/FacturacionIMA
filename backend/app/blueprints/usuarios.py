@@ -5,7 +5,7 @@ from sqlmodel import Session, select
 
 from backend.database import get_db
 from backend.modelos import Usuario, Rol, Empresa
-from backend.security import get_password_hash
+from backend.security import obtener_usuario_actual, get_password_hash
 
 router = APIRouter(prefix="/usuarios", tags=["Usuarios (MySQL)"])
 
@@ -36,8 +36,8 @@ def _get_or_create_rol(db: Session, nombre: str) -> Rol:
 
 
 @router.get("/")
-def listar_usuarios(db: Session = Depends(get_db)):
-    rows = db.exec(select(Usuario)).all()
+def listar_usuarios(db: Session = Depends(get_db), usuario_actual: Usuario = Depends(obtener_usuario_actual)):
+    rows = db.exec(select(Usuario).where(Usuario.id_empresa == usuario_actual.id_empresa)).all()
     roles_map = {r.id: r.nombre for r in db.exec(select(Rol)).all()}
     return [
         {
@@ -52,18 +52,13 @@ def listar_usuarios(db: Session = Depends(get_db)):
 
 
 @router.post("/", status_code=201)
-def crear_usuario(data: UsuarioCreate, db: Session = Depends(get_db)):
+def crear_usuario(data: UsuarioCreate, db: Session = Depends(get_db), usuario_actual: Usuario = Depends(obtener_usuario_actual)):
     username = data.username.strip()
     if db.exec(select(Usuario).where(Usuario.nombre_usuario == username)).first():
         raise HTTPException(status_code=400, detail="Usuario ya existe")
     rol = _get_or_create_rol(db, data.rol)
-    # Empresa: si no se especifica, tomar primera.
-    id_empresa = data.id_empresa
-    if id_empresa is None:
-        emp = db.exec(select(Empresa)).first()
-        if not emp:
-            raise HTTPException(status_code=400, detail="No hay empresas registradas")
-        id_empresa = emp.id
+    # Empresa: si no se especifica, usar la del usuario actual.
+    id_empresa = data.id_empresa or usuario_actual.id_empresa
     nuevo = Usuario(
         nombre_usuario=username,
         password_hash=get_password_hash(data.password),
@@ -77,8 +72,8 @@ def crear_usuario(data: UsuarioCreate, db: Session = Depends(get_db)):
 
 
 @router.put("/{username}")
-def actualizar_usuario(username: str, data: UsuarioUpdate, db: Session = Depends(get_db)):
-    u = db.exec(select(Usuario).where(Usuario.nombre_usuario == username)).first()
+def actualizar_usuario(username: str, data: UsuarioUpdate, db: Session = Depends(get_db), usuario_actual: Usuario = Depends(obtener_usuario_actual)):
+    u = db.exec(select(Usuario).where(Usuario.nombre_usuario == username, Usuario.id_empresa == usuario_actual.id_empresa)).first()
     if not u:
         raise HTTPException(status_code=404, detail="Usuario no encontrado")
     changed = False
@@ -108,8 +103,8 @@ def actualizar_usuario(username: str, data: UsuarioUpdate, db: Session = Depends
 
 
 @router.post("/{username}/desactivar")
-def desactivar_usuario(username: str, db: Session = Depends(get_db)):
-    u = db.exec(select(Usuario).where(Usuario.nombre_usuario == username)).first()
+def desactivar_usuario(username: str, db: Session = Depends(get_db), usuario_actual: Usuario = Depends(obtener_usuario_actual)):
+    u = db.exec(select(Usuario).where(Usuario.nombre_usuario == username, Usuario.id_empresa == usuario_actual.id_empresa)).first()
     if not u:
         raise HTTPException(status_code=404, detail="Usuario no encontrado")
     u.activo = False
@@ -119,14 +114,14 @@ def desactivar_usuario(username: str, db: Session = Depends(get_db)):
 
 
 @router.post("/rename-batch")
-def rename_batch(payload: List[dict] = Body(...), db: Session = Depends(get_db)):
+def rename_batch(payload: List[dict] = Body(...), db: Session = Depends(get_db), usuario_actual: Usuario = Depends(obtener_usuario_actual)):
     resultados = []
     for item in payload:
         origen = (item.get("origen") or "").strip()
         if not origen:
             resultados.append({"origen": origen, "ok": False, "detail": "Falta origen"})
             continue
-        u = db.exec(select(Usuario).where(Usuario.nombre_usuario == origen)).first()
+        u = db.exec(select(Usuario).where(Usuario.nombre_usuario == origen, Usuario.id_empresa == usuario_actual.id_empresa)).first()
         if not u:
             resultados.append({"origen": origen, "ok": False, "detail": "No existe"})
             continue
