@@ -4,6 +4,17 @@ from backend.modelos import Empresa, ConfiguracionEmpresa, AfipCredencial
 from backend.database import get_db
 from backend.security import obtener_usuario_actual
 from typing import List, Optional
+from pydantic import BaseModel
+
+# Modelo de respuesta para la lista de empresas
+class EmpresaAdminInfo(BaseModel):
+    id: int
+    nombre_legal: str
+    cuit: str
+    activa: bool
+    afip_configurada: bool
+    condicion_iva: Optional[str] = None
+    punto_venta: Optional[int] = None
 
 router = APIRouter(prefix="/admin/empresas", tags=["admin-empresas"])
 
@@ -12,18 +23,32 @@ def es_admin(usuario) -> bool:
     return usuario.rol and usuario.rol.nombre.lower() in ["admin", "administrador"]
 
 # --- Endpoint: Listar empresas ---
-@router.get("/", response_model=List[Empresa])
+@router.get("/", response_model=List[EmpresaAdminInfo])
 def listar_empresas(
     usuario_actual = Depends(obtener_usuario_actual),
     db: Session = Depends(get_db)
 ):
     if es_admin(usuario_actual):
-        # Admin puede ver todas las empresas
-        return db.exec(select(Empresa)).all()
+        empresas = db.exec(select(Empresa)).all()
+        response_data = []
+        for empresa in empresas:
+            config = db.exec(select(ConfiguracionEmpresa).where(ConfiguracionEmpresa.id_empresa == empresa.id)).first()
+            credencial = db.exec(select(AfipCredencial).where(AfipCredencial.cuit == empresa.cuit)).first()
+            
+            info = EmpresaAdminInfo(
+                id=empresa.id,
+                nombre_legal=empresa.nombre_legal,
+                cuit=empresa.cuit,
+                activa=empresa.activa,
+                afip_configurada=bool(credencial and credencial.certificado_pem and credencial.clave_privada_pem),
+                condicion_iva=config.afip_condicion_iva if config else None,
+                punto_venta=config.afip_punto_venta_predeterminado if config else None
+            )
+            response_data.append(info)
+        return response_data
     else:
-        # Usuario normal solo ve su empresa
-        empresa = db.get(Empresa, usuario_actual.id_empresa)
-        return [empresa] if empresa else []
+        # Para usuarios no admin, devolvemos una lista vacía o su propia empresa con formato similar
+        return []
 
 # --- Endpoint: Obtener empresa por ID ---
 @router.get("/{empresa_id}", response_model=Empresa)

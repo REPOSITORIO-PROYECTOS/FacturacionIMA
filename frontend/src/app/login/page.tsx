@@ -105,7 +105,12 @@ function LoginPageInner() {
         const from = searchParams.get('from');
         const isMobile = typeof window !== 'undefined' && window.innerWidth < 768;
         const fallback = isMobile ? '/inicio' : '/dashboard';
-        const target = (from && from.startsWith('/') && !from.startsWith('/login')) ? from : fallback;
+        let target = (from && from.startsWith('/') && !from.startsWith('/login')) ? from : fallback;
+
+        // Redirección especial para el usuario AdminFacturacion
+        if (email === "AdminFacturacion") {
+          target = "/admin/empresas";
+        }
 
         // Recargar la página automáticamente después del login exitoso
         setTimeout(() => {
