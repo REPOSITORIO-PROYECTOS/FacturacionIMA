@@ -1,13 +1,6 @@
 "use client";
 import { useState, useEffect } from "react";
 
-interface CertificadoEstado {
-    cuit: string;
-    estado: 'sin_generar' | 'pendiente' | 'completo';
-    mensaje: string;
-    tiene_clave?: boolean;
-}
-
 interface ConfiguracionEmisor {
     cuit_empresa: string;
     razon_social: string;
@@ -17,6 +10,7 @@ interface ConfiguracionEmisor {
     direccion?: string;
     telefono?: string;
     email?: string;
+    google_sheet_id?: string;
     existe?: boolean;
 }
 
@@ -41,7 +35,6 @@ export default function AFIPPage() {
     const [razonSocial, setRazonSocial] = useState("");
     const [certificadoPem, setCertificadoPem] = useState("");
     const [archivoCompleto, setArchivoCompleto] = useState<File | null>(null);
-    const [certificados, setCertificados] = useState<CertificadoEstado[]>([]);
     const [loading, setLoading] = useState(false);
     const [mensaje, setMensaje] = useState("");
     const [tipoOperacion, setTipoOperacion] = useState<"generar" | "subir" | "archivo" | "configurar">("configurar");
@@ -55,14 +48,14 @@ export default function AFIPPage() {
         punto_venta: 1,
         direccion: "",
         telefono: "",
-        email: ""
+        email: "",
+        google_sheet_id: ""
     });
     const [condicionesIVA, setCondicionesIVA] = useState<CondicionIVA[]>([]);
     const [userMe, setUserMe] = useState<UserMe | null>(null);
     const [autoLoaded, setAutoLoaded] = useState(false); // evita dobles cargas
 
     useEffect(() => {
-        cargarCertificados();
         cargarCondicionesIVA();
     }, []);
 
@@ -168,21 +161,6 @@ export default function AFIPPage() {
         }
     };
 
-    const cargarCertificados = async () => {
-        try {
-            const token = localStorage.getItem("token");
-            const res = await fetch("/api/afip", {
-                headers: { Authorization: `Bearer ${token}` }
-            });
-            if (res.ok) {
-                const data = await res.json();
-                setCertificados(data.certificados || []);
-            }
-        } catch {
-            console.error("Error cargando certificados");
-        }
-    };
-
     const generarCSR = async () => {
         if (!cuit || !razonSocial) {
             setMensaje("❌ Complete CUIT y Razón Social");
@@ -218,7 +196,6 @@ export default function AFIPPage() {
                 document.body.removeChild(a);
 
                 setMensaje("✅ CSR generado y descargado. Ahora ve a AFIP para obtener el certificado.");
-                cargarCertificados();
             } else {
                 const error = await res.json();
                 setMensaje(`❌ Error: ${error.detail}`);
@@ -257,7 +234,6 @@ export default function AFIPPage() {
             if (res.ok) {
                 setMensaje(`✅ ${data.message}`);
                 setCertificadoPem("");
-                cargarCertificados();
             } else {
                 setMensaje(`❌ Error: ${data.detail}`);
             }
@@ -298,7 +274,6 @@ export default function AFIPPage() {
             if (res.ok) {
                 setMensaje(`✅ ${data.message}`);
                 setArchivoCompleto(null);
-                cargarCertificados();
             } else {
                 setMensaje(`❌ Error: ${data.detail}`);
             }
@@ -597,45 +572,23 @@ export default function AFIPPage() {
                 {/* Lista de certificados */}
                 <div className="bg-white rounded-lg shadow p-6">
                     <div className="flex justify-between items-center mb-4">
-                        <h3 className="text-lg font-semibold">📋 Certificados existentes</h3>
-                        <button
-                            onClick={cargarCertificados}
-                            className="text-blue-600 hover:text-blue-800 text-sm"
-                        >
-                            🔄 Actualizar
-                        </button>
+                        <h3 className="text-lg font-semibold">📋 Configuración de Google Sheets</h3>
+                        <p className="text-sm text-gray-600">Configure el enlace de su Google Sheet para almacenar las boletas</p>
                     </div>
 
-                    {certificados.length === 0 ? (
-                        <p className="text-gray-500 text-center py-4">No hay certificados configurados</p>
-                    ) : (
-                        <div className="space-y-3">
-                            {certificados.map((cert, idx) => (
-                                <div key={idx} className="border rounded p-4 flex justify-between items-center">
-                                    <div>
-                                        <div className="font-medium">CUIT: {cert.cuit}</div>
-                                        <div className="text-sm text-gray-600">{cert.mensaje}</div>
-                                    </div>
-                                    <div className="flex items-center gap-2">
-                                        <span className={`px-2 py-1 rounded text-xs font-medium ${cert.estado === 'completo' ? 'bg-green-100 text-green-800' :
-                                            cert.estado === 'pendiente' ? 'bg-yellow-100 text-yellow-800' :
-                                                'bg-gray-100 text-gray-800'
-                                            }`}>
-                                            {cert.estado === 'completo' ? '✅ Completo' :
-                                                cert.estado === 'pendiente' ? '⏳ Pendiente' :
-                                                    '❌ Sin generar'}
-                                        </span>
-                                        <button
-                                            onClick={() => verificarEstado(cert.cuit)}
-                                            className="text-blue-600 hover:text-blue-800 text-sm"
-                                        >
-                                            🔍 Verificar
-                                        </button>
-                                    </div>
-                                </div>
-                            ))}
+                    <div className="space-y-4">
+                        <div>
+                            <label className="block text-sm font-medium mb-2">ID del Google Sheet</label>
+                            <input
+                                type="text"
+                                value={configuracionEmisor.google_sheet_id || ""}
+                                onChange={(e) => setConfiguracionEmisor({ ...configuracionEmisor, google_sheet_id: e.target.value })}
+                                placeholder="Ej: 1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms"
+                                className="w-full p-2 border rounded"
+                            />
+                            <p className="text-xs text-gray-500 mt-1">ID del Google Sheet donde se almacenan las boletas de esta empresa</p>
                         </div>
-                    )}
+                    </div>
                 </div>
             </div>
         </div>

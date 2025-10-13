@@ -55,10 +55,11 @@ export default function EmpresasAdminPage() {
     <div className="p-6">
       <div className="flex justify-between items-center mb-4">
         <h1 className="text-2xl font-bold">Administración de Empresas</h1>
-        {/* Botón para crear nueva empresa (lo implementaremos después) */}
-        <button className="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700">
-          + Crear Nueva Empresa
-        </button>
+        <Link href="/admin/empresas/crear">
+          <button className="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700">
+            + Crear Nueva Empresa
+          </button>
+        </Link>
       </div>
       <div className="overflow-x-auto">
         <table className="min-w-full border bg-white">
@@ -68,9 +69,9 @@ export default function EmpresasAdminPage() {
               <th className="border px-4 py-2">Nombre Legal</th>
               <th className="border px-4 py-2">CUIT</th>
               <th className="border px-4 py-2">Activa</th>
-              <th className="border px-4 py-2">Credenciales AFIP</th>
+              <th className="border px-4 py-2">AFIP</th>
               <th className="border px-4 py-2">Condición IVA</th>
-              <th className="border px-4 py-2">Punto Venta</th>
+              <th className="border px-4 py-2">Punto de Venta</th>
               <th className="border px-4 py-2">Acciones</th>
             </tr>
           </thead>

@@ -15,8 +15,8 @@ datos_clientes: List[Dict] = []
 
 
 class TablasHandler:
-    def __init__(self):
-        self.google_sheet_id = GOOGLE_SHEET_ID
+    def __init__(self, google_sheet_id=None):
+        self.google_sheet_id = google_sheet_id or GOOGLE_SHEET_ID
         self.client = self._init_client()
 
     def _init_client(self) -> Optional[gspread.Client]:

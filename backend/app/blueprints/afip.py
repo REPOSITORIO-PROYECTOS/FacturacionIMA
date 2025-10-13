@@ -35,6 +35,7 @@ class ConfiguracionEmisorRequest(BaseModel):
     direccion: Optional[str] = None
     telefono: Optional[str] = None
     email: Optional[str] = None
+    google_sheet_id: Optional[str] = None
 
 @router.post("/generar-csr")
 async def generar_csr_endpoint(request: GenerarCSRRequest):
@@ -148,7 +149,8 @@ async def configurar_emisor_endpoint(request: ConfiguracionEmisorRequest, db: Se
             punto_venta=request.punto_venta,
             direccion=request.direccion,
             telefono=request.telefono,
-            email=request.email
+            email=request.email,
+            google_sheet_id=request.google_sheet_id
         )
         # Persistir / actualizar AfipEmisorEmpresa si existe Empresa con ese CUIT
         try:
@@ -180,6 +182,21 @@ async def configurar_emisor_endpoint(request: ConfiguracionEmisorRequest, db: Se
                 db.commit(); db.refresh(emisor)
                 resultado['persistido_bd'] = True
                 resultado['emisor_empresa_id'] = emisor.id
+                
+                # Actualizar ConfiguracionEmpresa con Google Sheets si se proporcionó
+                if request.google_sheet_id:
+                    from backend.modelos import ConfiguracionEmpresa
+                    config = db.exec(select(ConfiguracionEmpresa).where(ConfiguracionEmpresa.id_empresa == empresa.id)).first()
+                    if config:
+                        config.link_google_sheets = request.google_sheet_id
+                    else:
+                        config = ConfiguracionEmpresa(
+                            cuit=empresa.cuit,
+                            id_empresa=empresa.id,
+                            link_google_sheets=request.google_sheet_id
+                        )
+                        db.add(config)
+                    db.commit()
             else:
                 resultado['persistido_bd'] = False
                 resultado['motivo_no_bd'] = 'Empresa con ese CUIT no encontrada en tabla empresas'

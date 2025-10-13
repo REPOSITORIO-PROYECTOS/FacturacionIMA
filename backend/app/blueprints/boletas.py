@@ -14,6 +14,7 @@ from io import BytesIO
 from backend.utils import afip_tools_manager  # nuevo para debug credenciales
 from backend.utils.afipTools import _resolve_afip_credentials, preflight_afip_credentials  # type: ignore
 from backend.utils.afipTools import generar_factura_para_venta, ReceptorData  # para test de contrato
+from backend.modelos import ConfiguracionEmpresa
 try:
     from weasyprint import HTML  # type: ignore
     from PIL import Image  # type: ignore
@@ -43,6 +44,35 @@ def _get_username(user) -> str:
         or getattr(user, 'email', None)
         or ''
     )
+
+def _get_handler_for_user(user) -> TablasHandler:
+    """Obtiene el handler de boletas para la empresa del usuario."""
+    from backend.database import get_db
+    from sqlmodel import select
+    
+    try:
+        db = next(get_db())
+        # Obtener la configuración de la empresa del usuario
+        configuracion = db.exec(
+            select(ConfiguracionEmpresa).where(ConfiguracionEmpresa.id_empresa == user.id_empresa)
+        ).first()
+        
+        # Extraer el ID del Google Sheet del enlace (si es un enlace completo)
+        google_sheet_id = None
+        if configuracion and configuracion.link_google_sheets:
+            link = configuracion.link_google_sheets.strip()
+            # Si es un enlace completo, extraer el ID
+            if '/d/' in link and '/edit' in link:
+                google_sheet_id = link.split('/d/')[1].split('/')[0]
+            else:
+                # Asumir que es directamente el ID
+                google_sheet_id = link
+        
+        return TablasHandler(google_sheet_id=google_sheet_id)
+    except Exception as e:
+        print(f"Error obteniendo handler para usuario {user.nombre_usuario}: {e}")
+        # Fallback al handler global
+        return TablasHandler()
 
 # Endpoint universal para /boletas?tipo=...
 @router.get("")
@@ -80,6 +110,7 @@ async def obtener_boletas_tipo(request: Request, tipo: Optional[str] = None, ski
                             pass
                     conn.close()
         elif tipo == "no-facturadas":
+            handler = _get_handler_for_user(usuario_actual)
             todas_las_boletas = handler.cargar_ingresos()
             # Filtrar por estado 'falta facturar' (tolerante a mayúsculas / espacios)
             boletas_filtradas = []
@@ -117,8 +148,6 @@ async def obtener_boletas_tipo(request: Request, tipo: Optional[str] = None, ski
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Ocurrió un error inesperado al obtener boletas: {e}")
 
-handler = TablasHandler() 
-
 @router.get("/obtener-todas", response_model=List[Dict[str, Any]])
 def traer_todas_las_boletas(skip: int = 0, limit: int = 20):
 
@@ -142,6 +171,7 @@ def traer_boletas_no_facturadas(
     por repartidor asociado al usuario (fuzzy match o comparación case-insensitive).
     """
     try:
+        handler = _get_handler_for_user(usuario_actual)
         todas_las_boletas = handler.cargar_ingresos()
         boletas_filtradas = []
         for bo in todas_las_boletas:
@@ -223,6 +253,7 @@ def traer_todas_por_repartidor(
         username = _get_username(usuario_actual)
         if _is_admin(usuario_actual):   # si es admin le mando todas
             try:
+                handler = _get_handler_for_user(usuario_actual)
                 todas_las_boletas = handler.cargar_ingresos()
 
                 return todas_las_boletas[skip : skip + limit]
@@ -234,6 +265,7 @@ def traer_todas_por_repartidor(
         if not username:
             raise HTTPException(status_code=400, detail="No se pudo obtener el nombre de usuario.")
 
+        handler = _get_handler_for_user(usuario_actual)
         todas_las_boletas = handler.cargar_ingresos()
         boletas_del_repartidor = []
 
@@ -267,6 +299,7 @@ def traer_todas_por_razon_social(
     try:
         if _is_admin(usuario_actual):
             try:
+                handler = _get_handler_for_user(usuario_actual)
                 todas_las_boletas = handler.cargar_ingresos()
                 return todas_las_boletas[skip : skip + limit]
             except Exception as e:
@@ -276,6 +309,7 @@ def traer_todas_por_razon_social(
         if not razon_social_buscada:
             raise HTTPException(status_code=400, detail="La razón social no puede estar vacía.")
 
+        handler = _get_handler_for_user(usuario_actual)
         todas_las_boletas = handler.cargar_ingresos()
         boletas_encontradas = []
 
@@ -309,6 +343,7 @@ def traer_todas_por_dia(
     try:
         if _is_admin(usuario_actual):
             try:
+                handler = _get_handler_for_user(usuario_actual)
                 todas_las_boletas = handler.cargar_ingresos()
                 return todas_las_boletas[skip : skip + limit]
             except Exception as e:
@@ -324,6 +359,7 @@ def traer_todas_por_dia(
         except ValueError:
             raise HTTPException(status_code=400, detail="El formato de fecha es inválido. Por favor, usa AAAA-MM-DD.")
 
+        handler = _get_handler_for_user(usuario_actual)
         todas_las_boletas = handler.cargar_ingresos()
         boletas_del_dia = []
 
@@ -372,6 +408,7 @@ def listar_repartidores(
     try:
         # Aseguramos obtener el nombre de usuario sin asumir que es un dict
         username = _get_username(usuario_actual)
+        handler = _get_handler_for_user(usuario_actual)
         todas_las_boletas = handler.cargar_ingresos()
 
         # Construir mapping repartidor -> set(razon social)
@@ -423,6 +460,7 @@ def debug_no_facturadas(usuario_actual = Depends(obtener_usuario_actual)):
     No dejar en producción permanente; usar para verificar por qué front no recibe datos.
     """
     try:
+        handler = _get_handler_for_user(usuario_actual)
         todas = handler.cargar_ingresos()
         estados = []
         no_fact = []
@@ -459,6 +497,7 @@ def resumen_no_facturadas(usuario_actual = Depends(obtener_usuario_actual)):
     - No admin: sólo su repartidor (fuzzy) como en la lógica previa.
     """
     try:
+        handler = _get_handler_for_user(usuario_actual)
         todas = handler.cargar_ingresos()
         # Filtrar no facturadas
         no_fact = []
@@ -747,6 +786,7 @@ def imprimir_html_por_ingreso(
     Busca en los ingresos cargados por `TablasHandler` y, si no lo encuentra, devuelve 404.
     """
     try:
+        handler = _get_handler_for_user(usuario_actual)
         todas = handler.cargar_ingresos()
         target = None
         # Normalizar función para comparaciones tolerantes
@@ -835,7 +875,7 @@ def imprimir_html_por_ingreso_post(
 
 # ===================== FUNCIONES PARA GENERAR IMAGEN (PNG / JPG) =====================
 
-def _buscar_boleta_por_ingreso(ingreso_id: str) -> Optional[Dict[str, Any]]:
+def _buscar_boleta_por_ingreso(ingreso_id: str, handler: TablasHandler) -> Optional[Dict[str, Any]]:
     try:
         todas = handler.cargar_ingresos()
     except Exception:
@@ -890,7 +930,8 @@ def _render_ticket_image(html: str, formato: str = 'jpg') -> bytes:
 
 
 def imprimir_imagen_por_ingreso(ingreso_id: str, usuario_actual, formato: str = 'jpg'):
-    boleta = _buscar_boleta_por_ingreso(ingreso_id)
+    handler = _get_handler_for_user(usuario_actual)
+    boleta = _buscar_boleta_por_ingreso(ingreso_id, handler)
     if not boleta:
         raise HTTPException(status_code=404, detail='Boleta no encontrada')
     # Autorización si no es admin
@@ -916,7 +957,8 @@ def imprimir_imagen_por_ingreso(ingreso_id: str, usuario_actual, formato: str = 
 
 
 def facturar_e_imprimir_img(ingreso_id: str, usuario_actual, formato: str = 'jpg', tipo_forzado: int | None = None, punto_venta_override: int | None = None):
-    boleta = _buscar_boleta_por_ingreso(ingreso_id)
+    handler = _get_handler_for_user(usuario_actual)
+    boleta = _buscar_boleta_por_ingreso(ingreso_id, handler)
     if not boleta:
         raise HTTPException(status_code=404, detail='Boleta no encontrada')
     afip_row = _buscar_factura_db(ingreso_id)
@@ -1045,7 +1087,8 @@ def preview_facturacion(ingreso_id: str, tipo_forzado: int | None = None, punto_
     """Devuelve el payload que se intentaría facturar (sin llamar AFIP) para diagnóstico.
     Permite revisar: total, documento, condicion IVA, emisor_cuit, overrides.
     """
-    boleta = _buscar_boleta_por_ingreso(ingreso_id)
+    handler = _get_handler_for_user(usuario_actual)
+    boleta = _buscar_boleta_por_ingreso(ingreso_id, handler)
     if not boleta:
         raise HTTPException(status_code=404, detail='Boleta no encontrada')
     # Reutilizamos lógica de parsing (duplicada mínima para no ejecutar facturación)

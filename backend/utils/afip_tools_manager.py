@@ -145,7 +145,7 @@ def procesar_archivo_certificado_completo(cuit: str, archivo_contenido: str) -> 
 
 def guardar_configuracion_emisor(cuit_empresa: str, razon_social: str, nombre_fantasia: str = None, 
                                 condicion_iva: str = "RESPONSABLE_INSCRIPTO", punto_venta: int = 1,
-                                direccion: str = None, telefono: str = None, email: str = None) -> dict:
+                                direccion: str = None, telefono: str = None, email: str = None, google_sheet_id: str = None) -> dict:
     """
     Guarda o actualiza la configuración del emisor en un archivo JSON.
     """
@@ -171,6 +171,7 @@ def guardar_configuracion_emisor(cuit_empresa: str, razon_social: str, nombre_fa
             "direccion": direccion,
             "telefono": telefono,
             "email": email,
+            "google_sheet_id": google_sheet_id,
             "fecha_actualizacion": os.path.getctime(config_path) if os.path.exists(config_path) else None
         }
         
@@ -214,6 +215,7 @@ def obtener_configuracion_emisor(cuit: str) -> dict:
                 "direccion": "",
                 "telefono": "",
                 "email": "",
+                "google_sheet_id": "",
                 "existe": False
             }
         

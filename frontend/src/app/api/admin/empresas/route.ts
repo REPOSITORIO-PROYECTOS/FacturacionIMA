@@ -1,28 +1,38 @@
 import { NextRequest, NextResponse } from 'next/server';
 
-const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8008';
+const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://127.0.0.1:8008';
 
-export async function GET(request: NextRequest) {
+async function forwardRequest(request: NextRequest) {
+    const authHeader = request.headers.get('authorization');
+    if (!authHeader) {
+        return NextResponse.json({ detail: 'Token de autorización ausente' }, { status: 401 });
+    }
+
+    const url = `${BACKEND_URL}/admin/empresas/`;
+    const method = request.method;
+
     try {
-        const token = request.headers.get('authorization')?.replace('Bearer ', '');
-        if (!token) {
-            return NextResponse.json({ error: 'No token provided' }, { status: 401 });
-        }
-
-        const response = await fetch(`${BACKEND_URL}/admin/empresas/`, {
+        const response = await fetch(url, {
+            method: method,
             headers: {
-                'Authorization': `Bearer ${token}`,
+                'Authorization': authHeader,
+                'Content-Type': 'application/json',
             },
+            body: method !== 'GET' ? await request.text() : undefined,
+            cache: 'no-store',
         });
 
-        if (!response.ok) {
-            return NextResponse.json({ error: 'Backend error' }, { status: response.status });
-        }
-
         const data = await response.json();
-        return NextResponse.json(data);
+        return NextResponse.json(data, { status: response.status });
     } catch (error) {
-        console.error('Error fetching empresas:', error);
-        return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+        return NextResponse.json({ detail: 'Error de conexión con el backend' }, { status: 502 });
     }
+}
+
+export async function GET(request: NextRequest) {
+    return forwardRequest(request);
+}
+
+export async function POST(request: NextRequest) {
+    return forwardRequest(request);
 }

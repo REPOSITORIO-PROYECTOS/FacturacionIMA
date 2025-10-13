@@ -9,6 +9,9 @@ type Empresa = {
   nombre_fantasia: string | null;
   cuit: string;
   activa: boolean;
+  google_sheet_id?: string;
+  afip_certificado?: string;
+  afip_clave_privada?: string;
 };
 
 export default function EmpresaDetailPage() {
@@ -36,9 +39,10 @@ export default function EmpresaDetailPage() {
       .finally(() => setLoading(false));
   }, [id]);
 
-  const handleInputChange = (e: ChangeEvent<HTMLInputElement>) => {
+  const handleInputChange = (e: ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     if (!empresa) return;
-    const { name, value, type, checked } = e.target;
+    const { name, value, type } = e.target;
+    const checked = type === 'checkbox' ? (e.target as HTMLInputElement).checked : undefined;
     setEmpresa({
       ...empresa,
       [name]: type === 'checkbox' ? checked : value,
@@ -117,6 +121,52 @@ export default function EmpresaDetailPage() {
             className="h-4 w-4 text-blue-600 border-gray-300 rounded"
           />
           <label className="ml-2 block text-sm text-gray-900">Activa</label>
+        </div>
+      </div>
+
+      <div className="mt-6 border-t pt-6">
+        <h2 className="text-xl font-semibold mb-4">Configuración de Google Sheets</h2>
+        <div className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700">ID del Google Sheet</label>
+            <input
+              type="text"
+              name="google_sheet_id"
+              value={empresa.google_sheet_id || ''}
+              onChange={handleInputChange}
+              placeholder="Ej: 1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms"
+              className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm"
+            />
+            <p className="text-xs text-gray-500 mt-1">ID del Google Sheet donde se almacenan las boletas de esta empresa</p>
+          </div>
+        </div>
+      </div>
+
+      <div className="mt-6 border-t pt-6">
+        <h2 className="text-xl font-semibold mb-4">Credenciales AFIP</h2>
+        <div className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700">Certificado AFIP (.crt)</label>
+            <textarea
+              name="afip_certificado"
+              value={empresa.afip_certificado || ''}
+              onChange={handleInputChange}
+              rows={4}
+              placeholder="Pegar contenido del archivo .crt"
+              className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm font-mono text-sm"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700">Clave Privada AFIP (.key)</label>
+            <textarea
+              name="afip_clave_privada"
+              value={empresa.afip_clave_privada || ''}
+              onChange={handleInputChange}
+              rows={4}
+              placeholder="Pegar contenido del archivo .key"
+              className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm font-mono text-sm"
+            />
+          </div>
         </div>
       </div>
 
