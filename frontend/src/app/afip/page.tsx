@@ -569,26 +569,54 @@ export default function AFIPPage() {
                     </div>
                 )}
 
-                {/* Lista de certificados */}
-                <div className="bg-white rounded-lg shadow p-6">
-                    <div className="flex justify-between items-center mb-4">
-                        <h3 className="text-lg font-semibold">📋 Configuración de Google Sheets</h3>
-                        <p className="text-sm text-gray-600">Configure el enlace de su Google Sheet para almacenar las boletas</p>
+                {/* Sección independiente para Google Sheet */}
+                <div className="bg-white rounded-lg shadow p-6 mt-8">
+                    <h3 className="text-lg font-semibold mb-4">🔗 Google Sheet de Boletas</h3>
+                    <div className="mb-4">
+                        <label className="block text-sm font-medium mb-2">ID del Google Sheet</label>
+                        <input
+                            type="text"
+                            value={configuracionEmisor.google_sheet_id || ""}
+                            onChange={(e) => setConfiguracionEmisor({ ...configuracionEmisor, google_sheet_id: e.target.value })}
+                            placeholder="Ej: 1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms"
+                            className="w-full p-2 border rounded"
+                        />
+                        <p className="text-xs text-gray-500 mt-1">ID del Google Sheet donde se almacenan las boletas de esta empresa</p>
                     </div>
-
-                    <div className="space-y-4">
-                        <div>
-                            <label className="block text-sm font-medium mb-2">ID del Google Sheet</label>
-                            <input
-                                type="text"
-                                value={configuracionEmisor.google_sheet_id || ""}
-                                onChange={(e) => setConfiguracionEmisor({ ...configuracionEmisor, google_sheet_id: e.target.value })}
-                                placeholder="Ej: 1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms"
-                                className="w-full p-2 border rounded"
-                            />
-                            <p className="text-xs text-gray-500 mt-1">ID del Google Sheet donde se almacenan las boletas de esta empresa</p>
-                        </div>
-                    </div>
+                    <button
+                        onClick={async () => {
+                            setLoading(true);
+                            setMensaje("");
+                            try {
+                                const token = localStorage.getItem("token");
+                                const res = await fetch("/api/afip?action=configurar-emisor", {
+                                    method: "POST",
+                                    headers: {
+                                        "Content-Type": "application/json",
+                                        Authorization: `Bearer ${token}`
+                                    },
+                                    body: JSON.stringify({
+                                        cuit_empresa: configuracionEmisor.cuit_empresa,
+                                        google_sheet_id: configuracionEmisor.google_sheet_id
+                                    })
+                                });
+                                const data = await res.json();
+                                if (res.ok) {
+                                    setMensaje("✅ ID de Google Sheet guardado correctamente");
+                                } else {
+                                    setMensaje(`❌ Error: ${data.detail}`);
+                                }
+                            } catch {
+                                setMensaje("❌ Error de conexión");
+                            } finally {
+                                setLoading(false);
+                            }
+                        }}
+                        disabled={loading || !configuracionEmisor.cuit_empresa || !configuracionEmisor.google_sheet_id}
+                        className="bg-blue-600 text-white px-6 py-2 rounded hover:bg-blue-700 disabled:opacity-50"
+                    >
+                        {loading ? "Guardando..." : "Guardar ID de Google Sheet"}
+                    </button>
                 </div>
             </div>
         </div>
