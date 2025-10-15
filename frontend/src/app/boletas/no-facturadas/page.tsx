@@ -44,8 +44,8 @@ export default function BoletasNoFacturadasPage() {
     // buildInvoiceItem ahora proviene de helper unificado (importado)
 
     async function facturarBoleta(boleta: BoletaRecord) {
-    const token = localStorage.getItem('token');
-    if (!token) { showError('No autenticado'); return; }
+        const token = localStorage.getItem('token');
+        if (!token) { showError('No autenticado'); return; }
 
         const ventaId = String((boleta as Record<string, unknown>)['ID Ingresos'] || boleta.id || '');
 
