@@ -44,8 +44,8 @@ export default function BoletasNoFacturadasPage() {
     // buildInvoiceItem ahora proviene de helper unificado (importado)
 
     async function facturarBoleta(boleta: BoletaRecord) {
-        const token = localStorage.getItem('token');
-        if (!token) { alert('No autenticado'); return; }
+    const token = localStorage.getItem('token');
+    if (!token) { showError('No autenticado'); return; }
 
         const ventaId = String((boleta as Record<string, unknown>)['ID Ingresos'] || boleta.id || '');
 
@@ -56,7 +56,7 @@ export default function BoletasNoFacturadasPage() {
         try {
             const built = buildInvoiceItem(boleta);
             if ('error' in built) {
-                alert('Boleta no facturable (falta ID o total <= 0)');
+                showError('Boleta no facturable (falta ID o total <= 0)');
                 return;
             }
 
@@ -71,7 +71,14 @@ export default function BoletasNoFacturadasPage() {
 
             const result = await facturarItems([built as any], token);
             if (!result.ok) {
-                alert(result.error || 'Error al facturar');
+                // Si el error es por credenciales AFIP faltantes, mostrar mensaje especial
+                if (result.error && result.error.toLowerCase().includes('no existen credenciales afip')) {
+                    showError('No existen credenciales de AFIP para esta empresa. Solicite a un administrador que cargue las credenciales antes de facturar.');
+                } else if (result.error && result.error.toLowerCase().includes('emisor_cuit no especificado')) {
+                    showError('No se especificó el CUIT emisor. No es posible facturar sin credenciales propias.');
+                } else {
+                    showError(result.error || 'Error al facturar');
+                }
                 return;
             }
             const data = result.data;
@@ -165,7 +172,7 @@ export default function BoletasNoFacturadasPage() {
             // ✅ El sistema ya marca automáticamente en Sheets durante la facturación
             // Ver: sheets_update_status en la respuesta del backend
 
-            alert(successMsg);
+            showSuccess(successMsg);
         } catch (error) {
             console.error('❌ Error en facturación:', error);
             alert('Error durante la facturación');
