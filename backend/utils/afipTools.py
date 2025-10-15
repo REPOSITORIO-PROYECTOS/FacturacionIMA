@@ -78,17 +78,28 @@ def _resolve_afip_credentials(emisor_cuit: str | None = None):
                 row = _db.exec(_select(_AfipCredencial).where(_AfipCredencial.cuit == str(emisor_cuit).strip(), _AfipCredencial.activo == True)).first()
                 if row and row.certificado_pem and row.clave_privada_pem:
                     return row.cuit, row.certificado_pem, row.clave_privada_pem, 'db'
-                # Si está en modo estricto y no hay credenciales para el CUIT solicitado, no hacer ningún fallback
+                # Si está en modo estricto y no hay credenciales para el CUIT solicitado, NO hacer ningún fallback (ni bóveda ni env, ni siquiera consultar bóveda)
                 if STRICT_AFIP_CREDENTIALS:
-                    print(f"[AFIP_CREDS][STRICT] CUIT solicitado {emisor_cuit} no tiene credenciales en DB y modo estricto activo -> no fallback")
+                    print(f"[AFIP_CREDS][STRICT] CUIT solicitado {emisor_cuit} no tiene credenciales en DB y modo estricto activo -> NO fallback, NO bóveda, NO env")
                     return None, None, None, 'none'
             # Si no se pidió CUIT o no está en modo estricto, tomar primera activa
             if not emisor_cuit or not STRICT_AFIP_CREDENTIALS:
                 row_any = _db.exec(_select(_AfipCredencial).where(_AfipCredencial.activo == True)).first()
                 if row_any and row_any.certificado_pem and row_any.clave_privada_pem:
                     return row_any.cuit, row_any.certificado_pem, row_any.clave_privada_pem, 'db'
-        # 2) Bóveda específica
-        if afip_tools_manager:
+
+        # Si está en modo estricto y emisor_cuit es None o vacío, abortar y no permitir ningún fallback
+        if STRICT_AFIP_CREDENTIALS and (emisor_cuit is None or str(emisor_cuit).strip() == ""):
+            print(f"[AFIP_CREDS][STRICT] emisor_cuit no especificado y modo estricto activo -> ABORT")
+            return None, None, None, 'none'
+
+        # Si está en modo estricto y se solicitó un CUIT, nunca consultar bóveda ni entorno
+        if STRICT_AFIP_CREDENTIALS and emisor_cuit:
+            # Ya se devolvió None arriba si no hay credenciales en DB
+            return None, None, None, 'none'
+
+        # 2) Bóveda específica: SOLO si NO está en modo estricto
+        if afip_tools_manager and (not STRICT_AFIP_CREDENTIALS or not emisor_cuit):
             if emisor_cuit:
                 emisor_cuit_digits = ''.join(ch for ch in str(emisor_cuit).strip() if ch.isdigit())
                 try:
@@ -115,9 +126,8 @@ def _resolve_afip_credentials(emisor_cuit: str | None = None):
                             print(f"[AFIP_CREDS][WARN] Falló lectura de archivos de bóveda para CUIT {emisor_cuit_digits}")
                             pass
                 # Si está en modo estricto y no hay credenciales para el CUIT solicitado, no hacer ningún fallback
-                if STRICT_AFIP_CREDENTIALS:
-                    print(f"[AFIP_CREDS][STRICT] CUIT solicitado {emisor_cuit} no existe en bóveda y modo estricto activo -> no fallback")
-                    return None, None, None, 'none'
+                # (ya se maneja arriba, así que aquí nunca entra en modo estricto)
+                pass
             # Si no está en modo estricto, buscar cualquier certificado disponible en bóveda
             if not emisor_cuit or not STRICT_AFIP_CREDENTIALS:
                 try:
@@ -145,15 +155,15 @@ def _resolve_afip_credentials(emisor_cuit: str | None = None):
                         except Exception:
                             print(f"[AFIP_CREDS][WARN] No se pudo leer par cert/key para CUIT {cuit} en bóveda, probando siguiente...")
                             continue
-            # 4) Entorno (solo si flag habilita y hay datos, y no está en modo estricto)
-            if not STRICT_AFIP_CREDENTIALS and AFIP_ENABLE_ENV_CREDS and AFIP_CUIT and AFIP_CERT and AFIP_KEY:
-                print(f"[AFIP_CREDS] Usando credenciales desde variables de entorno para CUIT {AFIP_CUIT}")
-                return AFIP_CUIT, AFIP_CERT, AFIP_KEY, 'env'
-            else:
-                if AFIP_ENABLE_ENV_CREDS and not STRICT_AFIP_CREDENTIALS:
-                    print("[AFIP_CREDS][WARN] AFIP_ENABLE_ENV_CREDS=1 pero faltan AFIP_CUIT/AFIP_CERT/AFIP_KEY")
-                elif AFIP_ENABLE_ENV_CREDS and STRICT_AFIP_CREDENTIALS:
-                    print("[AFIP_CREDS][STRICT] Modo estricto activo: no se usan credenciales del entorno")
+        # 4) Entorno (solo si flag habilita y hay datos, y no está en modo estricto)
+        if not STRICT_AFIP_CREDENTIALS and AFIP_ENABLE_ENV_CREDS and AFIP_CUIT and AFIP_CERT and AFIP_KEY:
+            print(f"[AFIP_CREDS] Usando credenciales desde variables de entorno para CUIT {AFIP_CUIT}")
+            return AFIP_CUIT, AFIP_CERT, AFIP_KEY, 'env'
+        else:
+            if AFIP_ENABLE_ENV_CREDS and not STRICT_AFIP_CREDENTIALS:
+                print("[AFIP_CREDS][WARN] AFIP_ENABLE_ENV_CREDS=1 pero faltan AFIP_CUIT/AFIP_CERT/AFIP_KEY")
+            elif AFIP_ENABLE_ENV_CREDS and STRICT_AFIP_CREDENTIALS:
+                print("[AFIP_CREDS][STRICT] Modo estricto activo: no se usan credenciales del entorno")
     except Exception:
         # Cualquier fallo cae en 'none'
         print("[AFIP_CREDS][ERROR] Excepción inesperada resolviendo credenciales; devolviendo none")

@@ -148,6 +148,22 @@ def generar_qr_afip(afip_data: Dict[str, Any]) -> tuple[str | None, str | None]:
 )
 def _attempt_generate_invoice(total: float, cliente_data: ReceptorData, invoice_id: str, emisor_cuit: str | None = None, tipo_forzado: int | None = None, conceptos: List[Dict[str, Any]] | None = None) -> Dict[str, Any]:
     logger.debug(f"[{invoice_id}] Intentando facturar (Total: {total}, CUIT/DNI: {cliente_data.cuit_o_dni}, Conceptos: {len(conceptos) if conceptos else 0})...")
+    # Prechequeo: si no hay credenciales AFIP para el CUIT solicitado, abortar antes de intentar facturación
+    from backend.utils.afipTools import _resolve_afip_credentials
+    cuit_res, cert_res, key_res, fuente = _resolve_afip_credentials(emisor_cuit)
+    if not (cuit_res and cert_res and key_res):
+        logger.error(f"[{invoice_id}] ABORT: No existen credenciales AFIP para el CUIT solicitado ({emisor_cuit}). No se inicia facturación.")
+        return {
+            "status": "FAILED",
+            "error": f"No existen credenciales AFIP para el CUIT solicitado ({emisor_cuit}). No se inicia facturación.",
+            "original_data": {
+                "total": total,
+                "cliente_data": cliente_data.__dict__,
+                "emisor_cuit": emisor_cuit,
+                "tipo_forzado": tipo_forzado,
+                "conceptos": conceptos
+            }
+        }
     try:
         afip_result = generar_factura_para_venta(total=total, cliente_data=cliente_data, emisor_cuit=emisor_cuit, tipo_forzado=tipo_forzado, conceptos=conceptos)
         logger.info(f"[{invoice_id}] Factura generada exitosamente. CAE: {afip_result.get('cae')}")
