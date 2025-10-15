@@ -70,94 +70,90 @@ def _resolve_afip_credentials(emisor_cuit: str | None = None):
     """
     try:
         # 1) Base de datos (prioridad absoluta si hay credenciales activas)
-        try:
-            from sqlmodel import select as _select
-            from backend.database import SessionLocal as _SessionLocal
-            from backend.modelos import AfipCredencial as _AfipCredencial
-            with _SessionLocal() as _db:
-                if emisor_cuit:
-                    row = _db.exec(_select(_AfipCredencial).where(_AfipCredencial.cuit == str(emisor_cuit).strip(), _AfipCredencial.activo == True)).first()
-                    if row and row.certificado_pem and row.clave_privada_pem:
-                        return row.cuit, row.certificado_pem, row.clave_privada_pem, 'db'
-                # Si no se pidió CUIT o el CUIT pedido no estaba en DB y NO estamos en modo estricto, tomar primera activa
-                if not emisor_cuit or not STRICT_AFIP_CREDENTIALS:
-                    row_any = _db.exec(_select(_AfipCredencial).where(_AfipCredencial.activo == True)).first()
-                    if row_any and row_any.certificado_pem and row_any.clave_privada_pem:
-                        return row_any.cuit, row_any.certificado_pem, row_any.clave_privada_pem, 'db'
-        except Exception:
-            # Silencioso: si la BD aún no está migrada o faltan dependencias seguimos flujo existente
-            pass
-
+        from sqlmodel import select as _select
+        from backend.database import SessionLocal as _SessionLocal
+        from backend.modelos import AfipCredencial as _AfipCredencial
+        with _SessionLocal() as _db:
+            if emisor_cuit:
+                row = _db.exec(_select(_AfipCredencial).where(_AfipCredencial.cuit == str(emisor_cuit).strip(), _AfipCredencial.activo == True)).first()
+                if row and row.certificado_pem and row.clave_privada_pem:
+                    return row.cuit, row.certificado_pem, row.clave_privada_pem, 'db'
+                # Si está en modo estricto y no hay credenciales para el CUIT solicitado, no hacer ningún fallback
+                if STRICT_AFIP_CREDENTIALS:
+                    print(f"[AFIP_CREDS][STRICT] CUIT solicitado {emisor_cuit} no tiene credenciales en DB y modo estricto activo -> no fallback")
+                    return None, None, None, 'none'
+            # Si no se pidió CUIT o no está en modo estricto, tomar primera activa
+            if not emisor_cuit or not STRICT_AFIP_CREDENTIALS:
+                row_any = _db.exec(_select(_AfipCredencial).where(_AfipCredencial.activo == True)).first()
+                if row_any and row_any.certificado_pem and row_any.clave_privada_pem:
+                    return row_any.cuit, row_any.certificado_pem, row_any.clave_privada_pem, 'db'
         # 2) Bóveda específica
         if afip_tools_manager:
-            # 1) Bóveda para CUIT específico
             if emisor_cuit:
-                emisor_cuit = ''.join(ch for ch in str(emisor_cuit).strip() if ch.isdigit())  # trim y sólo dígitos
+                emisor_cuit_digits = ''.join(ch for ch in str(emisor_cuit).strip() if ch.isdigit())
                 try:
-                    cfg = afip_tools_manager.obtener_configuracion_emisor(emisor_cuit)
+                    cfg = afip_tools_manager.obtener_configuracion_emisor(emisor_cuit_digits)
                 except Exception:
                     cfg = {}
                 if cfg.get('existe'):
-                    # Sanitizar dentro del cfg por si quedó con espacios
                     try:
                         if isinstance(cfg.get('cuit_empresa'), str):
                             cfg['cuit_empresa'] = ''.join(ch for ch in cfg['cuit_empresa'].strip() if ch.isdigit())
                     except Exception:
                         pass
-                    cert_path = _os.path.join(afip_tools_manager.BOVEDA_TEMPORAL_PATH, f"{emisor_cuit}.crt")
-                    key_path = _os.path.join(afip_tools_manager.BOVEDA_TEMPORAL_PATH, f"{emisor_cuit}.key")
+                    cert_path = _os.path.join(afip_tools_manager.BOVEDA_TEMPORAL_PATH, f"{emisor_cuit_digits}.crt")
+                    key_path = _os.path.join(afip_tools_manager.BOVEDA_TEMPORAL_PATH, f"{emisor_cuit_digits}.key")
                     if _os.path.exists(cert_path) and _os.path.exists(key_path):
                         try:
                             with open(cert_path, 'r', encoding='utf-8') as f:
                                 cert_pem = f.read()
                             with open(key_path, 'r', encoding='utf-8') as f:
                                 key_pem = f.read()
-                            print(f"[AFIP_CREDS] Usando credenciales solicitadas de bóveda para CUIT {emisor_cuit}")
-                            return emisor_cuit, cert_pem, key_pem, 'boveda'
+                            print(f"[AFIP_CREDS] Usando credenciales solicitadas de bóveda para CUIT {emisor_cuit_digits}")
+                            return emisor_cuit_digits, cert_pem, key_pem, 'boveda'
                         except Exception:
-                            print(f"[AFIP_CREDS][WARN] Falló lectura de archivos de bóveda para CUIT {emisor_cuit}")
+                            print(f"[AFIP_CREDS][WARN] Falló lectura de archivos de bóveda para CUIT {emisor_cuit_digits}")
                             pass
-                else:
-                    if STRICT_AFIP_CREDENTIALS:
-                        print(f"[AFIP_CREDS][STRICT] CUIT solicitado {emisor_cuit} no existe en bóveda y modo estricto activo -> no fallback")
-                        return None, None, None, 'none'
-
-            # 3) Cualquier certificado en bóveda (iterar)
-            try:
-                disponibles = afip_tools_manager.listar_certificados_disponibles()
-            except Exception:
-                disponibles = []
-            if disponibles:
-                for item in disponibles:
-                    if not item.get('tiene_clave'):
-                        continue
-                    cuit = item.get('cuit')
-                    if isinstance(cuit, str):
-                        cuit = cuit.strip()
-                    cert_path = item.get('certificado_path')
-                    key_path = _os.path.join(afip_tools_manager.BOVEDA_TEMPORAL_PATH, f"{cuit}.key")
-                    if not (_os.path.exists(cert_path) and _os.path.exists(key_path)):
-                        continue
-                    try:
-                        with open(cert_path, 'r', encoding='utf-8') as f:
-                            cert_pem = f.read()
-                        with open(key_path, 'r', encoding='utf-8') as f:
-                            key_pem = f.read()
-                        print(f"[AFIP_CREDS] Usando primer certificado disponible en bóveda (CUIT {cuit})")
-                        return cuit, cert_pem, key_pem, 'boveda'
-                    except Exception:
-                        print(f"[AFIP_CREDS][WARN] No se pudo leer par cert/key para CUIT {cuit} en bóveda, probando siguiente...")
-                        continue
-
-            # 4) Entorno (solo si flag habilita y hay datos)
-            if AFIP_ENABLE_ENV_CREDS and AFIP_CUIT and AFIP_CERT and AFIP_KEY:
+                # Si está en modo estricto y no hay credenciales para el CUIT solicitado, no hacer ningún fallback
+                if STRICT_AFIP_CREDENTIALS:
+                    print(f"[AFIP_CREDS][STRICT] CUIT solicitado {emisor_cuit} no existe en bóveda y modo estricto activo -> no fallback")
+                    return None, None, None, 'none'
+            # Si no está en modo estricto, buscar cualquier certificado disponible en bóveda
+            if not emisor_cuit or not STRICT_AFIP_CREDENTIALS:
+                try:
+                    disponibles = afip_tools_manager.listar_certificados_disponibles()
+                except Exception:
+                    disponibles = []
+                if disponibles:
+                    for item in disponibles:
+                        if not item.get('tiene_clave'):
+                            continue
+                        cuit = item.get('cuit')
+                        if isinstance(cuit, str):
+                            cuit = cuit.strip()
+                        cert_path = item.get('certificado_path')
+                        key_path = _os.path.join(afip_tools_manager.BOVEDA_TEMPORAL_PATH, f"{cuit}.key")
+                        if not (_os.path.exists(cert_path) and _os.path.exists(key_path)):
+                            continue
+                        try:
+                            with open(cert_path, 'r', encoding='utf-8') as f:
+                                cert_pem = f.read()
+                            with open(key_path, 'r', encoding='utf-8') as f:
+                                key_pem = f.read()
+                            print(f"[AFIP_CREDS] Usando primer certificado disponible en bóveda (CUIT {cuit})")
+                            return cuit, cert_pem, key_pem, 'boveda'
+                        except Exception:
+                            print(f"[AFIP_CREDS][WARN] No se pudo leer par cert/key para CUIT {cuit} en bóveda, probando siguiente...")
+                            continue
+            # 4) Entorno (solo si flag habilita y hay datos, y no está en modo estricto)
+            if not STRICT_AFIP_CREDENTIALS and AFIP_ENABLE_ENV_CREDS and AFIP_CUIT and AFIP_CERT and AFIP_KEY:
                 print(f"[AFIP_CREDS] Usando credenciales desde variables de entorno para CUIT {AFIP_CUIT}")
                 return AFIP_CUIT, AFIP_CERT, AFIP_KEY, 'env'
             else:
-                if AFIP_ENABLE_ENV_CREDS:
+                if AFIP_ENABLE_ENV_CREDS and not STRICT_AFIP_CREDENTIALS:
                     print("[AFIP_CREDS][WARN] AFIP_ENABLE_ENV_CREDS=1 pero faltan AFIP_CUIT/AFIP_CERT/AFIP_KEY")
-                else:
-                    print("[AFIP_CREDS] AFIP_ENABLE_ENV_CREDS desactivado; no se usarán credenciales del entorno")
+                elif AFIP_ENABLE_ENV_CREDS and STRICT_AFIP_CREDENTIALS:
+                    print("[AFIP_CREDS][STRICT] Modo estricto activo: no se usan credenciales del entorno")
     except Exception:
         # Cualquier fallo cae en 'none'
         print("[AFIP_CREDS][ERROR] Excepción inesperada resolviendo credenciales; devolviendo none")

@@ -50,6 +50,30 @@ async def create_batch_invoices(
     # Convertir los modelos Pydantic a la lista de diccionarios que espera
     # process_invoice_batch_for_endpoint. Aquí también validamos la entrada.
     invoices_for_processing = []
+    # Validar que el CUIT emisor corresponda a la empresa del usuario actual
+    from fastapi import Request, Depends
+    from backend.modelos import Empresa
+    from backend.database import get_db
+    db = next(get_db())
+    usuario_actual = None
+    try:
+        # Intentar obtener usuario_actual desde contexto FastAPI (si está disponible)
+        import contextvars
+        usuario_actual = contextvars.ContextVar('usuario_actual').get(None)
+    except Exception:
+        pass
+    # Si no se pudo, intentar obtenerlo de la sesión (para compatibilidad)
+    if not usuario_actual:
+        try:
+            from backend.security import obtener_usuario_actual
+            usuario_actual = obtener_usuario_actual()
+        except Exception:
+            usuario_actual = None
+    empresa_cuit = None
+    if usuario_actual:
+        empresa = db.exec(select(Empresa).where(Empresa.id == usuario_actual.id_empresa)).first()
+        if empresa:
+            empresa_cuit = str(empresa.cuit)
     for invoice_item in invoices:
         item_dict = {
             "id": invoice_item.id,
@@ -58,7 +82,10 @@ async def create_batch_invoices(
         }
         if invoice_item.conceptos:
             item_dict["conceptos"] = [c.dict() for c in invoice_item.conceptos]
+        # Validación de CUIT emisor
         if invoice_item.emisor_cuit:
+            if empresa_cuit and str(invoice_item.emisor_cuit) != empresa_cuit:
+                raise HTTPException(status_code=403, detail=f"El CUIT emisor {invoice_item.emisor_cuit} no corresponde a su empresa ({empresa_cuit})")
             item_dict["emisor_cuit"] = invoice_item.emisor_cuit
         if invoice_item.tipo_forzado is not None:
             item_dict["tipo_forzado"] = invoice_item.tipo_forzado
