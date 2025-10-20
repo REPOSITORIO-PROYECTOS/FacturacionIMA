@@ -9,7 +9,8 @@ module.exports = {
             restart_delay: 4000,
             env: {
                 PYTHONPATH: __dirname,
-                BACKEND_PORT: process.env.BACKEND_PORT || '8008'
+                BACKEND_PORT: process.env.BACKEND_PORT || '8008',
+                STRICT_AFIP_CREDENTIALS: '0'  // Temporalmente deshabilitado para usar bóveda
             }
         },
         {

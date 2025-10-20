@@ -22,7 +22,7 @@ export default function DashboardPage() {
     'Mercado Pago',
     'Otro'
   ]);
-  const [userInfo, setUserInfo] = useState<{ username: string; role: string } | null>(null);
+  const [userInfo, setUserInfo] = useState<{ username: string; role: string; empresa_cuit?: string } | null>(null);
   const [token, setToken] = useState<string | null>(null);
   // ...existing code...
 
@@ -108,6 +108,8 @@ export default function DashboardPage() {
       toast.error('Boleta no facturable (ID/Total inválido)');
       return;
     }
+    // Add emisor_cuit from user info
+    built.emisor_cuit = userInfo?.empresa_cuit;
     const result = await facturarItems([built], token);
     if (!result.ok) {
       toast.error(String(result.error || 'Error al facturar'));
@@ -777,6 +779,7 @@ export default function DashboardPage() {
                               domicilio: String(b["Domicilio"] || ""),
                               condicion_iva: String(b.condicion_iva || b["condicion-iva"] || "CONSUMIDOR_FINAL"),
                             },
+                            emisor_cuit: userInfo?.empresa_cuit,
                           }));
                           (async () => {
                             try {
@@ -883,6 +886,7 @@ export default function DashboardPage() {
                               domicilio: String((b as Record<string, unknown>)["Domicilio"] || ""),
                               condicion_iva: String((b as Record<string, unknown>)["condicion_iva"] || (b as Record<string, unknown>)["condicion-iva"] || "CONSUMIDOR_FINAL"),
                             },
+                            emisor_cuit: userInfo?.empresa_cuit,
                           }));
                           const res = await fetch(`/api/facturador/facturar-por-cantidad?max_parallel_workers=5`, {
                             method: 'POST',
@@ -898,9 +902,9 @@ export default function DashboardPage() {
                             return;
                           }
                           const okCount = Array.isArray(data) ? data.filter((r) => (r as { ok?: boolean }).ok !== false).length : seleccion.length;
-                              toast.success(`Lote procesado`, `Éxitos: ${okCount} / ${seleccion.length}`);
-                              // Refresh data via store instead of full reload
-                              reload();
+                          toast.success(`Lote procesado`, `Éxitos: ${okCount} / ${seleccion.length}`);
+                          // Refresh data via store instead of full reload
+                          reload();
                         } catch {
                           toast.error('Error de conexión al facturar seleccionadas');
                         }

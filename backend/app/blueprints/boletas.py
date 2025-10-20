@@ -747,8 +747,8 @@ def build_imprimible_html(boleta: Dict[str, Any], afip_result: Optional[Dict[str
         </div>
 
         <div class='meta'>
-            <div><strong>Receptor:</strong> { _html.escape(str(receptor_nombre)) }</div>
-            <div class='small'>Doc: { _html.escape(str(receptor_doc)) } · Cond. IVA: { _html.escape(str(receptor_iva)) }</div>
+            { f"<div><strong>Cliente Final</strong></div>" if receptor_iva.upper() == 'CONSUMIDOR_FINAL' else f"<div><strong>Receptor:</strong> { _html.escape(str(receptor_nombre)) }</div>" }
+            { f"<div class='small'>Doc: { _html.escape(str(receptor_doc)) } · Cond. IVA: { _html.escape(str(receptor_iva)) }</div>" if receptor_iva.upper() != 'CONSUMIDOR_FINAL' else '' }
         </div>
 
         {items_html}
