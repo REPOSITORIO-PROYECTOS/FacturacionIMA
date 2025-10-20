@@ -121,6 +121,22 @@ def generar_pdf_comprobante(factura: FacturaElectronica, conceptos: list = None)
     if not REPORTLAB_AVAILABLE:
         raise RuntimeError("ReportLab no está instalado. Ejecute: pip install reportlab")
     
+    # Función para formatear números en formato argentino (coma decimal, punto miles)
+    def format_number(value):
+        if isinstance(value, (int, float)):
+            s = "{:.2f}".format(value).replace('.', ',')
+            if ',' in s:
+                int_part, dec_part = s.split(',')
+            else:
+                int_part = s
+                dec_part = '00'
+            # Agregar puntos cada 3 dígitos en la parte entera
+            rev = int_part[::-1]
+            with_dots = '.'.join([rev[i:i+3] for i in range(0, len(rev), 3)])
+            final_int = with_dots[::-1]
+            return final_int + ',' + dec_part
+        return str(value)
+    
     buffer = BytesIO()
     
     # Tamaño ticket: 50mm de ancho (142 puntos), altura variable
@@ -357,7 +373,7 @@ def generar_pdf_comprobante(factura: FacturaElectronica, conceptos: list = None)
                 y -= 3 * mm
             
             # Cantidad x Precio = Subtotal
-            detalle_linea = f"{cant:.2f} x ${precio:.2f} = ${subtotal:.2f}"
+            detalle_linea = f"{cant:.2f} x ${format_number(precio)} = ${format_number(subtotal)}"
             y = draw_left(detalle_linea, y, "Helvetica", 7)
             y -= 4 * mm
     else:
@@ -368,13 +384,13 @@ def generar_pdf_comprobante(factura: FacturaElectronica, conceptos: list = None)
     y -= 3 * mm
     
     # ===== TOTALES =====
-    y = draw_left(f"Neto:  $ {float(factura.importe_neto):.2f}", y, "Helvetica", 8)
+    y = draw_left(f"Neto:  $ {format_number(float(factura.importe_neto))}", y, "Helvetica", 8)
     y -= 3 * mm
     
-    y = draw_left(f"IVA:   $ {float(factura.importe_iva):.2f}", y, "Helvetica", 8)
+    y = draw_left(f"IVA:   $ {format_number(float(factura.importe_iva))}", y, "Helvetica", 8)
     y -= 4 * mm
     
-    y = draw_left(f"TOTAL: $ {float(factura.importe_total):.2f}", y, "Helvetica-Bold", 10)
+    y = draw_left(f"TOTAL: $ {format_number(float(factura.importe_total))}", y, "Helvetica-Bold", 10)
     y -= 5 * mm
     
     y = draw_separator(y)

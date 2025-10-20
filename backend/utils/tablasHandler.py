@@ -89,6 +89,25 @@ class TablasHandler:
                                 if 'Facturacion' not in new:
                                     new['Facturacion'] = val
 
+                        # Total / importe
+                        if key_compact in ('ingresos', 'total', 'importe', 'importetotal', 'totalapagar'):
+                            if not new.get('importe_total'):
+                                # Intentar parsear como número flotante
+                                try:
+                                    if isinstance(v, str):
+                                        # Limpiar y parsear formato argentino
+                                        s = v.strip().replace('$', '').replace(' ', '')
+                                        s = s.replace('.', '').replace(',', '.')
+                                        parsed_value = float(s)
+                                        new['importe_total'] = parsed_value
+                                        print(f"DEBUG: Campo total parseado '{k}': '{v}' -> {parsed_value}")
+                                    else:
+                                        new['importe_total'] = float(v)
+                                        print(f"DEBUG: Campo total convertido '{k}': {v} -> {float(v)}")
+                                except (ValueError, TypeError) as e:
+                                    print(f"DEBUG: Error parseando total '{k}': '{v}' - {e}")
+                                    new['importe_total'] = v  # mantener original si falla
+
                     return new
 
                 normalized = [normalize_row(r) for r in datos_clientes]
@@ -119,11 +138,16 @@ class TablasHandler:
             # Buscar índices de columnas relevantes
             id_col_index = None
             fact_col_index = None
+            total_col_index = None
             for i, h in enumerate(headers):
-                if h.lower() == "id ingresos":
+                h_lower = h.lower().replace(' ', '').replace('_', '')
+                if h_lower == "idingresos":
                     id_col_index = i
-                if h.lower() == "facturacion":
+                if h_lower == "facturacion":
                     fact_col_index = i
+                if h_lower in ('ingresos', 'total', 'importe', 'importetotal', 'totalapagar'):
+                    total_col_index = i
+            
             if id_col_index is None or fact_col_index is None:
                 print(f"❌ Columnas 'ID Ingresos' o 'facturacion' no encontradas. Headers: {headers}")
                 return False
@@ -132,8 +156,31 @@ class TablasHandler:
             for row_idx, row in enumerate(all_values[1:], start=2):  # start=2 porque empieza después del header
                 if str(row[id_col_index]).strip() == str(id_ingreso).strip():
                     print(f"Found row {row_idx} for ID {id_ingreso}, current fact value: '{row[fact_col_index]}', updating to 'Facturado'")
+                    
+                    # Marcar como facturada
                     result = worksheet.update_cell(row_idx, fact_col_index + 1, "Facturado")
                     print(f"Update result: {result}, ✅ Boleta {id_ingreso} marcada como facturada en fila {row_idx}")
+                    
+                    # Normalizar el total si se encontró la columna
+                    if total_col_index is not None and total_col_index < len(row):
+                        valor_original = row[total_col_index].strip() if row[total_col_index] else ''
+                        if valor_original:
+                            try:
+                                # Aplicar la misma lógica de parsing que en normalize_row
+                                s = valor_original.replace('$', '').replace(' ', '')
+                                s = s.replace('.', '').replace(',', '.')
+                                valor_normalizado = float(s)
+                                
+                                # Formatear de vuelta a string con formato argentino (coma decimal, punto miles)
+                                valor_formateado = f"{valor_normalizado:,.2f}".replace(',', 'temp').replace('.', ',').replace('temp', '.')
+                                
+                                if valor_original != valor_formateado:
+                                    worksheet.update_cell(row_idx, total_col_index + 1, valor_formateado)
+                                    print(f"✅ Total normalizado en fila {row_idx}: '{valor_original}' -> '{valor_formateado}'")
+                            
+                            except (ValueError, TypeError) as e:
+                                print(f"⚠️ Error normalizando total en fila {row_idx}: '{valor_original}' - {e}")
+                    
                     return True
 
             print(f"⚠️ No se encontró boleta con ID {id_ingreso} en las filas. Headers: {headers[:5]}... IDs sample: {[r[id_col_index] for r in all_values[1:][:5]]}")

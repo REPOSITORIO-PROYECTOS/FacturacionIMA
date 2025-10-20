@@ -578,21 +578,18 @@ def build_imprimible_html(boleta: Dict[str, Any], afip_result: Optional[Dict[str
     # Función para formatear números
     def format_number(value):
         if isinstance(value, (int, float)):
-            try:
-                return locale.format_string('%.2f', value, grouping=True)
-            except Exception:
-                # Fallback: formato argentino (punto miles, coma decimal)
-                s = "{:.2f}".format(value).replace('.', ',')
-                if ',' in s:
-                    int_part, dec_part = s.split(',')
-                else:
-                    int_part = s
-                    dec_part = '00'
-                # Agregar puntos cada 3 dígitos en la parte entera
-                rev = int_part[::-1]
-                with_dots = '.'.join([rev[i:i+3] for i in range(0, len(rev), 3)])
-                final_int = with_dots[::-1]
-                return final_int + ',' + dec_part
+            # Formato argentino: punto miles, coma decimal
+            s = "{:.2f}".format(value).replace('.', ',')
+            if ',' in s:
+                int_part, dec_part = s.split(',')
+            else:
+                int_part = s
+                dec_part = '00'
+            # Agregar puntos cada 3 dígitos en la parte entera
+            rev = int_part[::-1]
+            with_dots = '.'.join([rev[i:i+3] for i in range(0, len(rev), 3)])
+            final_int = with_dots[::-1]
+            return final_int + ',' + dec_part
         return str(value)
 
     # Extraer campos con múltiples aliases
@@ -993,6 +990,9 @@ def facturar_e_imprimir_img(ingreso_id: str, usuario_actual, formato: str = 'jpg
     boleta = _buscar_boleta_por_ingreso(ingreso_id, handler)
     if not boleta:
         raise HTTPException(status_code=404, detail='Boleta no encontrada')
+    
+    print(f"DEBUG: Boleta encontrada para {ingreso_id}: {boleta}")
+    
     afip_row = _buscar_factura_db(ingreso_id)
     if not afip_row:
         # Intento mínimo de facturación: detectar total y documento en múltiples variantes
@@ -1004,20 +1004,29 @@ def facturar_e_imprimir_img(ingreso_id: str, usuario_actual, formato: str = 'jpg
             or boleta.get('total_a_pagar')
             or boleta.get('INGRESOS')
         )
+        print(f"DEBUG: total_raw obtenido: {total_raw} (tipo: {type(total_raw)})")
+        
         total_float = None
         if total_raw is not None:
             try:
-                s = str(total_raw).strip()
-                # Remover símbolo moneda y espacios
-                s = s.replace('$', '').replace(' ', '')
-                # Si el formato es tipo 75.000,00 => quitar puntos (miles) y cambiar coma por punto
-                if ',' in s and s.count(',') == 1 and s.count('.') >= 1:
+                # Si ya es un número (float), usarlo directamente
+                if isinstance(total_raw, (int, float)):
+                    total_float = float(total_raw)
+                    print(f"DEBUG: total ya normalizado: {total_float}")
+                else:
+                    # Si es string, parsear formato argentino
+                    s = str(total_raw).strip()
+                    print(f"DEBUG: total_raw recibido: '{total_raw}'")  # Debug log
+                    # Remover símbolo moneda y espacios
+                    s = s.replace('$', '').replace(' ', '')
+                    print(f"DEBUG: después de limpiar: '{s}'")  # Debug log
+                    # Formato argentino: quitar puntos (separadores miles) y cambiar coma por punto decimal
                     s = s.replace('.', '').replace(',', '.')
-                elif s.count(',') == 1 and s.count('.') == 0:
-                    # Caso 75000,50 -> cambiar coma por punto
-                    s = s.replace(',', '.')
-                total_float = float(s)
-            except Exception:
+                    print(f"DEBUG: después de parsing: '{s}'")  # Debug log
+                    total_float = float(s)
+                    print(f"DEBUG: total_float: {total_float}")  # Debug log
+            except Exception as e:
+                print(f"DEBUG: Error procesando total: {total_raw} - {e}")
                 total_float = None
 
         # 2. Documento receptor (CUIT / DNI) en múltiples alias
@@ -1071,6 +1080,8 @@ def facturar_e_imprimir_img(ingreso_id: str, usuario_actual, formato: str = 'jpg
             'emisor_cuit': boleta.get('emisor_cuit') or os.environ.get('EMISOR_CUIT'),
             **({'tipo_forzado': int(tipo_forzado)} if tipo_forzado is not None else {})
         }]
+        print(f"DEBUG: Payload a enviar: {payload}")
+        
         # Si el front forza un punto de venta explícito (override diagnóstico)
         if punto_venta_override is not None:
             try:
@@ -1135,15 +1146,18 @@ def preview_facturacion(ingreso_id: str, tipo_forzado: int | None = None, punto_
     parse_log = {}
     if total_raw is not None:
         try:
-            s = str(total_raw).strip()
-            original = s
-            s = s.replace('$', '').replace(' ', '')
-            if ',' in s and s.count(',') == 1 and s.count('.') >= 1:
+            # Si ya es un número (float), usarlo directamente
+            if isinstance(total_raw, (int, float)):
+                total_float = float(total_raw)
+                parse_log['total_parse'] = {'input': str(total_raw), 'normalized': str(total_raw), 'ok': True, 'tipo': 'ya_normalizado'}
+            else:
+                # Si es string, parsear formato argentino
+                s = str(total_raw).strip()
+                original = s
+                s = s.replace('$', '').replace(' ', '')
                 s = s.replace('.', '').replace(',', '.')
-            elif s.count(',') == 1 and s.count('.') == 0:
-                s = s.replace(',', '.')
-            total_float = float(s)
-            parse_log['total_parse'] = {'input': original, 'normalized': s, 'ok': True}
+                total_float = float(s)
+                parse_log['total_parse'] = {'input': original, 'normalized': s, 'ok': True}
         except Exception as e:
             parse_log['total_parse'] = {'input': str(total_raw), 'error': str(e), 'ok': False}
     receptor_doc = (
@@ -1295,38 +1309,96 @@ def afip_contract_test(emisor_cuit: str, tipo_forzado: int = 11, total: float = 
         raise HTTPException(status_code=500, detail=f'Error en contract test: {e}')
 
 
-@router.post('/test/facturar-consumidor-final/{ingreso_id}')
-def test_facturar_consumidor_final(
-    ingreso_id: str,
-    emisor_cuit: str | None = None,
-    tipo_forzado: int = 6,  # Factura B por defecto para RI -> Consumidor Final
-    usuario_actual = Depends(obtener_usuario_actual)
-):
-    """Factura de prueba (no persistente) para un ingreso dado, forzando total=1 y consumidor final.
-    No escribe en DB ni Google Sheets. Útil para validar credenciales, tipo, punto de venta.
+@router.post('/normalizar-datos')
+def normalizar_datos_sheet(usuario_actual = Depends(obtener_usuario_actual)):
+    """Endpoint para normalizar todos los datos de totales en la hoja INGRESOS.
+    Parsea los valores de total usando formato argentino y actualiza la hoja.
+    Solo para admin/soporte.
     """
     if not _is_admin(usuario_actual):
-        raise HTTPException(status_code=403, detail='Solo admin/soporte')
+        raise HTTPException(status_code=403, detail='Solo admin/soporte puede normalizar datos')
+    
     try:
-        # Receptor CF sin documento (AFIP suele usar DocTipo 99 / DocNro 0 en microservicio interno)
-        receptor = ReceptorData(
-            cuit_o_dni='0',
-            condicion_iva='CONSUMIDOR_FINAL',
-            nombre_razon_social='Consumidor Final TEST',
-            domicilio='S/D'
-        )
-        # Intentar usar CUIT del archivo de la boleta si existiese (boleta no lo trae, se usa param/env)
-        # Pasamos al generador con total=1.0
-        resultado = generar_factura_para_venta(total=1.0, cliente_data=receptor, emisor_cuit=emisor_cuit, tipo_forzado=tipo_forzado)
-        # No persistimos: devolver payload relevante
+        handler = _get_handler_for_user(usuario_actual)
+        if not handler.client:
+            raise HTTPException(status_code=503, detail='Cliente de Google Sheets no disponible')
+        
+        sheet = handler.client.open_by_key(handler.google_sheet_id)
+        worksheet = sheet.worksheet("INGRESOS")
+        
+        # Obtener todos los valores
+        all_values = worksheet.get_all_values()
+        if not all_values:
+            raise HTTPException(status_code=404, detail='No se encontraron datos en la hoja INGRESOS')
+        
+        headers = all_values[0]
+        
+        # Encontrar columna de totales (buscar múltiples variantes)
+        total_col_index = None
+        total_col_name = None
+        for i, h in enumerate(headers):
+            h_compact = h.lower().replace(' ', '').replace('_', '')
+            if h_compact in ('ingresos', 'total', 'importe', 'importetotal', 'totalapagar', 'totalapagar'):
+                total_col_index = i
+                total_col_name = h
+                break
+        
+        if total_col_index is None:
+            raise HTTPException(status_code=404, detail=f'No se encontró columna de totales. Headers disponibles: {headers}')
+        
+        print(f"Encontrada columna '{total_col_name}' en índice {total_col_index}")
+        
+        # Procesar cada fila (empezando desde la fila 2, después del header)
+        updates = []
+        for row_idx, row in enumerate(all_values[1:], start=2):
+            if total_col_index >= len(row):
+                continue  # fila incompleta
+            
+            valor_original = row[total_col_index].strip() if row[total_col_index] else ''
+            if not valor_original:
+                continue  # vacío, saltar
+            
+            # Aplicar la misma lógica de parsing que en normalize_row
+            try:
+                s = valor_original.replace('$', '').replace(' ', '')
+                s = s.replace('.', '').replace(',', '.')
+                valor_normalizado = float(s)
+                
+                # Formatear de vuelta a string con formato argentino (coma decimal, punto miles)
+                valor_formateado = f"{valor_normalizado:,.2f}".replace(',', 'temp').replace('.', ',').replace('temp', '.')
+                
+                if valor_original != valor_formateado:
+                    updates.append({
+                        'row': row_idx,
+                        'col': total_col_index + 1,  # gspread usa 1-indexed
+                        'original': valor_original,
+                        'normalizado': valor_formateado
+                    })
+                    
+            except (ValueError, TypeError) as e:
+                print(f"Error parseando fila {row_idx}, columna {total_col_name}: '{valor_original}' - {e}")
+                continue
+        
+        # Aplicar actualizaciones en batch si hay cambios
+        if not updates:
+            return {'mensaje': 'No se encontraron valores para normalizar', 'procesadas': len(all_values) - 1}
+        
+        # Actualizar la hoja
+        for update in updates:
+            try:
+                worksheet.update_cell(update['row'], update['col'], update['normalizado'])
+                print(f"Actualizada fila {update['row']}: '{update['original']}' -> '{update['normalizado']}'")
+            except Exception as e:
+                print(f"Error actualizando fila {update['row']}: {e}")
+        
         return {
-            'ingreso_id': ingreso_id,
-            'total_utilizado': 1.0,
-            'tipo_forzado': tipo_forzado,
-            'resultado': resultado,
-            'nota': 'Factura de prueba no persistida'
+            'mensaje': f'Se normalizaron {len(updates)} valores de totales',
+            'procesadas': len(all_values) - 1,
+            'actualizaciones': updates[:10],  # mostrar primeras 10 como ejemplo
+            'total_actualizaciones': len(updates)
         }
+        
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f'Error en test consumidor final: {e}')
+        raise HTTPException(status_code=500, detail=f'Error normalizando datos: {e}')
