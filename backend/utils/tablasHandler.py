@@ -131,9 +131,9 @@ class TablasHandler:
             # Buscar la fila por ID
             for row_idx, row in enumerate(all_values[1:], start=2):  # start=2 porque empieza después del header
                 if str(row[id_col_index]).strip() == str(id_ingreso).strip():
-                    # Actualizar celda de facturación
-                    worksheet.update_cell(row_idx, fact_col_index + 1, "Facturado")
-                    print(f"✅ Boleta {id_ingreso} marcada como facturada en fila {row_idx}")
+                    print(f"Found row {row_idx} for ID {id_ingreso}, current fact value: '{row[fact_col_index]}', updating to 'Facturado'")
+                    result = worksheet.update_cell(row_idx, fact_col_index + 1, "Facturado")
+                    print(f"Update result: {result}, ✅ Boleta {id_ingreso} marcada como facturada en fila {row_idx}")
                     return True
 
             print(f"⚠️ No se encontró boleta con ID {id_ingreso} en las filas. Headers: {headers[:5]}... IDs sample: {[r[id_col_index] for r in all_values[1:][:5]]}")

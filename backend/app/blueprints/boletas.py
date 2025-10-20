@@ -581,9 +581,18 @@ def build_imprimible_html(boleta: Dict[str, Any], afip_result: Optional[Dict[str
             try:
                 return locale.format_string('%.2f', value, grouping=True)
             except Exception:
-                # Fallback: punto miles, coma decimal
-                s = f"{value:,.2f}"
-                return s.replace(',', 'temp').replace('.', ',').replace('temp', '.')
+                # Fallback: formato argentino (punto miles, coma decimal)
+                s = "{:.2f}".format(value).replace('.', ',')
+                if ',' in s:
+                    int_part, dec_part = s.split(',')
+                else:
+                    int_part = s
+                    dec_part = '00'
+                # Agregar puntos cada 3 dígitos en la parte entera
+                rev = int_part[::-1]
+                with_dots = '.'.join([rev[i:i+3] for i in range(0, len(rev), 3)])
+                final_int = with_dots[::-1]
+                return final_int + ',' + dec_part
         return str(value)
 
     # Extraer campos con múltiples aliases
