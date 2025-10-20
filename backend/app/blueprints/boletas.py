@@ -22,6 +22,8 @@ except Exception:
     HTML = None  # type: ignore
     Image = None  # type: ignore
 
+import locale
+
 router = APIRouter(prefix="/boletas")
 
 
@@ -563,6 +565,27 @@ def build_imprimible_html(boleta: Dict[str, Any], afip_result: Optional[Dict[str
     """Construye un HTML imprimible a partir de una boleta (dict).
     Escapa campos y parsea raw_response si está presente para obtener CAE u otros datos.
     """
+    # Configurar locale para formato argentino (coma decimal, punto miles)
+    try:
+        locale.setlocale(locale.LC_NUMERIC, 'es_AR.UTF-8')
+    except locale.Error:
+        try:
+            locale.setlocale(locale.LC_NUMERIC, 'es_AR')
+        except locale.Error:
+            # Fallback sin locale
+            pass
+
+    # Función para formatear números
+    def format_number(value):
+        if isinstance(value, (int, float)):
+            try:
+                return locale.format_string('%.2f', value, grouping=True)
+            except Exception:
+                # Fallback: punto miles, coma decimal
+                s = f"{value:,.2f}"
+                return s.replace(',', 'temp').replace('.', ',').replace('temp', '.')
+        return str(value)
+
     # Extraer campos con múltiples aliases
     fecha = boleta.get('fecha_comprobante') or boleta.get('created_at') or boleta.get('Fecha') or boleta.get('fecha') or ''
     nro = boleta.get('Nro Comprobante') or boleta.get('numero_comprobante') or boleta.get('numero') or ''
@@ -754,7 +777,7 @@ def build_imprimible_html(boleta: Dict[str, Any], afip_result: Optional[Dict[str
         {items_html}
 
         <div class='totals'>
-            <div>Total: {esc(total)}</div>
+            <div>Total: {format_number(total)}</div>
             <div class='small'>CAE: {esc(cae)} { ('(Vto: ' + _html.escape(str(cae_vto)) + ')') if cae_vto else '' }</div>
             <div class='small'>CUIT Emisor: {_html.escape(str(emisor_cuit))}</div>
         </div>

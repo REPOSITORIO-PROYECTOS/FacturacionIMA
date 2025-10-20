@@ -117,18 +117,26 @@ class TablasHandler:
             headers = all_values[0]
 
             # Buscar índices de columnas relevantes
-            id_col_index = headers.index("ID Ingresos")
-            fact_col_index = headers.index("facturacion")
+            id_col_index = None
+            fact_col_index = None
+            for i, h in enumerate(headers):
+                if h.lower() == "id ingresos":
+                    id_col_index = i
+                if h.lower() == "facturacion":
+                    fact_col_index = i
+            if id_col_index is None or fact_col_index is None:
+                print(f"❌ Columnas 'ID Ingresos' o 'facturacion' no encontradas. Headers: {headers}")
+                return False
 
             # Buscar la fila por ID
             for row_idx, row in enumerate(all_values[1:], start=2):  # start=2 porque empieza después del header
-                if row[id_col_index] == id_ingreso:
+                if str(row[id_col_index]).strip() == str(id_ingreso).strip():
                     # Actualizar celda de facturación
-                    worksheet.update_cell(row_idx, fact_col_index + 1, "facturado")
-                    print(f"✅ Boleta {id_ingreso} marcada como facturada")
+                    worksheet.update_cell(row_idx, fact_col_index + 1, "Facturado")
+                    print(f"✅ Boleta {id_ingreso} marcada como facturada en fila {row_idx}")
                     return True
 
-            print(f"⚠️ No se encontró boleta con ID {id_ingreso}")
+            print(f"⚠️ No se encontró boleta con ID {id_ingreso} en las filas. Headers: {headers[:5]}... IDs sample: {[r[id_col_index] for r in all_values[1:][:5]]}")
             return False
 
         except Exception as e:
