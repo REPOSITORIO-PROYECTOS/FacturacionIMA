@@ -302,6 +302,20 @@ def process_invoice_batch_for_endpoint(
                             return obj
 
                         serializable_afip = make_json_serializable(afip_data)
+                        try:
+                            det_emp = original_invoice_data.get('detalle_empresa')
+                            if det_emp:
+                                if isinstance(serializable_afip, dict):
+                                    serializable_afip['detalle_empresa'] = det_emp
+                                else:
+                                    serializable_afip = {'result': serializable_afip, 'detalle_empresa': det_emp}
+                            if bool(original_invoice_data.get('aplicar_desglose_77')):
+                                if isinstance(serializable_afip, dict):
+                                    serializable_afip['aplicar_desglose_77'] = True
+                                else:
+                                    serializable_afip = {'result': serializable_afip, 'aplicar_desglose_77': True}
+                        except Exception:
+                            pass
 
                         # Force a round-trip through json to guarantee serializability
                         try:

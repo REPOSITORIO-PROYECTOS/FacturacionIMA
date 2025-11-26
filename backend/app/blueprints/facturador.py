@@ -23,6 +23,7 @@ class ConceptoPayload(BaseModel):
     cantidad: float = Field(..., gt=0, description="Cantidad de unidades.")
     precio_unitario: float = Field(..., gt=0, description="Precio unitario del concepto.")
     subtotal: Optional[float] = Field(None, description="Subtotal calculado (cantidad * precio_unitario).")
+    tasa_iva: Optional[float] = Field(None, description="Tasa de IVA aplicable al concepto (ej. 0.21).")
 
 class InvoiceItemPayload(BaseModel):
     id: Optional[str] = Field(None, description="ID único para esta factura en el lote (opcional).")
@@ -31,6 +32,8 @@ class InvoiceItemPayload(BaseModel):
     conceptos: Optional[List[ConceptoPayload]] = Field(None, description="Lista de conceptos/productos de la factura.")
     emisor_cuit: Optional[str] = Field(None, description="CUIT del emisor a usar (override/selección).")
     tipo_forzado: Optional[int] = Field(None, description="Override de tipo comprobante: 1=A, 6=B, 11=C")
+    detalle_empresa: Optional[str] = Field(None, description="Detalle específico a incluir para la empresa (leyendas/observaciones).")
+    aplicar_desglose_77: Optional[bool] = Field(False, description="Aplica desglose especial 77% + IVA 21% en el DETALLE del PDF.")
 
 
 @router.post("/facturar-por-cantidad",
@@ -82,6 +85,10 @@ async def create_batch_invoices(
         }
         if invoice_item.conceptos:
             item_dict["conceptos"] = [c.dict() for c in invoice_item.conceptos]
+        if invoice_item.detalle_empresa:
+            item_dict["detalle_empresa"] = invoice_item.detalle_empresa
+        if invoice_item.aplicar_desglose_77:
+            item_dict["aplicar_desglose_77"] = True
         # Validación de CUIT emisor
         if invoice_item.emisor_cuit:
             if empresa_cuit and str(invoice_item.emisor_cuit) != empresa_cuit:

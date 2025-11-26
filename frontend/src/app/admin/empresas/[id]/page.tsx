@@ -12,6 +12,8 @@ type Empresa = {
   google_sheet_id?: string;
   afip_certificado?: string;
   afip_clave_privada?: string;
+  aplicar_desglose_77?: boolean;
+  detalle_empresa_text?: string | null;
 };
 
 export default function EmpresaDetailPage() {
@@ -23,6 +25,7 @@ export default function EmpresaDetailPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
+  const [savingConfig, setSavingConfig] = useState(false);
 
   useEffect(() => {
     if (!id) return;
@@ -70,6 +73,35 @@ export default function EmpresaDetailPage() {
       setError(err.message);
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleSaveConfig = async () => {
+    if (!empresa) return;
+    setSavingConfig(true);
+    setError("");
+    const token = localStorage.getItem('token');
+    try {
+      const res = await fetch(`/api/admin/empresas/${empresa.id}/configuracion`, {
+        method: "PUT",
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          id_empresa: empresa.id,
+          cuit: empresa.cuit,
+          aplicar_desglose_77: !!empresa.aplicar_desglose_77,
+          detalle_empresa_text: empresa.detalle_empresa_text || null,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || "Error al guardar configuración");
+      alert("Detalle de empresa guardado.");
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setSavingConfig(false);
     }
   };
 
@@ -166,6 +198,43 @@ export default function EmpresaDetailPage() {
               placeholder="Pegar contenido del archivo .key"
               className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm font-mono text-sm"
             />
+          </div>
+        </div>
+      </div>
+
+      <div className="mt-6 border-t pt-6">
+        <h2 className="text-xl font-semibold mb-4">Detalle de Empresa</h2>
+        <div className="space-y-4">
+          <div className="flex items-center">
+            <input
+              type="checkbox"
+              name="aplicar_desglose_77"
+              checked={!!empresa.aplicar_desglose_77}
+              onChange={handleInputChange}
+              className="h-4 w-4 text-blue-600 border-gray-300 rounded"
+            />
+            <label className="ml-2 block text-sm text-gray-900">Usar desglose 77% + IVA 21% en el PDF</label>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700">Texto de detalle (ejemplo de producto)</label>
+            <input
+              type="text"
+              name="detalle_empresa_text"
+              value={empresa.detalle_empresa_text || ''}
+              onChange={handleInputChange}
+              placeholder="Ej: Cigarrillos"
+              className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm"
+            />
+            <p className="text-xs text-gray-500 mt-1">Se usa en el bloque centrado del DETALLE cuando está activado.</p>
+          </div>
+          <div className="flex justify-end">
+            <button
+              className="px-4 py-2 rounded bg-indigo-600 text-white hover:bg-indigo-700 disabled:bg-indigo-300"
+              onClick={handleSaveConfig}
+              disabled={savingConfig}
+            >
+              {savingConfig ? "Guardando..." : "Guardar Detalle Empresa"}
+            </button>
           </div>
         </div>
       </div>

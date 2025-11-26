@@ -156,6 +156,8 @@ def obtener_empresa(
         "google_sheet_id": config.link_google_sheets if config else None,
         "afip_certificado": config.afip_certificado_encrypted if config else None,
         "afip_clave_privada": config.afip_clave_privada_encrypted if config else None,
+        "aplicar_desglose_77": (config.aplicar_desglose_77 if config else False),
+        "detalle_empresa_text": (config.detalle_empresa_text if config else None),
     }
     
     return response
