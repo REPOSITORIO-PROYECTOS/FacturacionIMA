@@ -206,6 +206,36 @@ export default function BoletasFacturadasPage() {
         return razonSocial.includes(searchText) || repartidor.includes(searchText);
     });
 
+    const [sortDesc, setSortDesc] = useState<boolean>(true);
+    function getFechaKey(b: BoletaRecord): number {
+        const raw = String(
+            (b as Record<string, unknown>)['fecha_comprobante'] ||
+            (b as Record<string, unknown>)['created_at'] ||
+            (b as Record<string, unknown>)['Fecha'] ||
+            (b as Record<string, unknown>)['fecha'] ||
+            (b as Record<string, unknown>)['FECHA'] || ''
+        );
+        const norm = normalizaFecha(raw);
+        if (!norm) return 0;
+        const [yyyy, mm, dd] = norm.split('-');
+        const n = parseInt(`${yyyy}${mm}${dd}`, 10);
+        return isNaN(n) ? 0 : n;
+    }
+    const sortedItems = [...filteredItems].sort((a, b) => {
+        const ak = getFechaKey(a);
+        const bk = getFechaKey(b);
+        return sortDesc ? (bk - ak) : (ak - bk);
+    });
+
+    const [page, setPage] = useState(1);
+    const PAGE_SIZE = 25;
+    const totalPages = Math.max(1, Math.ceil(sortedItems.length / PAGE_SIZE));
+    const currentPage = Math.min(page, totalPages);
+    const startIndex = (currentPage - 1) * PAGE_SIZE;
+    const endIndex = startIndex + PAGE_SIZE;
+    const pageItems = sortedItems.slice(startIndex, endIndex);
+    useEffect(() => { setPage(1); }, [search, fechaDesde, fechaHasta]);
+
     return (
         <div className="p-4 md:p-6 space-y-4">
             {/* Toast notifications container */}
@@ -244,6 +274,19 @@ export default function BoletasFacturadasPage() {
                     placeholder="Buscar por razón social o repartidor..."
                     className="border rounded px-3 py-2 w-full max-w-md"
                 />
+                <div className="flex items-center gap-2">
+                    <label htmlFor="orden-lista-f" className="text-[12px] text-gray-600">Orden</label>
+                    <select
+                        id="orden-lista-f"
+                        aria-label="Orden de lista"
+                        className="border rounded px-2 py-1 text-xs"
+                        value={sortDesc ? 'desc' : 'asc'}
+                        onChange={(e) => setSortDesc(e.target.value === 'desc')}
+                    >
+                        <option value="desc">Recientes primero</option>
+                        <option value="asc">Antiguas primero</option>
+                    </select>
+                </div>
             </div>
             {loading && (
                 <div className="flex items-center justify-center py-12">
@@ -255,7 +298,7 @@ export default function BoletasFacturadasPage() {
                 <div className="overflow-auto border rounded bg-white">
                     {/* Mobile list */}
                     <div className="md:hidden divide-y">
-                        {filteredItems.map((b, i) => {
+                        {pageItems.map((b, i) => {
                             const rawTotal = b.importe_total || b.total || b.INGRESOS || '';
                             const totalNum = typeof rawTotal === 'number' ? rawTotal : parseFloat(String(rawTotal).replace(/,/g, ''));
                             const total = isNaN(totalNum) ? rawTotal : Math.round(totalNum).toString();
@@ -302,7 +345,7 @@ export default function BoletasFacturadasPage() {
                                 </tr>
                             </thead>
                             <tbody>
-                                {filteredItems.map((b, i) => {
+                                {pageItems.map((b, i) => {
                                     // Acomodar el campo importe_total que manda el backend
                                     const rawTotal = b.importe_total || b.total || b.INGRESOS || '';
                                     const totalNum = typeof rawTotal === 'number' ? rawTotal : parseFloat(String(rawTotal).replace(/,/g, ''));
@@ -333,6 +376,24 @@ export default function BoletasFacturadasPage() {
                                 })}
                             </tbody>
                         </table>
+                    </div>
+
+                    <div className="flex items-center justify-between p-2 border-t gap-3">
+                        <div className="text-[11px] text-gray-500">Página {currentPage} de {totalPages} · Mostrando {pageItems.length} de {sortedItems.length}</div>
+                        <div className="flex items-center gap-2">
+                            <button
+                                aria-label="Página anterior"
+                                className={`px-3 py-2 rounded text-sm border ${currentPage <= 1 ? 'bg-gray-200 text-gray-500 cursor-not-allowed' : 'bg-white hover:bg-gray-50'}`}
+                                onClick={() => setPage(p => Math.max(1, p - 1))}
+                                disabled={currentPage <= 1}
+                            >Anterior</button>
+                            <button
+                                aria-label="Página siguiente"
+                                className={`px-3 py-2 rounded text-sm border ${currentPage >= totalPages ? 'bg-gray-200 text-gray-500 cursor-not-allowed' : 'bg-white hover:bg-gray-50'}`}
+                                onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+                                disabled={currentPage >= totalPages}
+                            >Siguiente</button>
+                        </div>
                     </div>
 
                     {filteredItems.length === 0 && (

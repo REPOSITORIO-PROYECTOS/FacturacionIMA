@@ -1,13 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-// Proxy para login: usa NEXT_PUBLIC_BACKEND_URL si existe, con fallback local.
-const primaryBase = process.env.NEXT_PUBLIC_BACKEND_URL;
-const fallbackBase = 'http://127.0.0.1:8008';
-const baseCandidates = primaryBase ? [primaryBase, fallbackBase] : [fallbackBase];
-if (!primaryBase) {
-  console.warn('[api/auth] NEXT_PUBLIC_BACKEND_URL no configurada — usando sólo fallback local.');
-} else {
-  console.log(`[api/auth] Usando backend primario ${primaryBase} con fallback ${fallbackBase}`);
-}
+const internalBase = process.env.BACKEND_INTERNAL_URL;
+const publicBase = process.env.NEXT_PUBLIC_BACKEND_URL;
+const baseCandidates = [internalBase, publicBase, 'http://127.0.0.1:8008'].filter(Boolean) as string[];
 
 function joinUrl(base: string, path: string) {
   return base.replace(/\/+$/, '') + '/' + path.replace(/^\/+/, '');
@@ -18,21 +12,29 @@ export async function POST(request: Request): Promise<Response> {
   const body = await request.json().catch(() => ({}));
   const username = String(body.username ?? '');
   const password = String(body.password ?? '');
+  const wantDebug = (() => { try { const u = new URL(request.url); return u.searchParams.get('debug') === '1'; } catch { return false; } })();
 
-  // Construir lista combinada de endpoints de autenticación para cada base candidate
   const endpoints: string[] = [];
   for (const base of baseCandidates) {
     endpoints.push(joinUrl(base, '/auth/token'));
     endpoints.push(joinUrl(base, '/api/auth/token'));
+    endpoints.push(joinUrl(base, '/auth/login'));
+    endpoints.push(joinUrl(base, '/api/auth/login'));
+    endpoints.push(joinUrl(base, '/login'));
+    endpoints.push(joinUrl(base, '/api/login'));
+    endpoints.push(joinUrl(base, '/token'));
+    endpoints.push(joinUrl(base, '/api/token'));
+    endpoints.push(joinUrl(base, '/oauth/token'));
   }
 
+  const attempts: Array<{ endpoint: string; status?: number; html?: boolean; error?: string }> = [];
   for (const endpoint of endpoints) {
     console.log(`[api/auth] probando endpoint ${endpoint}`);
     try {
       const response = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: new URLSearchParams({ username, password }),
+        body: new URLSearchParams({ username, password, grant_type: 'password' }),
       });
 
       const text = await response.text().catch(() => '');
@@ -46,6 +48,7 @@ export async function POST(request: Request): Promise<Response> {
         // Si el primario responde HTML (p. ej. devuelve la app en lugar de la API),
         // registrar y continuar para intentar el siguiente endpoint (fallback local).
         console.error(`[api/auth] respuesta inesperada (HTML) desde ${endpoint}. status=${response.status}. preview=${preview.slice(0,200)}`);
+        attempts.push({ endpoint, status: response.status, html: true });
         // intentar siguiente candidato en la lista en lugar de devolver 502
         continue;
       }
@@ -79,6 +82,7 @@ export async function POST(request: Request): Promise<Response> {
       }
 
       // Si 404 probamos siguiente endpoint (podría ser base equivocada)
+      attempts.push({ endpoint, status: response.status, html: false });
       if (response.status === 404) {
         console.warn(`[api/auth] endpoint 404, intentando siguiente: ${endpoint}`);
         continue;
@@ -91,7 +95,9 @@ export async function POST(request: Request): Promise<Response> {
         const maxAge = 60 * 60 * 8; // 8 horas
         headers['Set-Cookie'] = `session_token=${tokenVal}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAge}`;
       }
-      return new Response(JSON.stringify(data), { status: response.status || 200, headers });
+      const headersOut: Record<string, string> = headers;
+      if (wantDebug) headersOut['X-Debug-Attempts'] = JSON.stringify(attempts);
+      return new Response(JSON.stringify(data), { status: response.status || 200, headers: headersOut });
     } catch (err) {
       // Intentar el siguiente candidato y loguear detalle completo para depuración
       try {
@@ -106,6 +112,7 @@ export async function POST(request: Request): Promise<Response> {
           }
         }
         console.error(`[api/auth] fallo al conectar con ${endpoint}: ${msg}`);
+        attempts.push({ endpoint, error: msg });
       } catch (logErr) {
         console.error('[api/auth] fallo al imprimir error de conexión', String(logErr));
       }
@@ -113,7 +120,8 @@ export async function POST(request: Request): Promise<Response> {
     }
   }
 
-  return new Response(JSON.stringify({ detail: 'Error de conexión con el backend' }), {
+  const resp = { detail: 'Error de conexión con el backend', attempts };
+  return new Response(JSON.stringify(resp), {
     status: 500,
     headers: { 'Content-Type': 'application/json' },
   });

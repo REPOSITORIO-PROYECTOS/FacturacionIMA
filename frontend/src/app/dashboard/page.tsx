@@ -4,7 +4,7 @@ import React, { useEffect, useMemo, useState, useCallback } from "react";
 import { useBoletas } from "@/context/BoletasStore";
 import Link from "next/link";
 import type { Boleta } from "@/types/boleta";
-import { buildInvoiceItem, facturarItems } from "@/app/lib/facturacion";
+import { buildInvoiceItem, facturarItems } from "../lib/facturacion";
 import { MediosPagoResumen } from "@/components/dashboard/MediosPagoResumen";
 import { BoletaDetalleModal } from "@/components/dashboard/BoletaDetalleModal";
 import { useToast } from "../components/ToastProvider";

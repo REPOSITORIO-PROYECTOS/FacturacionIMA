@@ -115,9 +115,10 @@ export default function EmpresaDetailPage() {
 
       <div className="space-y-4">
         <div>
-          <label className="block text-sm font-medium text-gray-700">Nombre Legal</label>
+          <label htmlFor="nombre_legal" className="block text-sm font-medium text-gray-700">Nombre Legal</label>
           <input
             type="text"
+            id="nombre_legal"
             name="nombre_legal"
             value={empresa.nombre_legal}
             onChange={handleInputChange}
@@ -125,9 +126,10 @@ export default function EmpresaDetailPage() {
           />
         </div>
         <div>
-          <label className="block text-sm font-medium text-gray-700">Nombre de Fantasía</label>
+          <label htmlFor="nombre_fantasia" className="block text-sm font-medium text-gray-700">Nombre de Fantasía</label>
           <input
             type="text"
+            id="nombre_fantasia"
             name="nombre_fantasia"
             value={empresa.nombre_fantasia || ''}
             onChange={handleInputChange}
@@ -135,9 +137,10 @@ export default function EmpresaDetailPage() {
           />
         </div>
         <div>
-          <label className="block text-sm font-medium text-gray-700">CUIT</label>
+          <label htmlFor="cuit" className="block text-sm font-medium text-gray-700">CUIT</label>
           <input
             type="text"
+            id="cuit"
             name="cuit"
             value={empresa.cuit}
             onChange={handleInputChange}
@@ -147,12 +150,13 @@ export default function EmpresaDetailPage() {
         <div className="flex items-center">
           <input
             type="checkbox"
+            id="activa"
             name="activa"
             checked={empresa.activa}
             onChange={handleInputChange}
             className="h-4 w-4 text-blue-600 border-gray-300 rounded"
           />
-          <label className="ml-2 block text-sm text-gray-900">Activa</label>
+          <label htmlFor="activa" className="ml-2 block text-sm text-gray-900">Activa</label>
         </div>
       </div>
 
@@ -208,23 +212,26 @@ export default function EmpresaDetailPage() {
           <div className="flex items-center">
             <input
               type="checkbox"
+              id="aplicar_desglose_77"
               name="aplicar_desglose_77"
               checked={!!empresa.aplicar_desglose_77}
               onChange={handleInputChange}
               className="h-4 w-4 text-blue-600 border-gray-300 rounded"
             />
-            <label className="ml-2 block text-sm text-gray-900">Usar desglose 77% + IVA 21% en el PDF</label>
+            <label htmlFor="aplicar_desglose_77" className="ml-2 block text-sm text-gray-900">Usar desglose 77% + IVA 21% en el PDF</label>
           </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700">Texto de detalle (ejemplo de producto)</label>
-            <input
-              type="text"
-              name="detalle_empresa_text"
-              value={empresa.detalle_empresa_text || ''}
-              onChange={handleInputChange}
-              placeholder="Ej: Cigarrillos"
-              className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm"
-            />
+        
+        <div>
+          <label htmlFor="detalle_empresa_text" className="block text-sm font-medium text-gray-700">Texto de detalle (ejemplo de producto)</label>
+          <input
+            type="text"
+            id="detalle_empresa_text"
+            name="detalle_empresa_text"
+            value={empresa.detalle_empresa_text || ''}
+            onChange={handleInputChange}
+            placeholder="Ej: Cigarrillos"
+            className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm"
+          />
             <p className="text-xs text-gray-500 mt-1">Se usa en el bloque centrado del DETALLE cuando está activado.</p>
           </div>
           <div className="flex justify-end">

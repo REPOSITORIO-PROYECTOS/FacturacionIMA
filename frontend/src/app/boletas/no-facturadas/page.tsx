@@ -2,7 +2,7 @@
 import { useEffect, useState } from 'react';
 import { useBoletas } from '@/context/BoletasStore';
 import { LoadingSpinner } from "../../components/LoadingSpinner";
-import { buildInvoiceItem, facturarItems, buildValidItems, getVentaConceptos } from "@/app/lib/facturacion";
+import { buildInvoiceItem, facturarItems, buildValidItems, getVentaConceptos } from "../../lib/facturacion";
 import { useToast } from "@/hooks/useToast";
 import { ToastContainer } from "@/components/Toast";
 
@@ -205,7 +205,7 @@ export default function BoletasNoFacturadasPage() {
     useEffect(() => {
         // reset selection when items change
         const map: Record<string, boolean> = {};
-        items.forEach((b) => { const id = String((b as Record<string, unknown>)['ID Ingresos'] || b.id || ''); if (id) map[id] = false; });
+        items.forEach((b) => { const id = String((b as Record<string, unknown>)['ID Ingresos'] || b.id || ''); if (id) { map[id] = false; } });
         setSelectedIds(map);
     }, [items]);
 
@@ -287,6 +287,31 @@ export default function BoletasNoFacturadasPage() {
         return razonSocial.includes(searchText) || repartidor.includes(searchText);
     });
 
+    const [sortDesc, setSortDesc] = useState<boolean>(true);
+    function getFechaKeyFromBoleta(b: Record<string, unknown>): number {
+        const fechaRaw = String(
+            (b as Record<string, unknown>)['Fecha'] ||
+            (b as Record<string, unknown>)['fecha'] ||
+            (b as Record<string, unknown>)['FECHA'] || ''
+        );
+        const key = parseFechaToKey(fechaRaw);
+        return key == null ? 0 : key;
+    }
+    const sortedItems = [...filteredItems].sort((a, b) => {
+        const ak = getFechaKeyFromBoleta(a as any);
+        const bk = getFechaKeyFromBoleta(b as any);
+        return sortDesc ? (bk - ak) : (ak - bk);
+    });
+
+    const [page, setPage] = useState(1);
+    const PAGE_SIZE = 25;
+    const totalPages = Math.max(1, Math.ceil(sortedItems.length / PAGE_SIZE));
+    const currentPage = Math.min(page, totalPages);
+    const startIndex = (currentPage - 1) * PAGE_SIZE;
+    const endIndex = startIndex + PAGE_SIZE;
+    const pageItems = sortedItems.slice(startIndex, endIndex);
+    useEffect(() => { setPage(1); }, [search, fechaDesde, fechaHasta]);
+
     function getRazonesFor(repartidor: string | undefined): string[] {
         if (!repartidor || !repartidoresMap) return [];
         const key = Object.keys(repartidoresMap).find(k => k === repartidor || k.toLowerCase() === String(repartidor).toLowerCase());
@@ -328,13 +353,14 @@ export default function BoletasNoFacturadasPage() {
             const itemsConConceptos = await Promise.all(
                 valid.map(async (item: any) => {
                     const ventaId = String(item.id || '');
+                    let next = item;
                     if (ventaId) {
                         const conceptos = await getVentaConceptos(ventaId, token);
                         if (conceptos.length > 0) {
-                            return { ...item, conceptos };
+                            next = { ...next, conceptos };
                         }
                     }
-                    return item;
+                    return next;
                 })
             );
 
@@ -474,11 +500,24 @@ export default function BoletasNoFacturadasPage() {
                             {isProcessing ? 'Procesando...' : 'Facturar seleccionadas'}
                         </button>
                         <button className="px-3 py-2 bg-blue-500 text-white rounded text-xs" onClick={() => reload()}>Refrescar</button>
-                        <span className="ml-auto text-[11px] text-gray-500">Mostrando {filteredItems.length} / {itemsNoFacturadas.length}</span>
+                        <div className="flex items-center gap-2">
+                            <label htmlFor="orden-lista" className="text-[12px] text-gray-600">Orden</label>
+                            <select
+                                id="orden-lista"
+                                aria-label="Orden de lista"
+                                className="border rounded px-2 py-1 text-xs"
+                                value={sortDesc ? 'desc' : 'asc'}
+                                onChange={(e) => setSortDesc(e.target.value === 'desc')}
+                            >
+                                <option value="desc">Recientes primero</option>
+                                <option value="asc">Antiguas primero</option>
+                            </select>
+                        </div>
+                        <span className="ml-auto text-[11px] text-gray-500">Página {currentPage} de {totalPages} · Mostrando {pageItems.length} de {sortedItems.length}</span>
                     </div>
                     {/* Mobile list */}
                     <div className="md:hidden divide-y">
-                        {filteredItems.map((b, i) => {
+                        {pageItems.map((b, i) => {
                             const rawTotal = b.total || b.INGRESOS || '';
                             const totalNum = typeof rawTotal === 'number' ? rawTotal : parseFloat(String(rawTotal).replace(/,/g, ''));
                             const total = isNaN(totalNum) ? rawTotal : Math.round(totalNum).toString();
@@ -530,7 +569,7 @@ export default function BoletasNoFacturadasPage() {
                         <table className="w-full text-sm">
                             <thead className="bg-purple-50">
                                 <tr>
-                                    <th className="p-2"><input aria-label="Seleccionar todas" type="checkbox" onChange={(e) => { const v = e.target.checked; const m: Record<string, boolean> = {}; filteredItems.forEach(b => { const id = String((b as Record<string, unknown>)['ID Ingresos'] || b.id || ''); if (id) m[id] = v; }); setSelectedIds(m); }} /></th>
+                                    <th className="p-2"><input aria-label="Seleccionar todas" type="checkbox" onChange={(e) => { const v = e.target.checked; const m: Record<string, boolean> = {}; pageItems.forEach(b => { const id = String((b as Record<string, unknown>)['ID Ingresos'] || b.id || ''); if (id) m[id] = v; }); setSelectedIds(s => ({ ...s, ...m })); }} /></th>
                                     <th className="p-2">Repartidor</th>
                                     <th className="p-2">Razón Social</th>
                                     <th className="p-2">Fecha</th>
@@ -539,7 +578,7 @@ export default function BoletasNoFacturadasPage() {
                                 </tr>
                             </thead>
                             <tbody>
-                                {filteredItems.map((b, i) => {
+                                {pageItems.map((b, i) => {
                                     const rawTotal = b.total || b.INGRESOS || '';
                                     const totalNum = typeof rawTotal === 'number' ? rawTotal : parseFloat(String(rawTotal).replace(/,/g, ''));
                                     const total = isNaN(totalNum) ? rawTotal : Math.round(totalNum).toString();
@@ -581,6 +620,24 @@ export default function BoletasNoFacturadasPage() {
                                 })}
                             </tbody>
                         </table>
+                    </div>
+
+                    <div className="flex items-center justify-between p-2 border-t gap-3">
+                        <div className="text-[11px] text-gray-500">Página {currentPage} de {totalPages} · Mostrando {pageItems.length} de {filteredItems.length}</div>
+                        <div className="flex items-center gap-2">
+                            <button
+                                aria-label="Página anterior"
+                                className={`px-3 py-2 rounded text-sm border ${currentPage <= 1 ? 'bg-gray-200 text-gray-500 cursor-not-allowed' : 'bg-white hover:bg-gray-50'}`}
+                                onClick={() => setPage(p => Math.max(1, p - 1))}
+                                disabled={currentPage <= 1}
+                            >Anterior</button>
+                            <button
+                                aria-label="Página siguiente"
+                                className={`px-3 py-2 rounded text-sm border ${currentPage >= totalPages ? 'bg-gray-200 text-gray-500 cursor-not-allowed' : 'bg-white hover:bg-gray-50'}`}
+                                onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+                                disabled={currentPage >= totalPages}
+                            >Siguiente</button>
+                        </div>
                     </div>
 
                     {filteredItems.length === 0 && (
