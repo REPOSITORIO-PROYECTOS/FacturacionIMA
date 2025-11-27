@@ -1,15 +1,24 @@
 import os
 
 from requests import Session
-import gspread
-from google.oauth2.service_account import Credentials
+try:
+    import gspread
+    from google.oauth2.service_account import Credentials
+except Exception:
+    class _Missing:
+        def __getattr__(self, name):
+            raise RuntimeError("gspread no está disponible en el entorno")
+    gspread = _Missing()
+    Credentials = _Missing()
 from typing import List, Dict, Any, Optional, Tuple
 import uuid
 from datetime import datetime
 from backend.config import GOOGLE_SHEET_ID,GOOGLE_SERVICE_ACCOUNT_FILE
+import csv
+import io
 
 SCOPES = ['https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis.com/auth/drive.file']
-gspread_client: Optional[gspread.Client] = None
+gspread_client: Optional[object] = None
 
 datos_clientes: List[Dict] = []
 
@@ -19,10 +28,14 @@ class TablasHandler:
         self.google_sheet_id = google_sheet_id or GOOGLE_SHEET_ID
         self.client = self._init_client()
 
-    def _init_client(self) -> Optional[gspread.Client]:
+    def _init_client(self) -> Optional[object]:
         global gspread_client
         if gspread_client is None:
             try:
+                try:
+                    _ = gspread  # acceso para detectar disponibilidad
+                except Exception as e:
+                    raise RuntimeError("gspread no está disponible en el entorno")
                 back_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
                 credential_path = os.path.join(back_dir, GOOGLE_SERVICE_ACCOUNT_FILE)
                 gspread_client = gspread.service_account(filename=credential_path, scopes=SCOPES)
@@ -34,15 +47,18 @@ class TablasHandler:
 
     def cargar_ingresos(self):
         print("Intentando cargar/recargar datos de INGRESOS...")
+        if not self.google_sheet_id:
+            print("Falta GOOGLE_SHEET_ID; no es posible cargar INGRESOS.")
+            return []
         if self.client:
             try:
                 sheet = self.client.open_by_key(self.google_sheet_id)
-                worksheet = sheet.worksheet("INGRESOS") 
-                datos_clientes = worksheet.get_all_records()
-                # Normalizar claves comunes para evitar ambigüedades entre variantes
+                worksheet = sheet.worksheet("INGRESOS")
+                all_values = worksheet.get_all_values()
+                headers = all_values[0] if all_values else []
+                rows = all_values[1:] if len(all_values) > 1 else []
                 def normalize_row(row: dict) -> dict:
-                    new = dict(row)  # copiar valores originales
-                    # construir mapa de keys compactas para detección
+                    new = dict(row)
                     for k, v in list(row.items()):
                         key_compact = k.lower().replace(' ', '').replace('_', '')
 
@@ -110,15 +126,94 @@ class TablasHandler:
 
                     return new
 
-                normalized = [normalize_row(r) for r in datos_clientes]
-                return normalized
+                records: List[Dict[str, Any]] = []
+                for r in rows:
+                    if not any(str(c or '').strip() for c in r):
+                        continue
+                    d: Dict[str, Any] = {}
+                    for i, h in enumerate(headers):
+                        if i < len(r):
+                            d[h] = r[i]
+                    records.append(normalize_row(d))
+                return records
             except gspread.exceptions.WorksheetNotFound:
                 print("❌ ERROR: La hoja de cálculo no tiene una pestaña llamada 'INGRESOS'.")
             except Exception as e:
                 print(f"❌ Error detallado al cargar datos de INGRESOS: {type(e).__name__} - {e}")
         else:
-            print("Cliente de Google Sheets no disponible.")
-        return [] 
+            print("Cliente de Google Sheets no disponible. Intentando fallback CSV público...")
+            try:
+                import requests
+                url = f"https://docs.google.com/spreadsheets/d/{self.google_sheet_id}/gviz/tq?tqx=out:csv&sheet=INGRESOS"
+                resp = requests.get(url, timeout=10)
+                if resp.status_code != 200:
+                    print(f"Fallback CSV HTTP status: {resp.status_code}")
+                    return []
+                content = resp.content.decode('utf-8', errors='replace')
+                reader = csv.reader(io.StringIO(content))
+                rows = list(reader)
+                if not rows:
+                    return []
+                headers = rows[0]
+                def normalize_row(row: dict) -> dict:
+                    new = dict(row)
+                    for k, v in list(row.items()):
+                        key_compact = k.lower().replace(' ', '').replace('_', '')
+                        if key_compact in ('repartidor', 'repartidornombre', 'nombredelempleado'):
+                            if not new.get('repartidor'):
+                                new['repartidor'] = v
+                            if not new.get('Repartidor'):
+                                new['Repartidor'] = v
+                        if key_compact in ('razonsocial', 'razonsocialreceptor', 'razonsocialcliente', 'nombre', 'nombrecliente', 'nombre_razonsocial'):
+                            if not new.get('razon_social'):
+                                new['razon_social'] = v
+                            if not new.get('Razon Social'):
+                                new['Razon Social'] = v
+                        if key_compact in ('fecha', 'fechadeingreso', 'date'):
+                            if not new.get('fecha'):
+                                new['fecha'] = v
+                            if not new.get('Fecha'):
+                                new['Fecha'] = v
+                        if key_compact in ('idingresos', 'id', 'id_ingreso'):
+                            if not new.get('id_ingreso'):
+                                new['id_ingreso'] = v
+                            if not new.get('ID Ingresos'):
+                                new['ID Ingresos'] = v
+                        if key_compact in ('facturacion', 'estadofacturacion', 'estado'):
+                            try:
+                                val = str(v).strip()
+                            except Exception:
+                                val = str(v) if v is not None else ''
+                            if val and not new.get('facturacion'):
+                                new['facturacion'] = val
+                            if 'Facturacion' not in new:
+                                new['Facturacion'] = val
+                        if key_compact in ('ingresos', 'total', 'importe', 'importetotal', 'totalapagar'):
+                            if not new.get('importe_total'):
+                                try:
+                                    if isinstance(v, str):
+                                        s = v.strip().replace('$', '').replace(' ', '')
+                                        s = s.replace('.', '').replace(',', '.')
+                                        parsed_value = float(s)
+                                        new['importe_total'] = parsed_value
+                                    else:
+                                        new['importe_total'] = float(v)
+                                except (ValueError, TypeError):
+                                    new['importe_total'] = v
+                    return new
+                records: List[Dict[str, Any]] = []
+                for r in rows[1:]:
+                    if not any(str(c or '').strip() for c in r):
+                        continue
+                    d: Dict[str, Any] = {}
+                    for i, h in enumerate(headers):
+                        if i < len(r):
+                            d[h] = r[i]
+                    records.append(normalize_row(d))
+                return records
+            except Exception as e:
+                print(f"Fallback CSV error: {e}")
+                return []
 
 
 

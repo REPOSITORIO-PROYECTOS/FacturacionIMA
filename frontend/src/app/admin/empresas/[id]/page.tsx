@@ -30,17 +30,26 @@ export default function EmpresaDetailPage() {
   useEffect(() => {
     if (!id) return;
     const token = localStorage.getItem('token');
+    if (!token || token === 'null') {
+      setError('Sesión inválida o expirada. Inicie sesión nuevamente.');
+      setLoading(false);
+      return;
+    }
     fetch(`/api/admin/empresas/${id}`, {
       headers: { 'Authorization': `Bearer ${token}` }
     })
       .then(res => res.json())
       .then(data => {
-        if (data.detail) throw new Error(data.detail);
+        if (data?.detail) throw new Error(data.detail);
         setEmpresa(data);
       })
       .catch(() => setError("Error al cargar los datos de la empresa"))
       .finally(() => setLoading(false));
   }, [id]);
+
+  const afipLoaded = !!(empresa?.afip_certificado && empresa?.afip_clave_privada);
+  const desgloseHabilitado = !!empresa?.aplicar_desglose_77;
+  const detalleTexto = empresa?.detalle_empresa_text || '';
 
   const handleInputChange = (e: ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     if (!empresa) return;
@@ -112,6 +121,24 @@ export default function EmpresaDetailPage() {
   return (
     <div className="p-6 max-w-2xl mx-auto bg-white rounded-lg shadow">
       <h1 className="text-3xl font-bold mb-6 border-b pb-2">Editar Empresa #{empresa.id}</h1>
+
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-6">
+        <div className="rounded border p-3">
+          <div className="text-sm text-gray-600">AFIP credenciales</div>
+          <div className={`mt-1 text-sm font-semibold ${afipLoaded ? 'text-green-600' : 'text-red-600'}`}>{afipLoaded ? 'Cargadas' : 'Faltan'}</div>
+          <div className="mt-2 text-[11px] text-gray-500">Variables: afip_certificado, afip_clave_privada</div>
+        </div>
+        <div className="rounded border p-3">
+          <div className="text-sm text-gray-600">Desglose 77%</div>
+          <div className={`mt-1 text-sm font-semibold ${desgloseHabilitado ? 'text-green-600' : 'text-gray-600'}`}>{desgloseHabilitado ? 'Habilitado' : 'Deshabilitado'}</div>
+          <div className="mt-2 text-[11px] text-gray-500">Variable: aplicar_desglose_77</div>
+        </div>
+        <div className="rounded border p-3">
+          <div className="text-sm text-gray-600">Detalle para desglose</div>
+          <div className="mt-1 text-sm font-semibold">{detalleTexto ? detalleTexto : 'Sin detalle'}</div>
+          <div className="mt-2 text-[11px] text-gray-500">Variable: detalle_empresa_text</div>
+        </div>
+      </div>
 
       <div className="space-y-4">
         <div>
@@ -191,6 +218,7 @@ export default function EmpresaDetailPage() {
               placeholder="Pegar contenido del archivo .crt"
               className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm font-mono text-sm"
             />
+            <div className={`mt-1 text-xs ${afipLoaded ? 'text-green-600' : 'text-red-600'}`}>{afipLoaded ? 'Credenciales AFIP cargadas' : 'Faltan credenciales AFIP'}</div>
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700">Clave Privada AFIP (.key)</label>

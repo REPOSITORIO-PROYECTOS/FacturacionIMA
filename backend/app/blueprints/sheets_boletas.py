@@ -3,6 +3,7 @@ Endpoint para cargar boletas directamente desde Google Sheets.
 Ya no depende de gestion_ima_db - todo desde Sheets.
 """
 from fastapi import APIRouter, Depends, HTTPException, Query
+from datetime import datetime
 from backend.security import obtener_usuario_actual
 from backend.modelos import Usuario
 from backend.utils.tablasHandler import TablasHandler
@@ -18,7 +19,9 @@ router = APIRouter(prefix="/sheets", tags=["sheets"])
 async def obtener_boletas_desde_sheets(
     usuario: Usuario = Depends(obtener_usuario_actual),
     tipo: Optional[str] = Query(None, description="Filtro: 'no-facturadas', 'facturadas', o None para todas"),
-    limit: Optional[int] = Query(300, description="Límite de registros")
+    limit: Optional[int] = Query(300, description="Límite de registros"),
+    fecha_desde: Optional[str] = Query(None, description="YYYY-MM-DD"),
+    fecha_hasta: Optional[str] = Query(None, description="YYYY-MM-DD")
 ) -> List[Dict[str, Any]]:
     """
     Obtiene todas las boletas directamente desde Google Sheets.
@@ -57,6 +60,44 @@ async def obtener_boletas_desde_sheets(
                 if str(b.get('facturacion', '')).strip().lower() in ['facturado', 'facturada', 'si', 'sí', 'yes', 'true']
             ]
             logger.info(f"🔍 Filtro 'facturadas': {boletas_antes} → {len(boletas)} boletas")
+
+        def _parse_fecha_key(raw: str) -> int:
+            t = str(raw or '').strip()
+            base = t.split(' ')[0].split('T')[0]
+            try:
+                if base and len(base) == 10 and base[4] == '-' and base[7] == '-':
+                    dt = datetime.strptime(base, '%Y-%m-%d')
+                    return int(dt.strftime('%Y%m%d'))
+                if base and len(base) == 10 and base[2] == '/' and base[5] == '/':
+                    dt = datetime.strptime(base, '%d/%m/%Y')
+                    return int(dt.strftime('%Y%m%d'))
+            except Exception:
+                return 0
+            return 0
+
+        desde_key = None
+        hasta_key = None
+        try:
+            if fecha_desde:
+                desde_key = int(datetime.strptime(fecha_desde, '%Y-%m-%d').strftime('%Y%m%d'))
+            if fecha_hasta:
+                hasta_key = int(datetime.strptime(fecha_hasta, '%Y-%m-%d').strftime('%Y%m%d'))
+        except Exception:
+            desde_key = desde_key
+            hasta_key = hasta_key
+
+        if desde_key or hasta_key:
+            antes = len(boletas)
+            boletas = [
+                b for b in boletas
+                if (
+                    (desde_key is None or _parse_fecha_key(str(b.get('Fecha') or b.get('fecha') or b.get('FECHA') or '')) >= desde_key) and
+                    (hasta_key is None or _parse_fecha_key(str(b.get('Fecha') or b.get('fecha') or b.get('FECHA') or '')) <= hasta_key)
+                )
+            ]
+            logger.info(f"📆 Filtro por fecha: {antes} → {len(boletas)} boletas")
+
+        boletas.sort(key=lambda b: _parse_fecha_key(str(b.get('Fecha') or b.get('fecha') or b.get('FECHA') or '')), reverse=True)
         
         # Aplicar límite
         if limit and limit > 0:

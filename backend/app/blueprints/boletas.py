@@ -78,7 +78,7 @@ def _get_handler_for_user(user) -> TablasHandler:
 
 # Endpoint universal para /boletas?tipo=...
 @router.get("")
-async def obtener_boletas_tipo(request: Request, tipo: Optional[str] = None, skip: int = 0, limit: int = 20, usuario_actual = Depends(obtener_usuario_actual)):
+async def obtener_boletas_tipo(request: Request, tipo: Optional[str] = None, skip: int = 0, limit: int = 20, ver_todas: bool = False, usuario_actual = Depends(obtener_usuario_actual)):
     """
     Endpoint universal para /boletas?tipo=... que redirige a la lógica correspondiente.
     """
@@ -123,7 +123,22 @@ async def obtener_boletas_tipo(request: Request, tipo: Optional[str] = None, ski
                 ):
                     boletas_filtradas.append(bo)
 
-            if not _is_admin(usuario_actual):
+            def _fecha_key(b: Dict[str, Any]) -> int:
+                try:
+                    raw = str(b.get('Fecha') or b.get('fecha') or b.get('FECHA') or '')
+                    base = raw.strip().split(' ')[0].split('T')[0]
+                    if base and len(base) == 10 and base[4] == '-' and base[7] == '-':
+                        from datetime import datetime as _dt
+                        return int(_dt.strptime(base, '%Y-%m-%d').strftime('%Y%m%d'))
+                    if base and len(base) == 10 and base[2] == '/' and base[5] == '/':
+                        from datetime import datetime as _dt
+                        return int(_dt.strptime(base, '%d/%m/%Y').strftime('%Y%m%d'))
+                except Exception:
+                    return 0
+                return 0
+            boletas_filtradas.sort(key=_fecha_key, reverse=True)
+
+            if not _is_admin(usuario_actual) and not ver_todas:
                 username = _get_username(usuario_actual)
                 if username:
                     username_l = username.lower()
@@ -167,6 +182,7 @@ def traer_todas_las_boletas(skip: int = 0, limit: int = 20):
 def traer_boletas_no_facturadas(
     skip: int = 0,
     limit: int = 20,
+    ver_todas: bool = False,
     usuario_actual = Depends(obtener_usuario_actual)
 ):
     """Devuelve boletas que faltan facturar. Si el usuario no es admin, se filtra
@@ -181,7 +197,7 @@ def traer_boletas_no_facturadas(
             if estado_fact == "falta facturar" or ("falta" in estado_fact and "facturar" in estado_fact):
                 boletas_filtradas.append(bo)
 
-        if not _is_admin(usuario_actual):
+        if not _is_admin(usuario_actual) and not ver_todas:
             username = _get_username(usuario_actual)
             if username:
                 username_l = username.lower()
@@ -202,7 +218,7 @@ def traer_boletas_no_facturadas(
                         continue
                 return resultado[skip: skip + limit]
 
-        return boletas_filtradas[skip: skip + limit]
+        return boletas_filtradas[skip : skip + limit]
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Ocurrió un error inesperado al cargar boletas no facturadas: {e}")
@@ -1402,3 +1418,137 @@ def normalizar_datos_sheet(usuario_actual = Depends(obtener_usuario_actual)):
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f'Error normalizando datos: {e}')
+@router.get('/debug/sheet-origen')
+def debug_sheet_origen(usuario_actual = Depends(obtener_usuario_actual)):
+    """Devuelve el Google Sheet ID resuelto para el usuario actual y muestra una muestra
+    de las últimas boletas (5) para validar origen y orden.
+    """
+    try:
+        handler = _get_handler_for_user(usuario_actual)
+        sheet_id = getattr(handler, 'google_sheet_id', None)
+        todas = handler.cargar_ingresos()
+        def _fecha_key(b: Dict[str, Any]) -> int:
+            try:
+                raw = str(b.get('Fecha') or b.get('fecha') or b.get('FECHA') or '')
+                base = raw.strip().split(' ')[0].split('T')[0]
+                if base and len(base) == 10 and base[4] == '-' and base[7] == '-':
+                    from datetime import datetime as _dt
+                    return int(_dt.strptime(base, '%Y-%m-%d').strftime('%Y%m%d'))
+                if base and len(base) == 10 and base[2] == '/' and base[5] == '/':
+                    from datetime import datetime as _dt
+                    return int(_dt.strptime(base, '%d/%m/%Y').strftime('%Y%m%d'))
+            except Exception:
+                return 0
+            return 0
+        ordenadas = sorted(todas, key=_fecha_key, reverse=True)
+        muestra = []
+        for b in ordenadas[:5]:
+            muestra.append({
+                'ID Ingresos': b.get('ID Ingresos') or b.get('id_ingreso') or b.get('id'),
+                'Fecha': b.get('Fecha') or b.get('fecha') or b.get('FECHA'),
+                'Razon Social': b.get('Razon Social') or b.get('razon_social'),
+                'Repartidor': b.get('Repartidor') or b.get('repartidor'),
+                'Total': b.get('importe_total') or b.get('INGRESOS') or b.get('total'),
+                'Estado': b.get('facturacion') or b.get('Facturacion')
+            })
+        fuente = 'empresa' if sheet_id else 'global'
+        return {'google_sheet_id': sheet_id, 'fuente': fuente, 'total_leidas': len(todas), 'muestra_recientes': muestra}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f'Error debug sheet origen: {e}')
+@router.get("/admin/hoy")
+def listar_boletas_hoy(usuario_actual = Depends(obtener_usuario_actual)):
+    """Devuelve todas las boletas del día actual (admin/soporte).
+    Incluye facturadas (BD) y pendientes (Sheets), con campos normalizados.
+    """
+    if not _is_admin(usuario_actual):
+        raise HTTPException(status_code=403, detail="Solo admin/soporte")
+    hoy = datetime.now().date()
+    resultados: List[Dict[str, Any]] = []
+    # Facturadas (BD)
+    conn = None
+    cur = None
+    try:
+        conn = get_db_connection()
+        if not conn:
+            raise HTTPException(status_code=503, detail="DB no disponible")
+        cur = conn.cursor(dictionary=True)
+        cur.execute(
+            """
+            SELECT id, numero_comprobante, fecha_comprobante, importe_total, resultado_afip,
+                   cuit_emisor, nro_doc_receptor, raw_response, qr_url_afip, punto_venta
+            FROM facturas_electronicas
+            WHERE fecha_comprobante = %s
+            ORDER BY id DESC
+            """,
+            (hoy,)
+        )
+        rows = cur.fetchall() or []
+        for r in rows:
+            cliente_doc = r.get('nro_doc_receptor')
+            estado = 'FACTURADA'
+            resultados.append({
+                'categoria': 'facturada',
+                'numero_boleta': r.get('numero_comprobante'),
+                'fecha_hora': str(r.get('fecha_comprobante')),
+                'monto_total': r.get('importe_total'),
+                'estado': estado,
+                'cliente': cliente_doc,
+            })
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error BD: {e}")
+    finally:
+        try:
+            if cur: cur.close()
+            if conn: conn.close()
+        except Exception:
+            pass
+    # Pendientes (Sheets)
+    try:
+        handler = _get_handler_for_user(usuario_actual)
+        todas = handler.cargar_ingresos()
+        for b in todas:
+            fecha_raw = b.get('Fecha') or b.get('fecha') or b.get('FECHA')
+            if not fecha_raw:
+                continue
+            try:
+                fecha_sin_hora = str(fecha_raw).split(' ')[0]
+                fecha_obj = None
+                if '/' in fecha_sin_hora:
+                    fecha_obj = datetime.strptime(fecha_sin_hora, '%d/%m/%Y').date()
+                elif '-' in fecha_sin_hora:
+                    fecha_obj = datetime.strptime(fecha_sin_hora, '%Y-%m-%d').date()
+                else:
+                    continue
+                if fecha_obj != hoy:
+                    continue
+            except Exception:
+                continue
+            estado_fact = str(b.get('facturacion') or b.get('Facturacion') or '').strip().lower()
+            if estado_fact == 'falta facturar' or ('falta' in estado_fact and 'facturar' in estado_fact):
+                resultados.append({
+                    'categoria': 'pendiente',
+                    'numero_boleta': b.get('Nro Comprobante') or b.get('numero_comprobante') or None,
+                    'fecha_hora': str(fecha_raw),
+                    'monto_total': b.get('importe_total') or b.get('INGRESOS') or b.get('total'),
+                    'estado': 'PENDIENTE',
+                    'cliente': b.get('Razon Social') or b.get('razon_social') or b.get('Cliente') or b.get('cliente'),
+                })
+    except Exception:
+        # no interrumpir por errores de Sheets
+        pass
+    # Ordenar por fecha descendente (cuando sea posible)
+    def _k(x: Dict[str, Any]) -> int:
+        s = str(x.get('fecha_hora') or '')
+        base = s.split(' ')[0].split('T')[0]
+        try:
+            if len(base) == 10 and base[4] == '-' and base[7] == '-':
+                return int(datetime.strptime(base, '%Y-%m-%d').strftime('%Y%m%d'))
+            if len(base) == 10 and base[2] == '/' and base[5] == '/':
+                return int(datetime.strptime(base, '%d/%m/%Y').strftime('%Y%m%d'))
+        except Exception:
+            return 0
+        return 0
+    resultados.sort(key=_k, reverse=True)
+    return resultados

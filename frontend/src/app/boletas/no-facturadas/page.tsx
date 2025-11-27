@@ -214,15 +214,15 @@ export default function BoletasNoFacturadasPage() {
     // Restaurar/persistir fechas
     useEffect(() => {
         try {
-            const fd = localStorage.getItem('filtro_fecha_desde') || '';
-            const fh = localStorage.getItem('filtro_fecha_hasta') || '';
+            const fd = localStorage.getItem('boletas_no_facturadas_fecha_desde') || '';
+            const fh = localStorage.getItem('boletas_no_facturadas_fecha_hasta') || '';
             if (fd || fh) { setFechaDesde(fd); setFechaHasta(fh); }
         } catch { /* noop */ }
     }, []);
     useEffect(() => {
         try {
-            localStorage.setItem('filtro_fecha_desde', fechaDesde);
-            localStorage.setItem('filtro_fecha_hasta', fechaHasta);
+            localStorage.setItem('boletas_no_facturadas_fecha_desde', fechaDesde);
+            localStorage.setItem('boletas_no_facturadas_fecha_hasta', fechaHasta);
         } catch { /* noop */ }
     }, [fechaDesde, fechaHasta]);
 

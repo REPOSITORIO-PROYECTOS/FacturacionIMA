@@ -1,12 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 
-const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://127.0.0.1:8008';
+const BACKEND_URL = process.env.BACKEND_URL || process.env.NEXT_PUBLIC_BACKEND_URL || 'http://127.0.0.1:8008';
 
 // Usamos 'any' para evitar el conflicto de tipos del build de Next.js
 export async function GET(request: NextRequest, context: any) {
     const { params } = context;
     const authHeader = request.headers.get('authorization');
-    if (!authHeader) {
+    const token = authHeader?.split(' ')[1] || '';
+    if (!authHeader || !token || token === 'null') {
         return NextResponse.json({ detail: 'Token de autorización ausente' }, { status: 401 });
     }
 
@@ -21,7 +22,12 @@ export async function GET(request: NextRequest, context: any) {
             },
             cache: 'no-store',
         });
-        const data = await response.json();
+        let data: any = null;
+        try {
+            data = await response.json();
+        } catch {
+            return NextResponse.json({ detail: 'Respuesta inválida del backend' }, { status: 502 });
+        }
         return NextResponse.json(data, { status: response.status });
     } catch (error) {
         console.error(`[API /admin/empresas/id] Error de conexión a ${url}:`, error); // LOG DE ERROR AÑADIDO

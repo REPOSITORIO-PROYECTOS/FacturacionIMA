@@ -35,7 +35,7 @@ export async function GET(request: Request): Promise<Response> {
   const buildEndpoint = (base: string) => {
     // IMPORTANTE: El backend expone /boletas (sin /api) excepto que se haya configurado API_PREFIX global.
     // Para evitar duplicar prefijo erróneo NO agregamos /api aquí.
-    if (tipo === 'no-facturadas') return `${base}/boletas?tipo=no-facturadas&skip=${skip}&limit=${limit}`;
+    if (tipo === 'no-facturadas') return `${base}/boletas?tipo=no-facturadas&ver_todas=true&skip=${skip}&limit=${limit}`;
     if (tipo === 'facturadas') return `${base}/boletas?tipo=facturadas&skip=${skip}&limit=${limit}`;
     return `${base}/boletas?skip=${skip}&limit=${limit}`;
   };
