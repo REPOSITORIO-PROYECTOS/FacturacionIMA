@@ -383,12 +383,6 @@ def generar_pdf_comprobante(factura: FacturaElectronica, conceptos: list = None)
 
     if aplicar_especial:
         total_val = float(factura.importe_total)
-        setenta_y_siete = round(total_val * 0.77, 2)
-        costo_mas_iva = round(total_val - setenta_y_siete, 2)
-        neto_21 = round(costo_mas_iva / 1.21, 2)
-        iva_21 = round(costo_mas_iva - neto_21, 2)
-
-        # Encabezado configurable del producto
         titulo_detalle = "Cigarrillos"
         try:
             import json as _json
@@ -397,7 +391,6 @@ def generar_pdf_comprobante(factura: FacturaElectronica, conceptos: list = None)
                 raw = _json.loads(factura.raw_response)
                 detalle_empresa_txt = raw.get('detalle_empresa') or raw.get('datos_factura', {}).get('detalle_empresa')
             if not detalle_empresa_txt:
-                # Buscar configuración por CUIT emisor
                 from sqlmodel import select
                 from backend.database import SessionLocal
                 from backend.modelos import Empresa, ConfiguracionEmpresa
@@ -418,18 +411,6 @@ def generar_pdf_comprobante(factura: FacturaElectronica, conceptos: list = None)
         y = draw_left(titulo_detalle, y, "Helvetica-Bold", 8)
         y -= 3 * mm
         y = draw_left("~--------------------------------", y, "Helvetica", 7)
-        y -= 3 * mm
-
-        y = draw_left(f"Neto: $ {format_number(neto_21)}", y, "Helvetica", 8)
-        y -= 3 * mm
-        y = draw_left(f"IVA: $ {format_number(iva_21)}", y, "Helvetica", 8)
-        y -= 3 * mm
-        ajuste = round(total_val - (neto_21 + iva_21 + setenta_y_siete), 2)
-        if abs(ajuste) >= 0.01:
-            signo = "+" if ajuste > 0 else "-"
-            y = draw_left(f"Ajuste por redondeo ({signo}): $ {format_number(abs(ajuste))}", y, "Helvetica", 8)
-            y -= 3 * mm
-        y = draw_left(f"Impuesto Interno: $ {format_number(setenta_y_siete)}", y, "Helvetica", 8)
         y -= 3 * mm
         y = draw_left(f"TOTAL: $ {format_number(total_val)}", y, "Helvetica-Bold", 9)
         y -= 4 * mm
@@ -462,57 +443,15 @@ def generar_pdf_comprobante(factura: FacturaElectronica, conceptos: list = None)
     y = draw_separator(y)
     y -= 3 * mm
     
-    # ===== TOTALES =====
-    y = draw_left(f"Neto:  $ {format_number(float(factura.importe_neto))}", y, "Helvetica", 8)
-    y -= 3 * mm
+    if not aplicar_especial:
+        y = draw_left(f"Neto:  $ {format_number(float(factura.importe_neto))}", y, "Helvetica", 8)
+        y -= 3 * mm
+        y = draw_left(f"IVA:   $ {format_number(float(factura.importe_iva))}", y, "Helvetica", 8)
+        y -= 4 * mm
+        y = draw_left(f"TOTAL: $ {format_number(float(factura.importe_total))}", y, "Helvetica-Bold", 10)
+        y -= 5 * mm
+
     
-    y = draw_left(f"IVA:   $ {format_number(float(factura.importe_iva))}", y, "Helvetica", 8)
-    y -= 4 * mm
-    
-    y = draw_left(f"TOTAL: $ {format_number(float(factura.importe_total))}", y, "Helvetica-Bold", 10)
-    y -= 5 * mm
-
-    # ===== PANEL LATERAL: DESGLOSE ESPECÍFICO (77% + IVA 21%) =====
-    if aplicar_especial:
-        try:
-            import json as _json
-            detalle_empresa_txt = None
-            if factura.raw_response:
-                try:
-                    raw = _json.loads(factura.raw_response)
-                    detalle_empresa_txt = raw.get('detalle_empresa') or raw.get('datos_factura', {}).get('detalle_empresa')
-                except Exception:
-                    detalle_empresa_txt = None
-
-            total_val = float(factura.importe_total)
-            setenta_y_siete = round(total_val * 0.77, 2)
-            costo_mas_iva = round(total_val - setenta_y_siete, 2)
-            neto_21 = round(costo_mas_iva / 1.21, 2)
-            iva_21 = round(costo_mas_iva - neto_21, 2)
-
-            panel_width = 20 * mm
-            panel_x = (ticket_width - margin_right - panel_width)
-            panel_y_top = y
-            panel_y_bottom = y - 48 * mm
-            if panel_y_bottom < 20 * mm:
-                panel_y_bottom = 20 * mm
-            c.rect(panel_x, panel_y_bottom, panel_width, panel_y_top - panel_y_bottom)
-            c.setFont("Helvetica", 6)
-            c.drawString(panel_x + 2, panel_y_top - 6, "DESGLOSE")
-            line_y = panel_y_top - 12
-            c.drawString(panel_x + 2, line_y, f"77%: $ {format_number(setenta_y_siete)}")
-            line_y -= 7
-            c.drawString(panel_x + 2, line_y, f"Costo+IVA: $ {format_number(costo_mas_iva)}")
-            line_y -= 7
-            c.drawString(panel_x + 2, line_y, f"Neto 21%: $ {format_number(neto_21)}")
-            line_y -= 7
-            c.drawString(panel_x + 2, line_y, f"IVA 21%: $ {format_number(iva_21)}")
-            if detalle_empresa_txt:
-                line_y -= 8
-                c.setFont("Helvetica", 5)
-                c.drawString(panel_x + 2, line_y, f"Nota: {detalle_empresa_txt}")
-        except Exception as _e:
-            logger.warning(f"Panel lateral (desglose) no dibujado: {_e}")
 
     y = draw_separator(y)
     y -= 3 * mm
