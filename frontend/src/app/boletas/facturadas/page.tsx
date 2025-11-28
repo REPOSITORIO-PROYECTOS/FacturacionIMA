@@ -336,10 +336,10 @@ export default function BoletasFacturadasPage() {
                                                     const token = localStorage.getItem('token')
                                                     if (!token) { showError('No autenticado'); return }
                                                     const motivo = prompt('Motivo de anulación (opcional):') || ''
-                                                    const res = await fetch(`/api/facturador/anular/${String(b.id || b.ingreso_id || '')}`, {
+                                                    const res = await fetch(`/api/facturador/anular-afip/${String(b.id || b.ingreso_id || '')}`, {
                                                         method: 'POST',
                                                         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-                                                        body: JSON.stringify({ motivo })
+                                                        body: JSON.stringify({ motivo, force: true })
                                                     })
                                                     const data = await res.json().catch(() => null)
                                                     if (!res.ok) { showError(String((data as any)?.detail || (data as any)?.error || 'Error al anular')); return }
@@ -404,10 +404,10 @@ export default function BoletasFacturadasPage() {
                                                             const token = localStorage.getItem('token')
                                                             if (!token) { showError('No autenticado'); return }
                                                             const motivo = prompt('Motivo de anulación (opcional):') || ''
-                                                            const res = await fetch(`https://facturador-ima.sistemataup.online/api/facturador/anular/${String(b.id || (b as any).ingreso_id || '')}`, {
+                                                            const res = await fetch(`/api/facturador/anular-afip/${String(b.id || (b as any).ingreso_id || '')}`, {
                                                                 method: 'POST',
                                                                 headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-                                                                body: JSON.stringify({ motivo })
+                                                                body: JSON.stringify({ motivo, force: true })
                                                             })
                                                             const data = await res.json().catch(() => null)
                                                             if (!res.ok) { showError(String((data as any)?.detail || (data as any)?.error || 'Error al anular')); return }
