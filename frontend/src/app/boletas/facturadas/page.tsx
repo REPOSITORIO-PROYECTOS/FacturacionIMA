@@ -324,6 +324,25 @@ export default function BoletasFacturadasPage() {
                                             className="text-xs bg-gray-200 px-2 py-1 rounded hover:bg-gray-300"
                                             onClick={() => imprimirComprobante(b)}
                                         >Imprimir</button>
+                                        <button
+                                            className="text-xs bg-red-500 text-white px-2 py-1 rounded hover:bg-red-600"
+                                            onClick={() => {
+                                                (async () => {
+                                                    const token = localStorage.getItem('token')
+                                                    if (!token) { showError('No autenticado'); return }
+                                                    const motivo = prompt('Motivo de anulación (opcional):') || ''
+                                                    const res = await fetch(`/api/facturador/anular/${String(b.id || b.ingreso_id || '')}`, {
+                                                        method: 'POST',
+                                                        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+                                                        body: JSON.stringify({ motivo })
+                                                    })
+                                                    const data = await res.json().catch(() => null)
+                                                    if (!res.ok) { showError(String(data?.detail || data?.error || 'Error al anular')); return }
+                                                    showSuccess(`Anulada`, `Código: ${String((data as any)?.codigo_nota_credito || '')}`)
+                                                    reload()
+                                                })()
+                                            }}
+                                        >Anular</button>
                                     </div>
                                 </div>
                             );
@@ -353,6 +372,7 @@ export default function BoletasFacturadasPage() {
                                     const id = b.ingreso_id || b['ID Ingresos'] || b.id || i;
                                     const repartidor = (b.Repartidor ?? (b as Record<string, unknown>)['repartidor'] ?? '') as string;
                                     const nroComp = b['Nro Comprobante'] || b.numero_comprobante || (b as Record<string, unknown>)['numero_comprobante'];
+                                    const anulada = (b as any).anulada === true
                                     return (
                                         <tr key={`${String(id)}-${i}`} className="border-t">
                                             <td className="p-2">
@@ -368,7 +388,7 @@ export default function BoletasFacturadasPage() {
                                             <td className="p-2">{total}</td>
                                             <td className="p-2">{b.cae || '-'}</td>
                                             <td className="p-2 flex gap-2">
-                                                <button className="text-xs bg-gray-200 px-2 py-1 rounded hover:bg-gray-300" onClick={() => imprimirComprobante(b)}>Imprimir</button>
+                                                <button className={`text-xs px-2 py-1 rounded ${anulada ? 'bg-gray-300 text-gray-500 cursor-not-allowed' : 'bg-gray-200 hover:bg-gray-300'}`} onClick={() => { if (!anulada) imprimirComprobante(b) }} disabled={anulada}>Imprimir</button>
                                             </td>
                                         </tr>
                                     );

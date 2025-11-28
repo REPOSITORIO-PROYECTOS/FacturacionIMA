@@ -238,6 +238,22 @@ def process_invoice_batch_for_endpoint(
                 emisor_cuit = original_invoice_data.get('emisor_cuit')
                 tipo_forzado = original_invoice_data.get('tipo_forzado')
                 conceptos = original_invoice_data.get('conceptos')  # Nuevo: obtener conceptos
+                try:
+                    from sqlmodel import select as _select
+                    from backend.modelos import FacturaElectronica as _FE
+                    existing = db.exec(_select(_FE).where(_FE.ingreso_id == str(invoice_id))).first()
+                    if existing:
+                        results_for_response.append({
+                            "id": invoice_id,
+                            "status": "FAILED",
+                            "error": "Ya facturada",
+                            "existing_factura_id": getattr(existing, "id", None),
+                            "numero_comprobante": getattr(existing, "numero_comprobante", None)
+                        })
+                        logger.warning(f"[{invoice_id}] Detectada factura existente, evitando reproceso")
+                        continue
+                except Exception:
+                    pass
                 future = executor.submit(_attempt_generate_invoice, total, cliente_data, invoice_id, emisor_cuit, tipo_forzado, conceptos)
                 futures_map[future] = {"id": invoice_id, "original_data": original_invoice_data}
 
@@ -314,6 +330,27 @@ def process_invoice_batch_for_endpoint(
                                     serializable_afip['aplicar_desglose_77'] = True
                                 else:
                                     serializable_afip = {'result': serializable_afip, 'aplicar_desglose_77': True}
+                            if isinstance(serializable_afip, dict) and not serializable_afip.get('aplicar_desglose_77'):
+                                try:
+                                    from sqlmodel import select as _select
+                                    from backend.database import SessionLocal as _SessionLocal
+                                    from backend.modelos import Empresa as _Empresa, ConfiguracionEmpresa as _ConfEmp
+                                    with _SessionLocal() as _db2:
+                                        emisor_cuit_final = None
+                                        try:
+                                            emisor_cuit_final = str(afip_data.get('cuit_emisor') or original_invoice_data.get('emisor_cuit') or '').strip()
+                                        except Exception:
+                                            emisor_cuit_final = None
+                                        if emisor_cuit_final:
+                                            emp = _db2.exec(_select(_Empresa).where(_Empresa.cuit == emisor_cuit_final)).first()
+                                            if emp:
+                                                conf = _db2.exec(_select(_ConfEmp).where(_ConfEmp.id_empresa == emp.id)).first()
+                                                if conf and bool(conf.aplicar_desglose_77):
+                                                    serializable_afip['aplicar_desglose_77'] = True
+                                                    if conf.detalle_empresa_text:
+                                                        serializable_afip['detalle_empresa'] = conf.detalle_empresa_text
+                                except Exception:
+                                    pass
                         except Exception:
                             pass
 
@@ -323,8 +360,15 @@ def process_invoice_batch_for_endpoint(
                             raw_response_final = json.loads(raw_json_text)
                         except Exception as ser_err:
                             logger.error(f"[{invoice_id}] Error serializando la respuesta de AFIP: {ser_err}")
-                            # Fallback: store a minimal representation
                             raw_response_final = {"error_serializing_raw_response": str(ser_err), "original_keys": list(serializable_afip.keys()) if isinstance(serializable_afip, dict) else str(type(serializable_afip))}
+
+                        try:
+                            raw_response_text = json.dumps(raw_response_final, ensure_ascii=False, default=default_json)
+                        except Exception:
+                            try:
+                                raw_response_text = json.dumps(serializable_afip, ensure_ascii=False, default=default_json)
+                            except Exception as ser_err2:
+                                raw_response_text = json.dumps({"error_serializing_raw_response": str(ser_err2)}, ensure_ascii=False, default=default_json)
 
                         def _normalize_date_field(value: Any):
                             # Acepta datetime, date, ISO strings, y devuelve date
@@ -353,11 +397,7 @@ def process_invoice_batch_for_endpoint(
                         # Usamos `default_json` importado desde backend.utils.json_utils
                         # para convertir datetimes, Decimals y bytes a representaciones JSON-friendly.
 
-                        try:
-                            raw_response_text = json.dumps(afip_data, ensure_ascii=False, default=default_json)
-                        except Exception as ser_err:
-                            logger.error(f"[{invoice_id}] Error serializando la respuesta de AFIP (final fallback): {ser_err}")
-                            raw_response_text = json.dumps({"error_serializing_raw_response": str(ser_err), "original_type": str(type(afip_data))}, ensure_ascii=False, default=default_json)
+                        pass
 
                         # Insertar usando SQLAlchemy Core para controlar exactamente los valores
                         from sqlalchemy import insert as sa_insert

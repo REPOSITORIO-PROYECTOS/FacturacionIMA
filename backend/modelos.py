@@ -428,6 +428,10 @@ class FacturaElectronica(SQLModel, table=True):
     tipo_comprobante_microservicio: Optional[int] = Field(default=None, description="Tipo devuelto originalmente por el microservicio antes de overrides locales")
     debug_cuit_usado: Optional[str] = Field(default=None, max_length=11, description="CUIT finalmente usado en la llamada (credenciales resueltas)")
     debug_fuente_credenciales: Optional[str] = Field(default=None, max_length=32, description="Fuente de las credenciales: boveda|env|none")
+    anulada: bool = Field(default=False)
+    fecha_anulacion: Optional[date] = Field(default=None, sa_column=Column(Date))
+    codigo_nota_credito: Optional[str] = Field(default=None, sa_column=Column(String(64)))
+    motivo_anulacion: Optional[str] = Field(default=None, sa_column=Column(String(255)))
 
 
 class AfipCredencial(SQLModel, table=True):

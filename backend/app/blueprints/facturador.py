@@ -4,6 +4,10 @@ from typing import List, Optional, Dict, Any
 import logging
 
 from backend.utils.billige_manage import process_invoice_batch_for_endpoint
+from backend.database import SessionLocal
+from backend.modelos import FacturaElectronica
+from datetime import date
+import secrets
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
@@ -126,3 +130,30 @@ async def create_batch_invoices(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error interno del servidor al procesar el lote: {e}"
         )
+
+
+@router.post("/anular/{factura_id}", status_code=status.HTTP_200_OK)
+async def anular_factura(factura_id: int, motivo: Optional[str] = None) -> Dict[str, Any]:
+    db = SessionLocal()
+    try:
+        row = db.get(FacturaElectronica, factura_id)
+        if not row:
+            raise HTTPException(status_code=404, detail="Factura no encontrada")
+        if getattr(row, "anulada", False):
+            return {"status": "ALREADY", "factura_id": factura_id, "codigo_nota_credito": row.codigo_nota_credito}
+        code = f"NC-{str(row.punto_venta).zfill(4)}-{str(row.numero_comprobante).zfill(8)}-{secrets.token_hex(2).upper()}"
+        row.anulada = True
+        row.fecha_anulacion = date.today()
+        row.codigo_nota_credito = code
+        if motivo:
+            row.motivo_anulacion = motivo
+        db.add(row)
+        db.commit()
+        return {"status": "OK", "factura_id": factura_id, "codigo_nota_credito": code}
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        db.close()
