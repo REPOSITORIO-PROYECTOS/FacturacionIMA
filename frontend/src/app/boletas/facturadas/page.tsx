@@ -105,14 +105,7 @@ export default function BoletasFacturadasPage() {
     // Helpers removed: QR image download/convert helpers were unused after removing QR UI
 
     // Obtener razones sociales asociadas a un repartidor, con coincidencia flexible
-    function getRazonesFor(repartidor: string | undefined): string[] {
-        if (!repartidor || !repartidoresMap) return [];
-        const key = Object.keys(repartidoresMap).find(k => k === repartidor || k.toLowerCase() === String(repartidor).toLowerCase());
-        if (key) return repartidoresMap[key] ?? [];
-        // intentar búsqueda por inclusión
-        const key2 = Object.keys(repartidoresMap).find(k => k.toLowerCase().includes(String(repartidor).toLowerCase()) || String(repartidor).toLowerCase().includes(k.toLowerCase()));
-        return key2 ? (repartidoresMap[key2] ?? []) : [];
-    }
+    function getRazonesFor(_repartidor: string | undefined): string[] { return []; }
     const { boletasFacturadas, loading: storeLoading, error: storeError, reload, lastUpdated } = useBoletas();
     const [items, setItems] = useState<BoletaRecord[]>([]);
     const [loading, setLoading] = useState(true);
@@ -121,7 +114,7 @@ export default function BoletasFacturadasPage() {
     const [repartidoresMap, setRepartidoresMap] = useState<Record<string, string[]> | null>(null);
     const [fechaDesde, setFechaDesde] = useState<string>('');
     const [fechaHasta, setFechaHasta] = useState<string>('');
-    const [statusFilter, setStatusFilter] = useState<'all'|'anuladas'|'activas'>('all');
+    const [statusFilter, setStatusFilter] = useState<'all' | 'anuladas' | 'activas'>('all');
     useEffect(() => {
         // Mirror store data to local state
         setLoading(storeLoading);
@@ -135,15 +128,9 @@ export default function BoletasFacturadasPage() {
                 if (!token) return;
                 const r = await fetch('/api/boletas/repartidores', { headers: { Authorization: `Bearer ${token}` } });
                 if (!r.ok) return;
-                const data = await r.json().catch(() => []);
-                if (!Array.isArray(data)) return;
-                const map: Record<string, string[]> = {};
-                for (const row of data) {
-                    const rname = String(row.repartidor || '').trim();
-                    const razones = Array.isArray(row.razones_sociales) ? row.razones_sociales.map(String) : [];
-                    if (rname) map[rname] = razones;
-                }
-                setRepartidoresMap(map);
+                // Consumir endpoint para validación pero no poblar razones en UI facturadas
+                await r.json().catch(() => []);
+                setRepartidoresMap({});
             } catch {
                 // no bloquear la carga de boletas si falla esta llamada
             }
@@ -332,11 +319,7 @@ export default function BoletasFacturadasPage() {
                                     <div className="min-w-0">
                                         <div className="font-medium truncate">{String(razonSocial)}</div>
                                         <div className="text-[11px] text-gray-600">Repartidor: {String(repartidor || '-')}</div>
-                                        {(() => {
-                                            const razones = getRazonesFor(repartidor);
-                                            if (!razones || razones.length === 0) return null;
-                                            return <div className="text-[11px] text-gray-500">Razón: {razones.join(', ')}</div>;
-                                        })()}
+                                        {/* Mostrar sólo la razón social de la boleta; no listar razones del repartidor */}
                                         <div className="text-[11px] text-gray-600">Fecha: {String(b.fecha_comprobante || b.created_at || '-')}</div>
                                         <div className="text-[11px] text-gray-600">Total: {String(total)}</div>
                                     </div>
@@ -400,11 +383,6 @@ export default function BoletasFacturadasPage() {
                                         <tr key={`${String(id)}-${i}`} className="border-t">
                                             <td className="p-2">
                                                 <div>{String(repartidor)}</div>
-                                                {(() => {
-                                                    const razones = getRazonesFor(repartidor);
-                                                    if (!razones || razones.length === 0) return null;
-                                                    return <div className="text-xs text-gray-500">{razones.join(', ')}</div>;
-                                                })()}
                                             </td>
                                             <td className="p-2">{String(razonSocial)}</td>
                                             <td className="p-2">{String(b.fecha_comprobante || b.created_at || '-')}</td>
@@ -426,7 +404,7 @@ export default function BoletasFacturadasPage() {
                                                             const token = localStorage.getItem('token')
                                                             if (!token) { showError('No autenticado'); return }
                                                             const motivo = prompt('Motivo de anulación (opcional):') || ''
-                                                            const res = await fetch(`/api/facturador/anular/${String(b.id || (b as any).ingreso_id || '')}` , {
+                                                            const res = await fetch(`https://facturador-ima.sistemataup.online/api/facturador/anular/${String(b.id || (b as any).ingreso_id || '')}`, {
                                                                 method: 'POST',
                                                                 headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
                                                                 body: JSON.stringify({ motivo })

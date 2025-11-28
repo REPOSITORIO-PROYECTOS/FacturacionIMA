@@ -194,3 +194,75 @@ async def anular_facturas_en_lote(payload: AnularLotePayload) -> Dict[str, Any]:
         raise HTTPException(status_code=500, detail=str(e))
     finally:
         db.close()
+
+class AnularAfipPayload(BaseModel):
+    motivo: Optional[str] = None
+    force: Optional[bool] = False
+
+@router.post("/anular-afip/{factura_id}", status_code=status.HTTP_200_OK)
+async def anular_afip(factura_id: int, body: AnularAfipPayload | None = None) -> Dict[str, Any]:
+    db = SessionLocal()
+    try:
+        row = db.get(FacturaElectronica, factura_id)
+        if not row:
+            raise HTTPException(status_code=404, detail="Factura no encontrada")
+        if getattr(row, "anulada", False) and not (body and body.force):
+            return {"status": "ALREADY", "factura_id": factura_id, "codigo_nota_credito": row.codigo_nota_credito}
+
+        tipo_origen = int(row.tipo_comprobante)
+        codigo_tipo = 13
+        if tipo_origen == 1:
+            codigo_tipo = 3
+        elif tipo_origen == 6:
+            codigo_tipo = 8
+
+        payload_nc = {
+            "tipo": "NC",
+            "codigo_tipo": codigo_tipo,
+            "tipo_nc": codigo_tipo,
+            "asociado_cae": row.cae,
+            "asociado_tipo": row.tipo_comprobante,
+            "asociado_punto_venta": row.punto_venta,
+            "asociado_numero": row.numero_comprobante,
+            "punto_venta": row.punto_venta,
+            "tipo_comprobante_origen": row.tipo_comprobante,
+            "fecha_origen": str(row.fecha_comprobante),
+            "emisor_cuit": row.cuit_emisor,
+            "receptor_tipo_doc": row.tipo_doc_receptor,
+            "receptor_doc": row.nro_doc_receptor,
+            "importe_total": float(row.importe_total),
+            "motivo": (body.motivo if body else None) or "Anulación sistema",
+        }
+        try:
+            import os, requests
+            api_url = os.getenv("FACTURACION_API_URL", "http://localhost:8002/afipws/facturador")
+            resp = requests.post(f"{api_url}/emitir-nota-credito", json=payload_nc, timeout=30)
+            data = resp.json() if resp.headers.get("Content-Type","" ).startswith("application/json") else {}
+            if resp.status_code != 200:
+                raise HTTPException(status_code=resp.status_code, detail=str(data or resp.text))
+            cae_nc = str(data.get("cae") or data.get("CAE") or "")
+            if not cae_nc:
+                raise HTTPException(status_code=500, detail="Respuesta del microservicio sin CAE de NC")
+        except HTTPException:
+            raise
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Error llamando microservicio NC: {e}")
+
+        # Persistir anulación con código NC emitido por AFIP
+        from datetime import date
+        row.anulada = True
+        row.fecha_anulacion = date.today()
+        row.codigo_nota_credito = cae_nc
+        if body and body.motivo:
+            row.motivo_anulacion = body.motivo
+        db.add(row)
+        db.commit()
+        return {"status": "OK", "factura_id": factura_id, "codigo_nota_credito": cae_nc}
+    except HTTPException:
+        db.rollback()
+        raise
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        db.close()

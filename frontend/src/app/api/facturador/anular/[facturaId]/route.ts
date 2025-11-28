@@ -12,7 +12,7 @@ export async function POST(request: NextRequest, context: { params: Promise<{ fa
   ]
   for (const base of bases) {
     try {
-      const url = `${base.replace(/\/$/, '')}/facturador/anular/${facturaId}`
+      const url = `${base.replace(/\/$/, '')}/facturador/anular-afip/${facturaId}`
       const res = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: token },
@@ -21,7 +21,7 @@ export async function POST(request: NextRequest, context: { params: Promise<{ fa
       const text = await res.text()
       const data = text && (text.trim().startsWith('{') || text.trim().startsWith('[')) ? JSON.parse(text) : text
       if (res.ok) return NextResponse.json(data)
-    } catch {}
+    } catch { }
   }
   return NextResponse.json({ error: 'No se pudo anular' }, { status: 500 })
 }
