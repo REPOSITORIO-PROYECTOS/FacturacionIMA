@@ -443,16 +443,15 @@ def generar_pdf_comprobante(factura: FacturaElectronica, conceptos: list = None)
         costo_mas_iva = round(total_val - setenta_y_siete, 2)
         neto_21 = round(costo_mas_iva / 1.21, 2)
         iva_21 = round(costo_mas_iva - neto_21, 2)
-        y = draw_left(f"- Impuesto Interno $ {format_number(setenta_y_siete)}", y, "Helvetica", 7)
+ 
+        y = draw_left(f"- Neto: $ {format_number(neto_21)}", y, "Helvetica", 7)
         y -= 3 * mm
-        y = draw_left(f"- Neto 21%: $ {format_number(neto_21)}", y, "Helvetica", 7)
-        y -= 3 * mm
-        y = draw_left(f"- IVA 21%: $ {format_number(iva_21)}", y, "Helvetica", 7)
+        y = draw_left(f"- IVA: $ {format_number(iva_21)}", y, "Helvetica", 7)
         y -= 4 * mm
+        y = draw_left(f"- Impuesto Interno: $ {format_number(setenta_y_siete)}", y, "Helvetica", 7)
+        y -= 3 * mm
         y = draw_left(f"TOTAL: $ {format_number(total_val)}", y, "Helvetica-Bold", 9)
         y -= 4 * mm
-        y = draw_left("-----------------------", y, "Helvetica", 7)
-        y -= 3 * mm
     else:
         if conceptos and len(conceptos) > 0:
             for concepto in conceptos:

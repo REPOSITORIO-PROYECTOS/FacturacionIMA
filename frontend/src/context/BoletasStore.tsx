@@ -63,7 +63,27 @@ export function BoletasProvider({ children }: { children: ReactNode }) {
             const arrF = Array.isArray(fData) ? fData : (Array.isArray(fData?.items) ? fData.items : []);
 
             setBoletasNoFacturadas(arrNF as Boleta[]);
-            setBoletasFacturadas(arrF as Boleta[]);
+
+            let arrFEnriched = arrF as Boleta[];
+            try {
+                const sheetsRes = await fetch(`/api/sheets/boletas?tipo=facturadas&limit=3000`, { headers });
+                const sheetsData = await sheetsRes.json().catch(() => []);
+                const isArr = Array.isArray(sheetsData);
+                const sheetList: Boleta[] = isArr ? sheetsData as Boleta[] : (Array.isArray((sheetsData as any)?.items) ? (sheetsData as any).items : []);
+                const repByIngreso: Record<string, string> = {};
+                for (const row of sheetList) {
+                    const idIng = String((row as any)['ID Ingresos'] ?? (row as any).id_ingreso ?? '').trim();
+                    const rep = String((row as any)['Repartidor'] ?? (row as any).repartidor ?? '').trim();
+                    if (idIng) repByIngreso[idIng] = rep;
+                }
+                arrFEnriched = (arrF as Boleta[]).map((f: Boleta) => {
+                    const key = String((f as any).ingreso_id ?? (f as any)['ID Ingresos'] ?? '').trim();
+                    const rep = key ? repByIngreso[key] : undefined;
+                    return rep ? { ...f, Repartidor: rep, repartidor: rep } : f;
+                });
+            } catch { /* mantener datos si fallo */ }
+
+            setBoletasFacturadas(arrFEnriched as Boleta[]);
             setLastUpdated(new Date().toISOString());
         } catch (e: any) {
             setError(String(e?.message || e));
