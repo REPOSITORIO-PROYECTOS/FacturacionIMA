@@ -132,68 +132,7 @@ async def create_batch_invoices(
         )
 
 
-@router.post("/anular/{factura_id}", status_code=status.HTTP_200_OK)
-async def anular_factura(factura_id: int, motivo: Optional[str] = None) -> Dict[str, Any]:
-    db = SessionLocal()
-    try:
-        row = db.get(FacturaElectronica, factura_id)
-        if not row:
-            raise HTTPException(status_code=404, detail="Factura no encontrada")
-        if getattr(row, "anulada", False):
-            return {"status": "ALREADY", "factura_id": factura_id, "codigo_nota_credito": row.codigo_nota_credito}
-        code = f"NC-{str(row.punto_venta).zfill(4)}-{str(row.numero_comprobante).zfill(8)}-{secrets.token_hex(2).upper()}"
-        row.anulada = True
-        row.fecha_anulacion = date.today()
-        row.codigo_nota_credito = code
-        if motivo:
-            row.motivo_anulacion = motivo
-        db.add(row)
-        db.commit()
-        return {"status": "OK", "factura_id": factura_id, "codigo_nota_credito": code}
-    except HTTPException:
-        raise
-    except Exception as e:
-        db.rollback()
-        raise HTTPException(status_code=500, detail=str(e))
-    finally:
-        db.close()
 
-class AnularLotePayload(BaseModel):
-    ids: List[int]
-    motivo: Optional[str] = None
-
-@router.post("/anular-lote", status_code=status.HTTP_200_OK)
-async def anular_facturas_en_lote(payload: AnularLotePayload) -> Dict[str, Any]:
-    db = SessionLocal()
-    resultados: List[Dict[str, Any]] = []
-    try:
-        from datetime import date
-        for fid in payload.ids:
-            try:
-                row = db.get(FacturaElectronica, fid)
-                if not row:
-                    resultados.append({"id": fid, "status": "NOT_FOUND"})
-                    continue
-                if getattr(row, "anulada", False):
-                    resultados.append({"id": fid, "status": "ALREADY", "codigo_nota_credito": row.codigo_nota_credito})
-                    continue
-                code = f"NC-{str(row.punto_venta).zfill(4)}-{str(row.numero_comprobante).zfill(8)}-{secrets.token_hex(2).upper()}"
-                row.anulada = True
-                row.fecha_anulacion = date.today()
-                row.codigo_nota_credito = code
-                if payload.motivo:
-                    row.motivo_anulacion = payload.motivo
-                db.add(row)
-                resultados.append({"id": fid, "status": "OK", "codigo_nota_credito": code})
-            except Exception as e:
-                resultados.append({"id": fid, "status": "ERROR", "error": str(e)})
-        db.commit()
-        return {"status": "OK", "resultados": resultados}
-    except Exception as e:
-        db.rollback()
-        raise HTTPException(status_code=500, detail=str(e))
-    finally:
-        db.close()
 
 class AnularAfipPayload(BaseModel):
     motivo: Optional[str] = None
@@ -203,6 +142,7 @@ class AnularAfipPayload(BaseModel):
 async def anular_afip(factura_id: int, body: AnularAfipPayload | None = None) -> Dict[str, Any]:
     db = SessionLocal()
     try:
+        logger.info(f"Inicio anulación AFIP factura_id={factura_id} force={bool(body and body.force)}")
         row = db.get(FacturaElectronica, factura_id)
         if not row:
             raise HTTPException(status_code=404, detail="Factura no encontrada")
@@ -235,18 +175,41 @@ async def anular_afip(factura_id: int, body: AnularAfipPayload | None = None) ->
         }
         try:
             import os, requests
-            api_url = os.getenv("FACTURACION_API_URL", "http://localhost:8002/afipws/facturador")
-            resp = requests.post(f"{api_url}/emitir-nota-credito", json=payload_nc, timeout=30)
-            data = resp.json() if resp.headers.get("Content-Type","" ).startswith("application/json") else {}
-            if resp.status_code != 200:
-                raise HTTPException(status_code=resp.status_code, detail=str(data or resp.text))
-            cae_nc = str(data.get("cae") or data.get("CAE") or "")
+            bases = [
+                os.getenv("FACTURACION_API_URL", ""),
+                "https://facturador-ima.sistemataup.online/afipws/facturador",
+            ]
+            bases = [b for b in bases if b]
+            last_error: Optional[str] = None
+            cae_nc: Optional[str] = None
+            for base in bases:
+                base = base.rstrip("/")
+                url = f"{base}/emitir-nota-credito"
+                try:
+                    logger.info(f"Llamando microservicio NC url={url}")
+                    resp = requests.post(url, json=payload_nc, timeout=30, headers={"Content-Type": "application/json"})
+                    ct = resp.headers.get("Content-Type", "")
+                    text = resp.text
+                    data = resp.json() if ct.startswith("application/json") else {}
+                    if resp.status_code != 200:
+                        last_error = f"{resp.status_code} {str(data or text)[:500]}"
+                        logger.error(f"Microservicio respondió error: {last_error}")
+                        continue
+                    cae_nc = str(data.get("cae") or data.get("CAE") or "").strip()
+                    if cae_nc:
+                        break
+                    last_error = "Respuesta sin CAE"
+                    logger.error("Microservicio respondió sin CAE en JSON")
+                except Exception as e:
+                    last_error = str(e)
+                    logger.error(f"Falla al llamar microservicio: {e}", exc_info=True)
+                    continue
             if not cae_nc:
-                raise HTTPException(status_code=500, detail="Respuesta del microservicio sin CAE de NC")
+                raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=f"No se pudo obtener CAE de NC: {last_error}")
         except HTTPException:
             raise
         except Exception as e:
-            raise HTTPException(status_code=500, detail=f"Error llamando microservicio NC: {e}")
+            raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=f"Error llamando microservicio NC: {e}")
 
         # Persistir anulación con código NC emitido por AFIP
         from datetime import date
@@ -258,11 +221,30 @@ async def anular_afip(factura_id: int, body: AnularAfipPayload | None = None) ->
         db.add(row)
         db.commit()
         return {"status": "OK", "factura_id": factura_id, "codigo_nota_credito": cae_nc}
-    except HTTPException:
+    except HTTPException as he:
         db.rollback()
+        logger.error(f"Anulación AFIP error HTTP {he.status_code}: {he.detail}")
         raise
     except Exception as e:
         db.rollback()
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Error inesperado en anular_afip: {e}", exc_info=True)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Error interno procesando anulación")
     finally:
         db.close()
+
+class AnularLotePayload(BaseModel):
+    ids: List[int]
+    motivo: Optional[str] = None
+
+@router.post("/anular-lote", status_code=status.HTTP_200_OK)
+async def anular_facturas_en_lote(payload: AnularLotePayload) -> Dict[str, Any]:
+    resultados: List[Dict[str, Any]] = []
+    for fid in payload.ids:
+        try:
+            res = await anular_afip(fid, AnularAfipPayload(motivo=payload.motivo, force=True))
+            resultados.append({"id": fid, **res})
+        except HTTPException as he:
+            resultados.append({"id": fid, "status": "ERROR", "error": str(he.detail), "code": he.status_code})
+        except Exception as e:
+            resultados.append({"id": fid, "status": "ERROR", "error": str(e)})
+    return {"status": "OK", "resultados": resultados}

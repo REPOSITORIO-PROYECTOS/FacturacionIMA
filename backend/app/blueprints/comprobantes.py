@@ -616,9 +616,7 @@ def generar_pdf_comprobante(factura: FacturaElectronica, conceptos: list = None)
     
     y = draw_centered("¡Gracias por su compra!", y, "Helvetica-Bold", 7)
     y -= 4 * mm
-    y = draw_separator(y)
-    y -= 3 * mm
-    y = draw_centered(f"TOTAL: $ {format_number(float(factura.importe_total))}", y, "Helvetica-Bold", 10)
+
     
     # Finalizar PDF
     c.showPage()

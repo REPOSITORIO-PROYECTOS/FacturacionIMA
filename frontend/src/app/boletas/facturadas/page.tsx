@@ -339,6 +339,7 @@ export default function BoletasFacturadasPage() {
                                                     const res = await fetch(`/api/facturador/anular-afip/${String(b.id || b.ingreso_id || '')}`, {
                                                         method: 'POST',
                                                         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+                                                        referrerPolicy: 'strict-origin-when-cross-origin',
                                                         body: JSON.stringify({ motivo, force: true })
                                                     })
                                                     const data = await res.json().catch(() => null)
@@ -407,6 +408,7 @@ export default function BoletasFacturadasPage() {
                                                             const res = await fetch(`/api/facturador/anular-afip/${String(b.id || (b as any).ingreso_id || '')}`, {
                                                                 method: 'POST',
                                                                 headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+                                                                referrerPolicy: 'strict-origin-when-cross-origin',
                                                                 body: JSON.stringify({ motivo, force: true })
                                                             })
                                                             const data = await res.json().catch(() => null)

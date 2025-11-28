@@ -157,6 +157,43 @@ pm2 start ecosystem.split.config.js
 pm2 status
 ```
 
+#### Reverse proxy HTTPS (443)
+
+La terminación TLS no se configura dentro de este repo; debe realizarse en el servidor web frontal (Nginx/Apache). Asegúrate de:
+
+- `server_name facturador-ima.sistemataup.online;`
+- `listen 443 ssl http2;` con `ssl_certificate` y `ssl_certificate_key` correctos
+- Proxy hacia backend en `http://127.0.0.1:8008` y frontend en `http://127.0.0.1:3001`
+- Encabezados estándar: `X-Forwarded-Proto https`, `X-Forwarded-For`, `Host`
+- Política de referentes por defecto del navegador: `strict-origin-when-cross-origin`
+
+Ejemplo mínimo de Nginx (orientativo):
+
+```
+server {
+    listen 443 ssl http2;
+    server_name facturador-ima.sistemataup.online;
+    ssl_certificate /etc/letsencrypt/live/facturador-ima.sistemataup.online/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/facturador-ima.sistemataup.online/privkey.pem;
+
+    location /api/ {
+        proxy_pass http://127.0.0.1:8008/;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_set_header X-Forwarded-For $remote_addr;
+    }
+
+    location / {
+        proxy_pass http://127.0.0.1:3001/;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_set_header X-Forwarded-For $remote_addr;
+    }
+}
+```
+
+Confirma que el certificado y la cadena intermedia estén vigentes.
+
 ### Usuario Administrador
 
 - **Usuario**: `Admin*******`
@@ -192,6 +229,7 @@ La documentación completa de la API está disponible en `/docs` cuando el backe
 - `POST /auth/token` - Autenticación
 - `GET /admin/empresas` - Gestión de empresas (admin)
 - `POST /facturador/facturar` - Emisión de comprobantes
+- `POST /facturador/anular-afip/{factura_id}` - Anulación mediante Nota de Crédito en AFIP (microservicio)
 - `GET /boletas` - Gestión de boletas
 - `GET /healthz` - Health check
 
