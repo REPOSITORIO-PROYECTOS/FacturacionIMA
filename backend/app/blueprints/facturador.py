@@ -157,3 +157,40 @@ async def anular_factura(factura_id: int, motivo: Optional[str] = None) -> Dict[
         raise HTTPException(status_code=500, detail=str(e))
     finally:
         db.close()
+
+class AnularLotePayload(BaseModel):
+    ids: List[int]
+    motivo: Optional[str] = None
+
+@router.post("/anular-lote", status_code=status.HTTP_200_OK)
+async def anular_facturas_en_lote(payload: AnularLotePayload) -> Dict[str, Any]:
+    db = SessionLocal()
+    resultados: List[Dict[str, Any]] = []
+    try:
+        from datetime import date
+        for fid in payload.ids:
+            try:
+                row = db.get(FacturaElectronica, fid)
+                if not row:
+                    resultados.append({"id": fid, "status": "NOT_FOUND"})
+                    continue
+                if getattr(row, "anulada", False):
+                    resultados.append({"id": fid, "status": "ALREADY", "codigo_nota_credito": row.codigo_nota_credito})
+                    continue
+                code = f"NC-{str(row.punto_venta).zfill(4)}-{str(row.numero_comprobante).zfill(8)}-{secrets.token_hex(2).upper()}"
+                row.anulada = True
+                row.fecha_anulacion = date.today()
+                row.codigo_nota_credito = code
+                if payload.motivo:
+                    row.motivo_anulacion = payload.motivo
+                db.add(row)
+                resultados.append({"id": fid, "status": "OK", "codigo_nota_credito": code})
+            except Exception as e:
+                resultados.append({"id": fid, "status": "ERROR", "error": str(e)})
+        db.commit()
+        return {"status": "OK", "resultados": resultados}
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        db.close()
