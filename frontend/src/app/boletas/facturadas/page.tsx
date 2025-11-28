@@ -337,8 +337,8 @@ export default function BoletasFacturadasPage() {
                                                         body: JSON.stringify({ motivo })
                                                     })
                                                     const data = await res.json().catch(() => null)
-                                                    if (!res.ok) { showError(String(data?.detail || data?.error || 'Error al anular')); return }
-                                                    showSuccess(`Anulada`, `Código: ${String((data as any)?.codigo_nota_credito || '')}`)
+                                                    if (!res.ok) { showError(String((data as any)?.detail || (data as any)?.error || 'Error al anular')); return }
+                                                    showSuccess(`Anulada. Código: ${String((data as any)?.codigo_nota_credito || '')}`)
                                                     reload()
                                                 })()
                                             }}
