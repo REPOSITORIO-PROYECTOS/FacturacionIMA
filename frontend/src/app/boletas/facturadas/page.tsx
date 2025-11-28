@@ -414,7 +414,30 @@ export default function BoletasFacturadasPage() {
                                                 <span className={`px-2 py-1 rounded text-xs ${anulada ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'}`}>{anulada ? 'Anulada' : 'Vigente'}</span>
                                             </td>
                                             <td className="p-2 flex gap-2">
-                                                <button className={`text-xs px-2 py-1 rounded ${anulada ? 'bg-gray-300 text-gray-500 cursor-not-allowed' : 'bg-gray-200 hover:bg-gray-300'}`} onClick={() => { if (!anulada) imprimirComprobante(b) }} disabled={anulada}>Imprimir</button>
+                                                <button
+                                                    className={`text-xs px-2 py-1 rounded ${anulada ? 'bg-gray-300 text-gray-500 cursor-not-allowed' : 'bg-gray-200 hover:bg-gray-300'}`}
+                                                    onClick={() => { if (!anulada) imprimirComprobante(b) }}
+                                                    disabled={anulada}
+                                                >Imprimir</button>
+                                                <button
+                                                    className="text-xs bg-red-500 text-white px-2 py-1 rounded hover:bg-red-600"
+                                                    onClick={() => {
+                                                        (async () => {
+                                                            const token = localStorage.getItem('token')
+                                                            if (!token) { showError('No autenticado'); return }
+                                                            const motivo = prompt('Motivo de anulación (opcional):') || ''
+                                                            const res = await fetch(`/api/facturador/anular/${String(b.id || (b as any).ingreso_id || '')}` , {
+                                                                method: 'POST',
+                                                                headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+                                                                body: JSON.stringify({ motivo })
+                                                            })
+                                                            const data = await res.json().catch(() => null)
+                                                            if (!res.ok) { showError(String((data as any)?.detail || (data as any)?.error || 'Error al anular')); return }
+                                                            showSuccess(`Anulada. Código: ${String((data as any)?.codigo_nota_credito || '')}`)
+                                                            reload()
+                                                        })()
+                                                    }}
+                                                >Anular</button>
                                             </td>
                                         </tr>
                                     );
