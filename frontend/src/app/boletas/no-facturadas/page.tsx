@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useBoletas } from '@/context/BoletasStore';
 import { LoadingSpinner } from "../../components/LoadingSpinner";
 import { buildInvoiceItem, facturarItems, buildValidItems, getVentaConceptos } from "../../lib/facturacion";
@@ -57,6 +57,11 @@ export default function BoletasNoFacturadasPage() {
             const built = buildInvoiceItem(boleta);
             if ('error' in built) {
                 showError('Boleta no facturable (falta ID o total <= 0)');
+                return;
+            }
+
+            if (ventaId && facturadasSet.has(ventaId)) {
+                showWarning('Esta operación ya está facturada');
                 return;
             }
 
@@ -175,7 +180,6 @@ export default function BoletasNoFacturadasPage() {
             showSuccess(successMsg);
         } catch (error) {
             console.error('❌ Error en facturación:', error);
-            alert('Error durante la facturación');
         } finally {
             // Remover de procesamiento
             setProcessingIds(prev => {
@@ -189,7 +193,7 @@ export default function BoletasNoFacturadasPage() {
 
     // helper removed (not used)
 
-    const { boletasNoFacturadas, loading: storeLoading, error: storeError, reload } = useBoletas();
+    const { boletasNoFacturadas, boletasFacturadas, loading: storeLoading, error: storeError, reload } = useBoletas();
     const [search, setSearch] = useState('');
     const [fechaDesde, setFechaDesde] = useState<string>('');
     const [fechaHasta, setFechaHasta] = useState<string>('');
@@ -197,6 +201,15 @@ export default function BoletasNoFacturadasPage() {
     const items = boletasNoFacturadas ?? [];
     const loading = storeLoading;
     const error = storeError ?? '';
+    const facturadasSet = useMemo(() => {
+        const arr = boletasFacturadas ?? [];
+        const s = new Set<string>();
+        for (const b of arr as any[]) {
+            const id = String((b as any).ingreso_id ?? (b as any)['ID Ingresos'] ?? (b as any).id ?? '');
+            if (id) s.add(id);
+        }
+        return s;
+    }, [boletasFacturadas]);
 
     // La carga de boletas ahora la gestiona el BoletasStore (carga inicial + polling cada 60s)
 
@@ -338,7 +351,10 @@ export default function BoletasNoFacturadasPage() {
 
         try {
             // Sin confirm: acción directa
-            const selectedRaw = ids.map(id => items.find(b => String((b as any)['ID Ingresos'] || (b as any).id || '') === id)).filter(Boolean);
+            const selectedRaw = ids
+                .map(id => items.find(b => String((b as any)['ID Ingresos'] || (b as any).id || '') === id))
+                .filter(Boolean)
+                .filter(b => !facturadasSet.has(String((b as any)['ID Ingresos'] || (b as any).id || '')));
             const { valid, invalid } = buildValidItems(selectedRaw as any[]);
             if (valid.length === 0) {
                 showWarning('No hay boletas válidas para facturar (todas con total <= 0 o sin ID)');
@@ -524,12 +540,14 @@ export default function BoletasNoFacturadasPage() {
                             const razonSocial = b.cliente || b.nombre || b['Razon Social'] || '';
                             const id = b['ID Ingresos'] || b.id || i;
                             const repartidor = (b.Repartidor ?? (b as Record<string, unknown>)['repartidor'] ?? '') as string;
+                            const ya = facturadasSet.has(String(id));
                             return (
                                 <div key={`${String(id)}-${i}`} className="px-3 py-2 flex items-center justify-between gap-3">
                                     <input aria-label={`Seleccionar boleta ${String(id)}`} type="checkbox" checked={!!selectedIds[String(id)]} onChange={(e) => setSelectedIds(s => ({ ...s, [String(id)]: e.target.checked }))} />
                                     <div className="min-w-0">
                                         <div className="font-medium truncate">{razonSocial || '— Sin razón social —'}</div>
                                         <div className="text-[11px] text-gray-600">Repartidor: {repartidor || '-'}</div>
+                                        {ya && <div className="text-[11px] text-red-600">Ya facturada</div>}
                                         {(() => {
                                             const razones = getRazonesFor(repartidor);
                                             if (!razones || razones.length === 0) return null;
@@ -540,12 +558,12 @@ export default function BoletasNoFacturadasPage() {
                                     <div className="shrink-0 flex gap-2">
                                         {!(b['Nro Comprobante']) && (
                                             <button
-                                                className={`text-xs px-2 py-1 rounded transition-colors ${processingIds.has(String(id))
+                                                className={`text-xs px-2 py-1 rounded transition-colors ${processingIds.has(String(id)) || ya
                                                     ? 'bg-gray-400 cursor-not-allowed'
                                                     : 'bg-green-600 hover:bg-green-700 text-white'
                                                     }`}
                                                 onClick={() => facturarBoleta(b)}
-                                                disabled={processingIds.has(String(id)) || isProcessing}
+                                                disabled={processingIds.has(String(id)) || isProcessing || ya}
                                             >
                                                 {processingIds.has(String(id)) ? (
                                                     <span className="flex items-center gap-1">
@@ -569,7 +587,7 @@ export default function BoletasNoFacturadasPage() {
                         <table className="w-full text-sm">
                             <thead className="bg-purple-50">
                                 <tr>
-                                    <th className="p-2"><input aria-label="Seleccionar todas" type="checkbox" onChange={(e) => { const v = e.target.checked; const m: Record<string, boolean> = {}; pageItems.forEach(b => { const id = String((b as Record<string, unknown>)['ID Ingresos'] || b.id || ''); if (id) m[id] = v; }); setSelectedIds(s => ({ ...s, ...m })); }} /></th>
+                                    <th className="p-2"><input aria-label="Seleccionar todas" type="checkbox" onChange={(e) => { const v = e.target.checked; const m: Record<string, boolean> = {}; pageItems.forEach(b => { const id = String((b as Record<string, unknown>)['ID Ingresos'] || b.id || ''); if (id && !facturadasSet.has(id)) m[id] = v; }); setSelectedIds(s => ({ ...s, ...m })); }} /></th>
                                     <th className="p-2">Repartidor</th>
                                     <th className="p-2">Razón Social</th>
                                     <th className="p-2">Fecha</th>
@@ -586,6 +604,7 @@ export default function BoletasNoFacturadasPage() {
                                     const id = b['ID Ingresos'] || b.id || i;
                                     const repartidor = (b.Repartidor ?? (b as Record<string, unknown>)['repartidor'] ?? '') as string;
                                     const fecha = String((b as Record<string, unknown>)['Fecha'] || (b as Record<string, unknown>)['fecha'] || '');
+                                    const ya = facturadasSet.has(String(id));
                                     return (
                                         <tr key={`${String(id)}-${i}`} className="border-t">
                                             <td className="p-2"><input aria-label={`Seleccionar boleta ${String(id)}`} type="checkbox" checked={!!selectedIds[String(id)]} onChange={(e) => setSelectedIds(s => ({ ...s, [String(id)]: e.target.checked }))} /></td>
@@ -596,12 +615,12 @@ export default function BoletasNoFacturadasPage() {
                                             <td className="p-2 flex gap-2">
                                                 {!(b['Nro Comprobante']) && (
                                                     <button
-                                                        className={`px-2 py-1 rounded transition ${processingIds.has(String(id))
+                                                        className={`px-2 py-1 rounded transition ${processingIds.has(String(id)) || ya
                                                             ? 'bg-gray-400 cursor-not-allowed'
                                                             : 'bg-green-500 hover:bg-green-600 text-white'
                                                             }`}
                                                         onClick={() => facturarBoleta(b)}
-                                                        disabled={processingIds.has(String(id)) || isProcessing}
+                                                        disabled={processingIds.has(String(id)) || isProcessing || ya}
                                                     >
                                                         {processingIds.has(String(id)) ? (
                                                             <span className="flex items-center gap-1">
@@ -614,6 +633,7 @@ export default function BoletasNoFacturadasPage() {
                                                         ) : 'Facturar'}
                                                     </button>
                                                 )}
+                                                {ya && <span className="text-xs text-red-600">Ya facturada</span>}
                                             </td>
                                         </tr>
                                     );

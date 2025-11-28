@@ -256,8 +256,33 @@ def generar_pdf_comprobante(factura: FacturaElectronica, conceptos: list = None)
     y = draw_centered(f"Nro: {numero_completo}", y, "Helvetica-Bold", 9)
     y -= 4 * mm
     
-    # Fecha
-    y = draw_centered(f"Fecha: {factura.fecha_comprobante.strftime('%d/%m/%Y %H:%M')}", y, "Helvetica", 7)
+    try:
+        import json as _json
+        fecha_text = None
+        if factura.raw_response:
+            try:
+                rawd = _json.loads(factura.raw_response)
+                fc = rawd.get('fecha_comprobante')
+                if isinstance(fc, str) and fc:
+                    try:
+                        from datetime import datetime as _dt
+                        fecha_dt = _dt.fromisoformat(fc)
+                        fecha_text = fecha_dt.strftime('%d/%m/%Y %H:%M')
+                    except Exception:
+                        fecha_text = fc
+            except Exception:
+                fecha_text = None
+        if not fecha_text:
+            from datetime import datetime as _dt, time as _time
+            try:
+                fecha_dt2 = _dt.combine(factura.fecha_comprobante, _dt.now().time())
+                fecha_text = fecha_dt2.strftime('%d/%m/%Y %H:%M')
+            except Exception:
+                fecha_text = _dt.now().strftime('%d/%m/%Y %H:%M')
+        y = draw_centered(f"Fecha: {fecha_text}", y, "Helvetica", 7)
+    except Exception:
+        from datetime import datetime as _dt
+        y = draw_centered(f"Fecha: {_dt.now().strftime('%d/%m/%Y %H:%M')}", y, "Helvetica", 7)
     y -= 5 * mm
     
     y = draw_separator(y)
