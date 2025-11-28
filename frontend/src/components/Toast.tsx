@@ -20,10 +20,10 @@ export function Toast({ message, type = 'info', duration = 4000, onClose }: Toas
     }, [duration, onClose]);
 
     const bgColors = {
-        success: 'bg-green-500',
-        error: 'bg-red-500',
-        warning: 'bg-yellow-500',
-        info: 'bg-blue-500'
+        success: 'bg-green-600',
+        error: 'bg-red-600',
+        warning: 'bg-amber-600',
+        info: 'bg-sky-600'
     };
 
     const icons = {
@@ -34,7 +34,8 @@ export function Toast({ message, type = 'info', duration = 4000, onClose }: Toas
     };
 
     return (
-        <div className={`fixed top-4 right-4 z-50 ${bgColors[type]} text-white px-6 py-4 rounded-lg shadow-2xl flex items-center gap-3 min-w-[300px] max-w-[500px] animate-slide-in`}>
+        <div className={`fixed top-4 right-4 z-50 ${bgColors[type]} text-white px-6 py-4 rounded-lg shadow-2xl flex items-center gap-3 min-w-[300px] max-w-[500px] animate-slide-in`}
+             role="status" aria-live="polite">
             <span className="text-2xl">{icons[type]}</span>
             <p className="flex-1 font-medium">{message}</p>
             <button

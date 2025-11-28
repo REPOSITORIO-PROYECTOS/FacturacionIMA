@@ -121,6 +121,7 @@ export default function BoletasFacturadasPage() {
     const [repartidoresMap, setRepartidoresMap] = useState<Record<string, string[]> | null>(null);
     const [fechaDesde, setFechaDesde] = useState<string>('');
     const [fechaHasta, setFechaHasta] = useState<string>('');
+    const [statusFilter, setStatusFilter] = useState<'all'|'anuladas'|'activas'>('all');
     useEffect(() => {
         // Mirror store data to local state
         setLoading(storeLoading);
@@ -198,11 +199,20 @@ export default function BoletasFacturadasPage() {
     });
 
     // Filtrar items por búsqueda
+    function isAnulada(b: BoletaRecord): boolean {
+        const v: any = (b as any).anulada;
+        return v === true || v === 1 || v === '1' || String(v).toLowerCase() === 'true';
+    }
+
     const filteredItems = itemsConFecha.filter((b) => {
         const razonSocial = (b.cliente || b.nombre || b['Razon Social'] || '').toString().toLowerCase();
         const repartidor = (b.Repartidor ?? (b as Record<string, unknown>)['repartidor'] ?? '').toString().toLowerCase();
         const searchText = search.toLowerCase();
-        return razonSocial.includes(searchText) || repartidor.includes(searchText);
+        const match = razonSocial.includes(searchText) || repartidor.includes(searchText);
+        if (!match) return false;
+        if (statusFilter === 'all') return true;
+        if (statusFilter === 'anuladas') return isAnulada(b);
+        return !isAnulada(b);
     });
 
     const [sortDesc, setSortDesc] = useState<boolean>(true);
@@ -285,6 +295,18 @@ export default function BoletasFacturadasPage() {
                         <option value="desc">Recientes primero</option>
                         <option value="asc">Antiguas primero</option>
                     </select>
+                    <label htmlFor="filtro-estado" className="text-[12px] text-gray-600 ml-2">Estado</label>
+                    <select
+                        id="filtro-estado"
+                        aria-label="Filtro de estado"
+                        className="border rounded px-2 py-1 text-xs"
+                        value={statusFilter}
+                        onChange={(e) => setStatusFilter(e.target.value as any)}
+                    >
+                        <option value="all">Todas</option>
+                        <option value="activas">Activas</option>
+                        <option value="anuladas">Anuladas</option>
+                    </select>
                 </div>
             </div>
             {loading && (
@@ -359,6 +381,7 @@ export default function BoletasFacturadasPage() {
                                     <th className="p-2">Fecha</th>
                                     <th className="p-2">Total</th>
                                     <th className="p-2">CAE</th>
+                                    <th className="p-2">Estado</th>
                                     <th className="p-2">Acciones</th>
                                 </tr>
                             </thead>
@@ -372,7 +395,7 @@ export default function BoletasFacturadasPage() {
                                     const id = b.ingreso_id || b['ID Ingresos'] || b.id || i;
                                     const repartidor = (b.Repartidor ?? (b as Record<string, unknown>)['repartidor'] ?? '') as string;
                                     const nroComp = b['Nro Comprobante'] || b.numero_comprobante || (b as Record<string, unknown>)['numero_comprobante'];
-                                    const anulada = (b as any).anulada === true
+                                    const anulada = isAnulada(b)
                                     return (
                                         <tr key={`${String(id)}-${i}`} className="border-t">
                                             <td className="p-2">
@@ -387,6 +410,9 @@ export default function BoletasFacturadasPage() {
                                             <td className="p-2">{String(b.fecha_comprobante || b.created_at || '-')}</td>
                                             <td className="p-2">{total}</td>
                                             <td className="p-2">{b.cae || '-'}</td>
+                                            <td className="p-2">
+                                                <span className={`px-2 py-1 rounded text-xs ${anulada ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'}`}>{anulada ? 'Anulada' : 'Vigente'}</span>
+                                            </td>
                                             <td className="p-2 flex gap-2">
                                                 <button className={`text-xs px-2 py-1 rounded ${anulada ? 'bg-gray-300 text-gray-500 cursor-not-allowed' : 'bg-gray-200 hover:bg-gray-300'}`} onClick={() => { if (!anulada) imprimirComprobante(b) }} disabled={anulada}>Imprimir</button>
                                             </td>
