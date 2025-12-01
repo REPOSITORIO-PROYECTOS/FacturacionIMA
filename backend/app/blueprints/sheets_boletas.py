@@ -181,8 +181,12 @@ def obtener_boletas_desde_sheets(tipo: str | None = None, limit: int = 300, noca
     if use_cache:
         items = _last_cache["items"][:limit]
         return JSONResponse(items)
-    h = TablasHandler()
-    data = h.cargar_ingresos() or []
+    try:
+        h = TablasHandler()
+        data = h.cargar_ingresos() or []
+    except Exception as e:
+        logger.error(f"Sheets error: {e}", exc_info=True)
+        return JSONResponse([], status_code=200)
     if tipo == 'facturadas':
         out = [r for r in data if str(r.get('facturacion','')).lower().strip().startswith('factur')]
     elif tipo == 'no-facturadas':

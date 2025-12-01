@@ -245,19 +245,20 @@ export default function BoletasNoFacturadasPage() {
         if (!raw) return null;
         const t = String(raw).trim();
         const base = t.split(' ')[0].split('T')[0];
-        let yyyy: number, mm: number, dd: number;
-        if (/^\d{4}-\d{2}-\d{2}$/.test(base)) { // 2025-10-01
-            [yyyy, mm, dd] = base.split('-').map(n => parseInt(n, 10));
-        } else if (/^\d{2}\/\d{2}\/\d{4}$/.test(base)) { // 01/10/2025
+        let yyyy: number | null = null, mm: number | null = null, dd: number | null = null;
+        if (/^\d{4}-\d{2}-\d{2}$/.test(base) || /^\d{4}-\d{1,2}-\d{1,2}$/.test(base)) {
+            const [y, m, d] = base.split('-');
+            yyyy = parseInt(y, 10); mm = parseInt(m, 10); dd = parseInt(d, 10);
+        } else if (/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(base)) {
             const [d, m, y] = base.split('/');
             dd = parseInt(d, 10); mm = parseInt(m, 10); yyyy = parseInt(y, 10);
-        } else if (/^\d{2}-\d{2}-\d{4}$/.test(base)) { // 01-10-2025
+        } else if (/^\d{1,2}-\d{1,2}-\d{4}$/.test(base)) {
             const [d, m, y] = base.split('-');
             dd = parseInt(d, 10); mm = parseInt(m, 10); yyyy = parseInt(y, 10);
-        } else if (/^\d{4}\/\d{2}\/\d{2}$/.test(base)) { // 2025/10/01
+        } else if (/^\d{4}\/\d{1,2}\/\d{1,2}$/.test(base)) {
             const [y, m, d] = base.split('/');
             yyyy = parseInt(y, 10); mm = parseInt(m, 10); dd = parseInt(d, 10);
-        } else if (/^\d{2}\/\d{2}\/\d{2}$/.test(base)) { // 01/10/25 -> asumir 20xx
+        } else if (/^\d{2}\/\d{2}\/\d{2}$/.test(base)) {
             const [d, m, y] = base.split('/');
             dd = parseInt(d, 10); mm = parseInt(m, 10); yyyy = 2000 + parseInt(y, 10);
         } else {
@@ -325,19 +326,19 @@ export default function BoletasNoFacturadasPage() {
     const pageItems = sortedItems.slice(startIndex, endIndex);
     useEffect(() => { setPage(1); }, [search, fechaDesde, fechaHasta]);
 
-    const [showDebug, setShowDebug] = useState(false);
-    const top10NF = [...itemsNoFacturadas]
-        .map((b) => ({
-            id: String((b as any)['ID Ingresos'] || (b as any).id || ''),
-            fecha: String((b as any)['Fecha'] || (b as any)['fecha'] || '')
-        }))
-        .filter(x => !!x.id)
-        .sort((a, b) => {
-            const ak = parseFechaToKey(a.fecha) || 0;
-            const bk = parseFechaToKey(b.fecha) || 0;
-            return bk - ak;
-        })
-        .slice(0, 10);
+    function clearFilters() {
+        setFechaDesde('');
+        setFechaHasta('');
+        setSearch('');
+        try {
+            localStorage.removeItem('boletas_no_facturadas_fecha_desde');
+            localStorage.removeItem('boletas_no_facturadas_fecha_hasta');
+        } catch { /* noop */ }
+        setPage(1);
+        reload();
+    }
+
+
 
     function getRazonesFor(repartidor: string | undefined): string[] {
         if (!repartidor || !repartidoresMap) return [];
@@ -493,7 +494,7 @@ export default function BoletasNoFacturadasPage() {
                     <div className="flex items-end gap-2">
                         <button className="px-3 py-2 border rounded text-sm hover:bg-gray-50" onClick={() => { const t = new Date().toISOString().split('T')[0]; setFechaDesde(t); setFechaHasta(t); }}>Hoy</button>
                         <button className="px-3 py-2 border rounded text-sm hover:bg-gray-50" onClick={() => { const d = new Date(); d.setDate(d.getDate() - 1); const y = d.toISOString().split('T')[0]; setFechaDesde(y); setFechaHasta(y); }}>Ayer</button>
-                        <button className="px-3 py-2 border rounded text-sm hover:bg-gray-50" onClick={() => { setFechaDesde(''); setFechaHasta(''); }}>Borrar</button>
+                        <button className="px-3 py-2 border rounded text-sm hover:bg-gray-50" onClick={clearFilters}>Borrar</button>
                     </div>
                 </div>
                 <input
@@ -530,16 +531,7 @@ export default function BoletasNoFacturadasPage() {
                             {isProcessing ? 'Procesando...' : 'Facturar seleccionadas'}
                         </button>
                         <button className="px-3 py-2 bg-blue-500 text-white rounded text-xs" onClick={() => reload()}>Refrescar</button>
-                        <button className="px-3 py-2 border rounded text-xs" onClick={() => { setFechaDesde(''); setFechaHasta(''); }}>Borrar filtros</button>
-                        <button className="px-3 py-2 border rounded text-xs" onClick={() => setShowDebug(v => !v)}>{showDebug ? 'Ocultar Debug' : 'Mostrar Debug'}</button>
-                        {showDebug && (
-                            <div className="ml-2 text-[11px] text-gray-700 bg-gray-50 border rounded px-2 py-1 max-w-full overflow-auto">
-                                <div>Últimas 10 no facturadas con fecha:</div>
-                                {top10NF.map((x, i) => (
-                                    <div key={`${x.id}-${i}`}>• {x.fecha} · ID {x.id}</div>
-                                ))}
-                            </div>
-                        )}
+                        <button className="px-3 py-2 border rounded text-xs" onClick={clearFilters}>Borrar filtros</button>
                         <div className="flex items-center gap-2">
                             <label htmlFor="orden-lista" className="text-[12px] text-gray-600">Orden</label>
                             <select
