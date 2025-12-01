@@ -665,3 +665,127 @@ async def descargar_comprobante_pdf(
         raise HTTPException(status_code=500, detail=f"Error generando PDF: {str(e)}")
     finally:
         db.close()
+
+def generar_pdf_nota_credito_ticket(factura: FacturaElectronica) -> bytes:
+    if not REPORTLAB_AVAILABLE:
+        raise RuntimeError("ReportLab no está instalado. Ejecute: pip install reportlab")
+    buffer = BytesIO()
+    from reportlab.lib.units import mm
+    from reportlab.pdfgen import canvas
+    ticket_width = 50 * mm
+    ticket_height = 297 * mm
+    c = canvas.Canvas(buffer, pagesize=(ticket_width, ticket_height))
+    margin_left = 3 * mm
+    margin_right = 3 * mm
+    usable_width = ticket_width - margin_left - margin_right
+    y = ticket_height - 10 * mm
+    def draw_centered(text, y_pos, font_name="Helvetica", font_size=8):
+        c.setFont(font_name, font_size)
+        text_width = c.stringWidth(text, font_name, font_size)
+        x_centered = margin_left + (usable_width - text_width) / 2
+        c.drawString(x_centered, y_pos, text)
+        return y_pos
+    def draw_left(text, y_pos, font_name="Helvetica", font_size=7):
+        c.setFont(font_name, font_size)
+        c.drawString(margin_left, y_pos, text)
+        return y_pos
+    def draw_separator(y_pos):
+        c.line(margin_left, y_pos, ticket_width - margin_right, y_pos)
+        return y_pos - 2 * mm
+    try:
+        import json, os
+        emisor_data = {
+            "nombre_fantasia": "",
+            "razon_social": "",
+            "direccion": "",
+            "fecha_inicio": "",
+            "nro_ingresos_brutos": "",
+            "telefono": ""
+        }
+        boveda_path = os.path.join(os.path.dirname(__file__), '..', '..', '..', 'boveda_afip_temporal')
+        emisor_file = os.path.join(boveda_path, f'emisor_{factura.cuit_emisor.strip()}.json')
+        if os.path.exists(emisor_file):
+            with open(emisor_file, 'r', encoding='utf-8') as f:
+                file_data = json.load(f)
+                emisor_data.update({
+                    "nombre_fantasia": file_data.get('nombre_fantasia') or "",
+                    "razon_social": file_data.get('razon_social') or "",
+                    "direccion": file_data.get('direccion') or "",
+                    "fecha_inicio": file_data.get('Fecha Inicio') or "",
+                    "nro_ingresos_brutos": file_data.get('Nro Ingresos Brutos') or "",
+                    "telefono": file_data.get('telefono') or "",
+                })
+    except Exception:
+        emisor_data = {
+            "nombre_fantasia": "",
+            "razon_social": "",
+            "direccion": "",
+            "fecha_inicio": "",
+            "nro_ingresos_brutos": "",
+            "telefono": ""
+        }
+    y = draw_centered(emisor_data.get("nombre_fantasia") or "", y, "Helvetica-Bold", 10)
+    y -= 4 * mm
+    y = draw_centered(f"CUIT: {factura.cuit_emisor}", y, "Helvetica", 7)
+    y -= 3 * mm
+    y = draw_centered(emisor_data.get("direccion") or "", y, "Helvetica", 6)
+    y -= 3 * mm
+    y = draw_separator(y)
+    y -= 3 * mm
+    y = draw_centered("NOTA DE CRÉDITO", y, "Helvetica-Bold", 11)
+    y -= 5 * mm
+    numero_origen = f"{str(factura.punto_venta).zfill(4)}-{str(factura.numero_comprobante).zfill(8)}"
+    y = draw_centered(f"Asociada a: {numero_origen}", y, "Helvetica", 8)
+    y -= 4 * mm
+    try:
+        from datetime import datetime as _dt
+        fecha_text = _dt.now().strftime('%d/%m/%Y %H:%M')
+        y = draw_centered(f"Fecha de emisión NC: {fecha_text}", y, "Helvetica", 7)
+    except Exception:
+        pass
+    y -= 4 * mm
+    y = draw_separator(y)
+    y -= 3 * mm
+    tipo_doc_map = {80: "CUIT", 96: "DNI", 99: "CF"}
+    tipo_doc_nombre = tipo_doc_map.get(factura.tipo_doc_receptor, "Doc")
+    y = draw_left(f"{tipo_doc_nombre}: {factura.nro_doc_receptor}", y, "Helvetica", 7)
+    y -= 3 * mm
+    y = draw_left(f"Emisor CUIT: {factura.cuit_emisor}", y, "Helvetica", 7)
+    y -= 5 * mm
+    y = draw_separator(y)
+    y -= 3 * mm
+    y = draw_left(f"Importe total original: $ {str(factura.importe_total)}", y, "Helvetica", 8)
+    y -= 5 * mm
+    y = draw_separator(y)
+    y -= 3 * mm
+    y = draw_left(f"CAE NC: {str(factura.codigo_nota_credito or '')}", y, "Helvetica", 6)
+    y -= 3 * mm
+    y = draw_centered("Verificá en QR.AFIP.GOB.AR", y, "Helvetica", 5)
+    y -= 5 * mm
+    y = draw_centered("Comprobante de Nota de Crédito", y, "Helvetica-Bold", 7)
+    y -= 4 * mm
+    c.showPage()
+    c.save()
+    buffer.seek(0)
+    return buffer.getvalue()
+
+@router.get("/nota-credito/{factura_id}/pdf")
+async def descargar_nota_credito_pdf(
+    factura_id: int,
+    usuario: Usuario = Depends(obtener_usuario_actual)
+):
+    db = SessionLocal()
+    try:
+        factura = db.query(FacturaElectronica).filter(FacturaElectronica.id == factura_id).first()
+        if not factura:
+            raise HTTPException(status_code=404, detail="Factura no encontrada")
+        if not getattr(factura, "anulada", False) or not factura.codigo_nota_credito:
+            raise HTTPException(status_code=400, detail="La factura no está anulada o no tiene CAE de NC")
+        pdf_bytes = generar_pdf_nota_credito_ticket(factura)
+        filename = f"nota_credito_{factura.punto_venta}_{factura.numero_comprobante}.pdf"
+        return Response(content=pdf_bytes, media_type="application/pdf", headers={"Content-Disposition": f"attachment; filename={filename}"})
+    except Exception as e:
+        logger.error(f"Error generando Ticket NC: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Error generando Ticket NC: {str(e)}")
+    finally:
+        db.close()

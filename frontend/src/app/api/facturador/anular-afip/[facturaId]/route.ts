@@ -53,7 +53,7 @@ export async function POST(request: NextRequest, context: { params: Promise<{ fa
           if (wantDebug) headers.set('X-Debug-Attempts', JSON.stringify(attempted))
           return new NextResponse(typeof data === 'string' ? data : JSON.stringify(data), { status: res.status, headers })
         }
-        lastError = data
+        if (!lastError) lastError = data
         console.error('[anular-afip] Error backend', { status: res.status, data })
         if (res.status === 404 || res.status === 405) {
           continue
@@ -61,6 +61,8 @@ export async function POST(request: NextRequest, context: { params: Promise<{ fa
         if (looksHTML) {
           continue
         }
+        lastStatus = res.status
+        break
       } catch (e: any) {
         attempted.push({ target: cand, error: String(e && e.name === 'AbortError' ? 'timeout' : e) })
       }

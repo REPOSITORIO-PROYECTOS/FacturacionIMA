@@ -330,6 +330,46 @@ export default function BoletasFacturadasPage() {
                                             onClick={() => imprimirComprobante(b)}
                                         >Imprimir</button>
                                         <button
+                                            className="text-xs bg-blue-500 text-white px-2 py-1 rounded hover:bg-blue-600"
+                                            onClick={() => {
+                                                (async () => {
+                                                    const token = localStorage.getItem('token')
+                                                    if (!token) { showError('No autenticado'); return }
+                                                    const fid = String(b.id || b.ingreso_id || '')
+                                                    if (!fid) { showError('ID de factura no disponible'); return }
+                                                    try {
+                                                        const bases = [process.env.NEXT_PUBLIC_BACKEND_URL || '', window.location.origin]
+                                                        const paths = [`/comprobantes/nota-credito/${fid}/pdf`, `/api/comprobantes/nota-credito/${fid}/pdf`]
+                                                        let done = false
+                                                        for (const base of bases) {
+                                                            for (const p of paths) {
+                                                                const urlTry = `${String(base).replace(/\/$/, '')}${p}`
+                                                                try {
+                                                                    const res = await fetch(urlTry, { headers: { Authorization: `Bearer ${token}` } })
+                                                                    if (res.ok) {
+                                                                        const blob = await res.blob()
+                                                                        if (blob.type !== 'application/pdf') continue
+                                                                        const url = URL.createObjectURL(blob)
+                                                                        const a = document.createElement('a')
+                                                                        a.href = url
+                                                                        a.download = `nota_credito_${fid}.pdf`
+                                                                        document.body.appendChild(a)
+                                                                        a.click()
+                                                                        setTimeout(() => { URL.revokeObjectURL(url); if (document.body.contains(a)) document.body.removeChild(a) }, 1500)
+                                                                        showSuccess('Ticket de Nota de Crédito descargado')
+                                                                        done = true
+                                                                        break
+                                                                    }
+                                                                } catch { }
+                                                            }
+                                                            if (done) break
+                                                        }
+                                                        if (!done) showError('No se pudo descargar Ticket NC')
+                                                    } catch (e) { showError('Error descargando Ticket NC: ' + String(e)) }
+                                                })()
+                                            }}
+                                        >Ticket NC</button>
+                                        <button
                                             className="text-xs bg-red-500 text-white px-2 py-1 rounded hover:bg-red-600"
                                             onClick={() => {
                                                 (async () => {
@@ -399,20 +439,69 @@ export default function BoletasFacturadasPage() {
                                                     disabled={anulada}
                                                 >Imprimir</button>
                                                 <button
+                                                    className="text-xs bg-blue-500 text-white px-2 py-1 rounded hover:bg-blue-600"
+                                                    onClick={() => {
+                                                        (async () => {
+                                                            const token = localStorage.getItem('token')
+                                                            if (!token) { showError('No autenticado'); return }
+                                                            const fid = String(b.id || (b as any).ingreso_id || '')
+                                                            if (!fid) { showError('ID de factura no disponible'); return }
+                                                            try {
+                                                                const bases = [process.env.NEXT_PUBLIC_BACKEND_URL || '', window.location.origin]
+                                                                const paths = [`/comprobantes/nota-credito/${fid}/pdf`, `/api/comprobantes/nota-credito/${fid}/pdf`]
+                                                                let done = false
+                                                                for (const base of bases) {
+                                                                    for (const p of paths) {
+                                                                        const urlTry = `${String(base).replace(/\/$/, '')}${p}`
+                                                                        try {
+                                                                            const res = await fetch(urlTry, { headers: { Authorization: `Bearer ${token}` } })
+                                                                            if (res.ok) {
+                                                                                const blob = await res.blob()
+                                                                                if (blob.type !== 'application/pdf') continue
+                                                                                const url = URL.createObjectURL(blob)
+                                                                                const a = document.createElement('a')
+                                                                                a.href = url
+                                                                                a.download = `nota_credito_${fid}.pdf`
+                                                                                document.body.appendChild(a)
+                                                                                a.click()
+                                                                                setTimeout(() => { URL.revokeObjectURL(url); if (document.body.contains(a)) document.body.removeChild(a) }, 1500)
+                                                                                showSuccess('Ticket de Nota de Crédito descargado')
+                                                                                done = true
+                                                                                break
+                                                                            }
+                                                                        } catch { }
+                                                                    }
+                                                                    if (done) break
+                                                                }
+                                                                if (!done) showError('No se pudo descargar Ticket NC')
+                                                            } catch (e) { showError('Error descargando Ticket NC: ' + String(e)) }
+                                                        })()
+                                                    }}
+                                                >Ticket NC</button>
+                                                <button
                                                     className="text-xs bg-red-500 text-white px-2 py-1 rounded hover:bg-red-600"
                                                     onClick={() => {
                                                         (async () => {
                                                             const token = localStorage.getItem('token')
                                                             if (!token) { showError('No autenticado'); return }
                                                             const motivo = prompt('Motivo de anulación (opcional):') || ''
-                                                            const res = await fetch(`/api/facturador/anular-afip/${String(b.id || (b as any).ingreso_id || '')}`, {
-                                                                method: 'POST',
-                                                                headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-                                                                referrerPolicy: 'strict-origin-when-cross-origin',
-                                                                body: JSON.stringify({ motivo, force: true })
-                                                            })
-                                                            const data = await res.json().catch(() => null)
-                                                            if (!res.ok) { showError(String((data as any)?.detail || (data as any)?.error || 'Error al anular')); return }
+                                                            const fid2 = String(b.id || (b as any).ingreso_id || '')
+                                                            const bases2 = [process.env.NEXT_PUBLIC_BACKEND_URL || '', window.location.origin]
+                                                            const paths2 = [`/facturador/anular-afip/${fid2}`, `/api/facturador/anular-afip/${fid2}`]
+                                                            let ok = false, data: any = null
+                                                            for (const base of bases2) {
+                                                                for (const p of paths2) {
+                                                                    const urlTry = `${String(base).replace(/\/$/, '')}${p}`
+                                                                    try {
+                                                                        const r = await fetch(urlTry, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, referrerPolicy: 'strict-origin-when-cross-origin', body: JSON.stringify({ motivo, force: true }) })
+                                                                        const t = await r.text()
+                                                                        data = t && (t.trim().startsWith('{') || t.trim().startsWith('[')) ? JSON.parse(t) : t
+                                                                        if (r.ok) { ok = true; break }
+                                                                    } catch { }
+                                                                }
+                                                                if (ok) break
+                                                            }
+                                                            if (!ok) { showError(String((data as any)?.detail || (data as any)?.error || 'Error al anular')); return }
                                                             showSuccess(`Anulada. Código: ${String((data as any)?.codigo_nota_credito || '')}`)
                                                             reload()
                                                         })()

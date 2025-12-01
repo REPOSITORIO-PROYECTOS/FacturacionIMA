@@ -156,23 +156,83 @@ async def anular_afip(factura_id: int, body: AnularAfipPayload | None = None) ->
         elif tipo_origen == 6:
             codigo_tipo = 8
 
-        payload_nc = {
-            "tipo": "NC",
-            "codigo_tipo": codigo_tipo,
-            "tipo_nc": codigo_tipo,
-            "asociado_cae": row.cae,
-            "asociado_tipo": row.tipo_comprobante,
-            "asociado_punto_venta": row.punto_venta,
-            "asociado_numero": row.numero_comprobante,
+        def _map_condicion_iva_to_id(nombre: str | None) -> int:
+            n = (nombre or '').strip().upper()
+            if n in {"RESPONSABLE_INSCRIPTO", "RI", "INSCRIPTO"}: return 1
+            if n in {"MONOTRIBUTO", "MONOTRIBUTISTA"}: return 5
+            if n in {"CONSUMIDOR_FINAL", "CF"}: return 5
+            if n in {"EXENTO"}: return 4
+            return 5
+        # Resolver id_condicion_iva desde configuración de empresa si disponible
+        id_cond_iva = 5
+        try:
+            from sqlmodel import select
+            from backend.modelos import Empresa, ConfiguracionEmpresa
+            empresa = db.exec(select(Empresa).where(Empresa.cuit == str(row.cuit_emisor))).first()
+            if empresa:
+                conf = db.exec(select(ConfiguracionEmpresa).where(ConfiguracionEmpresa.id_empresa == empresa.id)).first()
+                if conf and conf.afip_condicion_iva:
+                    id_cond_iva = _map_condicion_iva_to_id(conf.afip_condicion_iva)
+        except Exception:
+            id_cond_iva = 5
+        # Construir payload según guía del microservicio (multi-CUIT)
+        datos_factura = {
+            "tipo_afip": codigo_tipo,
             "punto_venta": row.punto_venta,
-            "tipo_comprobante_origen": row.tipo_comprobante,
-            "fecha_origen": str(row.fecha_comprobante),
-            "emisor_cuit": row.cuit_emisor,
-            "receptor_tipo_doc": row.tipo_doc_receptor,
-            "receptor_doc": row.nro_doc_receptor,
-            "importe_total": float(row.importe_total),
-            "motivo": (body.motivo if body else None) or "Anulación sistema",
+            "tipo_documento": row.tipo_doc_receptor,
+            "documento": str(row.nro_doc_receptor),
+            "total": float(row.importe_total),
+            "neto": float(row.importe_neto) if codigo_tipo in (3, 8) else float(row.importe_total),
+            "iva": float(row.importe_iva) if codigo_tipo in (3, 8) else 0.0,
+            "id_condicion_iva": id_cond_iva,
+            "asociado_tipo_afip": int(row.tipo_comprobante),
+            "asociado_punto_venta": int(row.punto_venta),
+            "asociado_numero_comprobante": int(row.numero_comprobante),
+            "asociado_fecha_comprobante": str(row.fecha_comprobante),
         }
+        # Resolver credenciales del emisor (multi-tenant)
+        credenciales: Dict[str, Any] | None = None
+        try:
+            # 1) Intentar desde tabla AfipCredencial
+            from sqlmodel import select
+            from backend.modelos import AfipCredencial
+            cred = db.exec(select(AfipCredencial).where(AfipCredencial.cuit == str(row.cuit_emisor))).first()
+            if cred and cred.certificado_pem and cred.clave_privada_pem:
+                credenciales = {
+                    "cuit": str(row.cuit_emisor),
+                    "certificado": cred.certificado_pem,
+                    "clave_privada": cred.clave_privada_pem,
+                }
+            if not credenciales:
+                # 2) Intentar desde ConfiguracionEmpresa en campos encriptados (asumimos almacenados como texto PEM)
+                from backend.modelos import Empresa, ConfiguracionEmpresa
+                empresa = db.exec(select(Empresa).where(Empresa.cuit == str(row.cuit_emisor))).first()
+                if empresa:
+                    conf = db.exec(select(ConfiguracionEmpresa).where(ConfiguracionEmpresa.id_empresa == empresa.id)).first()
+                    if conf and conf.afip_certificado_encrypted and conf.afip_clave_privada_encrypted:
+                        credenciales = {
+                            "cuit": str(row.cuit_emisor),
+                            "certificado": conf.afip_certificado_encrypted,
+                            "clave_privada": conf.afip_clave_privada_encrypted,
+                        }
+            if not credenciales:
+                # 3) Intentar desde bóveda temporal en disco
+                import os, json
+                boveda_path = os.path.join(os.path.dirname(__file__), '..', '..', '..', 'boveda_afip_temporal')
+                emisor_file = os.path.join(boveda_path, f'emisor_{str(row.cuit_emisor).strip()}.json')
+                if os.path.exists(emisor_file):
+                    with open(emisor_file, 'r', encoding='utf-8') as f:
+                        d = json.load(f)
+                        cert = d.get('certificado') or d.get('cert')
+                        key = d.get('clave_privada') or d.get('key')
+                        if cert and key:
+                            credenciales = {"cuit": str(row.cuit_emisor), "certificado": cert, "clave_privada": key}
+        except Exception as e:
+            logger.error(f"Error resolviendo credenciales del emisor: {e}", exc_info=True)
+            credenciales = None
+        if not credenciales:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Credenciales AFIP no disponibles para el CUIT emisor")
+        payload_nc = {"credenciales": credenciales, "datos_factura": datos_factura}
         try:
             import os, requests
             bases = [
@@ -184,10 +244,10 @@ async def anular_afip(factura_id: int, body: AnularAfipPayload | None = None) ->
             cae_nc: Optional[str] = None
             for base in bases:
                 base = base.rstrip("/")
-                url = f"{base}/emitir-nota-credito"
+                url = f"{base}"
                 try:
                     logger.info(f"Llamando microservicio NC url={url}")
-                    resp = requests.post(url, json=payload_nc, timeout=30, headers={"Content-Type": "application/json"})
+                    resp = requests.post(url, json=payload_nc, timeout=40, headers={"Content-Type": "application/json"})
                     ct = resp.headers.get("Content-Type", "")
                     text = resp.text
                     data = resp.json() if ct.startswith("application/json") else {}
@@ -220,6 +280,15 @@ async def anular_afip(factura_id: int, body: AnularAfipPayload | None = None) ->
             row.motivo_anulacion = body.motivo
         db.add(row)
         db.commit()
+        try:
+            from backend.utils.tablasHandler import TablasHandler
+            h = TablasHandler()
+            h.refrescar_drive()
+            _ok = h.marcar_boleta_anulada(str(row.ingreso_id))
+            if not _ok:
+                logger.warning(f"Sheets: no se pudo marcar Anulada para ingreso_id={row.ingreso_id}")
+        except Exception as se:
+            logger.warning(f"Sheets: error marcando Anulada: {se}")
         return {"status": "OK", "factura_id": factura_id, "codigo_nota_credito": cae_nc}
     except HTTPException as he:
         db.rollback()

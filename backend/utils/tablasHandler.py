@@ -17,7 +17,7 @@ from backend.config import GOOGLE_SHEET_ID,GOOGLE_SERVICE_ACCOUNT_FILE
 import csv
 import io
 
-SCOPES = ['https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis.com/auth/drive.file']
+SCOPES = ['https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis.com/auth/drive.file', 'https://www.googleapis.com/auth/drive']
 gspread_client: Optional[object] = None
 
 datos_clientes: List[Dict] = []
@@ -111,17 +111,12 @@ class TablasHandler:
                                 # Intentar parsear como número flotante
                                 try:
                                     if isinstance(v, str):
-                                        # Limpiar y parsear formato argentino
                                         s = v.strip().replace('$', '').replace(' ', '')
                                         s = s.replace('.', '').replace(',', '.')
-                                        parsed_value = float(s)
-                                        new['importe_total'] = parsed_value
-                                        print(f"DEBUG: Campo total parseado '{k}': '{v}' -> {parsed_value}")
+                                        new['importe_total'] = float(s)
                                     else:
                                         new['importe_total'] = float(v)
-                                        print(f"DEBUG: Campo total convertido '{k}': {v} -> {float(v)}")
                                 except (ValueError, TypeError) as e:
-                                    print(f"DEBUG: Error parseando total '{k}': '{v}' - {e}")
                                     new['importe_total'] = v  # mantener original si falla
 
                     return new
@@ -284,3 +279,61 @@ class TablasHandler:
         except Exception as e:
             print(f"❌ Error al actualizar boleta: {type(e).__name__} - {e}")
             return False
+
+    def marcar_boleta_anulada(self, id_ingreso: str):
+        if not self.client:
+            print("Cliente de Google Sheets no disponible.")
+            return None
+        try:
+            sheet = self.client.open_by_key(self.google_sheet_id)
+            worksheet = sheet.worksheet("INGRESOS")
+            all_values = worksheet.get_all_values()
+            headers = all_values[0]
+            id_col_index = None
+            fact_col_index = None
+            for i, h in enumerate(headers):
+                h_lower = h.lower().replace(' ', '').replace('_', '')
+                if h_lower == "idingresos":
+                    id_col_index = i
+                if h_lower == "facturacion":
+                    fact_col_index = i
+            if id_col_index is None or fact_col_index is None:
+                return False
+            for row_idx, row in enumerate(all_values[1:], start=2):
+                if str(row[id_col_index]).strip() == str(id_ingreso).strip():
+                    worksheet.update_cell(row_idx, fact_col_index + 1, "Anulada")
+                    return True
+            return False
+        except Exception as e:
+            print(f"❌ Error al actualizar boleta: {type(e).__name__} - {e}")
+            return False
+
+    def verificar_estado_boleta(self, id_ingreso: str) -> Optional[str]:
+        if not self.client:
+            return None
+        try:
+            sheet = self.client.open_by_key(self.google_sheet_id)
+            worksheet = sheet.worksheet("INGRESOS")
+            all_values = worksheet.get_all_values()
+            headers = all_values[0] if all_values else []
+            id_col_index = None
+            fact_col_index = None
+            for i, h in enumerate(headers):
+                hl = h.lower().replace(' ', '').replace('_', '')
+                if hl == 'idingresos':
+                    id_col_index = i
+                if hl == 'facturacion':
+                    fact_col_index = i
+            if id_col_index is None or fact_col_index is None:
+                return None
+            for row in all_values[1:]:
+                if str(row[id_col_index]).strip() == str(id_ingreso).strip():
+                    return str(row[fact_col_index]).strip()
+            return None
+        except Exception:
+            return None
+
+    def refrescar_drive(self):
+        global gspread_client
+        gspread_client = None
+        self.client = self._init_client()
