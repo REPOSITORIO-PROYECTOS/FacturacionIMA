@@ -59,7 +59,18 @@ export function BoletasProvider({ children }: { children: ReactNode }) {
 
             const [nfData, fData] = await Promise.all([nfRes.json().catch(() => []), fRes.json().catch(() => [])]);
 
-            const arrNF = Array.isArray(nfData) ? nfData : (Array.isArray(nfData?.items) ? nfData.items : []);
+            let arrNF = Array.isArray(nfData) ? nfData : (Array.isArray(nfData?.items) ? nfData.items : []);
+            try {
+                const sheetsNF = await fetch(`/api/sheets/boletas?tipo=no-facturadas&limit=3000&nocache=1`, { headers });
+                if (sheetsNF.ok) {
+                    const sheetsData = await sheetsNF.json().catch(() => []);
+                    const isArr = Array.isArray(sheetsData);
+                    const sheetList: Boleta[] = isArr ? sheetsData as Boleta[] : (Array.isArray((sheetsData as any)?.items) ? (sheetsData as any).items : []);
+                    if (sheetList && sheetList.length > 0) {
+                        arrNF = sheetList;
+                    }
+                }
+            } catch { /* mantener arrNF si fallo */ }
             const arrF = Array.isArray(fData) ? fData : (Array.isArray(fData?.items) ? fData.items : []);
 
             setBoletasNoFacturadas(arrNF as Boleta[]);

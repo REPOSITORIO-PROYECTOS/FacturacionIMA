@@ -27,7 +27,7 @@ export async function GET(request: NextRequest) {
     for (const base of bases) {
         try {
             const url = `${base}/sheets/boletas?${queryStr}`;
-            try { const h = new URL(url).host; if (host && h === host && base !== process.env.BACKEND_INTERNAL_URL) { throw new Error('skip_same_host'); } } catch {}
+            try { const h = new URL(url).host; /* allow same host, backend might be under same domain */ } catch {}
             console.log(`[Sheets Boletas] Intentando: ${url}`);
 
             const res = await fetch(url, {

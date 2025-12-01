@@ -325,6 +325,20 @@ export default function BoletasNoFacturadasPage() {
     const pageItems = sortedItems.slice(startIndex, endIndex);
     useEffect(() => { setPage(1); }, [search, fechaDesde, fechaHasta]);
 
+    const [showDebug, setShowDebug] = useState(false);
+    const top10NF = [...itemsNoFacturadas]
+        .map((b) => ({
+            id: String((b as any)['ID Ingresos'] || (b as any).id || ''),
+            fecha: String((b as any)['Fecha'] || (b as any)['fecha'] || '')
+        }))
+        .filter(x => !!x.id)
+        .sort((a, b) => {
+            const ak = parseFechaToKey(a.fecha) || 0;
+            const bk = parseFechaToKey(b.fecha) || 0;
+            return bk - ak;
+        })
+        .slice(0, 10);
+
     function getRazonesFor(repartidor: string | undefined): string[] {
         if (!repartidor || !repartidoresMap) return [];
         const key = Object.keys(repartidoresMap).find(k => k === repartidor || k.toLowerCase() === String(repartidor).toLowerCase());
@@ -516,6 +530,16 @@ export default function BoletasNoFacturadasPage() {
                             {isProcessing ? 'Procesando...' : 'Facturar seleccionadas'}
                         </button>
                         <button className="px-3 py-2 bg-blue-500 text-white rounded text-xs" onClick={() => reload()}>Refrescar</button>
+                        <button className="px-3 py-2 border rounded text-xs" onClick={() => { setFechaDesde(''); setFechaHasta(''); }}>Borrar filtros</button>
+                        <button className="px-3 py-2 border rounded text-xs" onClick={() => setShowDebug(v => !v)}>{showDebug ? 'Ocultar Debug' : 'Mostrar Debug'}</button>
+                        {showDebug && (
+                            <div className="ml-2 text-[11px] text-gray-700 bg-gray-50 border rounded px-2 py-1 max-w-full overflow-auto">
+                                <div>Últimas 10 no facturadas con fecha:</div>
+                                {top10NF.map((x, i) => (
+                                    <div key={`${x.id}-${i}`}>• {x.fecha} · ID {x.id}</div>
+                                ))}
+                            </div>
+                        )}
                         <div className="flex items-center gap-2">
                             <label htmlFor="orden-lista" className="text-[12px] text-gray-600">Orden</label>
                             <select
