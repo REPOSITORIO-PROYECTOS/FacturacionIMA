@@ -19,14 +19,14 @@ export async function GET(request: NextRequest) {
     ];
     const bases = Array.from(new Set(basesRaw.map(b => b.replace(/\/$/, ''))));
     const host = (() => { try { return new URL(request.url).host } catch { return null } })();
+    const params = new URLSearchParams();
+    if (tipo) params.append('tipo', tipo);
+    params.append('limit', limit);
+    const queryStr = params.toString();
 
     for (const base of bases) {
         try {
-            const params = new URLSearchParams();
-            if (tipo) params.append('tipo', tipo);
-            params.append('limit', limit);
-
-            const url = `${base}/sheets/boletas?${params.toString()}`;
+            const url = `${base}/sheets/boletas?${queryStr}`;
             try { const h = new URL(url).host; if (host && h === host && base !== process.env.BACKEND_INTERNAL_URL) { throw new Error('skip_same_host'); } } catch {}
             console.log(`[Sheets Boletas] Intentando: ${url}`);
 
@@ -44,7 +44,7 @@ export async function GET(request: NextRequest) {
             console.warn(`[Sheets Boletas] Error con ${base}:`, e);
             // Fallback con prefijo /api si el backend está montado con API_PREFIX
             try {
-                const apiUrl = `${base}/api/sheets/boletas?${params.toString()}`;
+                const apiUrl = `${base}/api/sheets/boletas?${queryStr}`;
                 const res2 = await fetch(apiUrl, {
                     headers: { Authorization: token, Accept: 'application/json' },
                     referrerPolicy: 'strict-origin-when-cross-origin' as any,
