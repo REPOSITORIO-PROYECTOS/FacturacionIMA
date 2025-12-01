@@ -159,3 +159,34 @@ async def sincronizar_boletas(
             status_code=500,
             detail=f"Error sincronizando: {str(e)}"
         )
+import time
+from fastapi import APIRouter, Depends
+from fastapi.responses import JSONResponse
+from backend.security import obtener_usuario_actual
+from backend.modelos import Usuario
+from backend.utils.tablasHandler import TablasHandler
+
+router = APIRouter(prefix="/sheets", tags=["sheets"])
+
+_last_cache: dict = {"ts": 0, "tipo": None, "items": []}
+CACHE_TTL_SEC = int(os.getenv('SHEETS_CACHE_TTL_SEC', '300'))
+
+@router.get("/boletas")
+def obtener_boletas_desde_sheets(tipo: str | None = None, limit: int = 300, usuario: Usuario = Depends(obtener_usuario_actual)):
+    now = int(time.time())
+    use_cache = (_last_cache["tipo"] == tipo) and (now - _last_cache["ts"] < CACHE_TTL_SEC)
+    if use_cache:
+        items = _last_cache["items"][:limit]
+        return JSONResponse(items)
+    h = TablasHandler()
+    data = h.cargar_ingresos() or []
+    if tipo == 'facturadas':
+        out = [r for r in data if str(r.get('facturacion','')).lower().strip().startswith('factur')]
+    elif tipo == 'no-facturadas':
+        out = [r for r in data if 'factur' in str(r.get('facturacion','')).lower() and 'falta' in str(r.get('facturacion','')).lower()] or [r for r in data if str(r.get('facturacion','')).lower() in ('falta facturar','no facturada')]
+    else:
+        out = data
+    _last_cache["ts"] = int(time.time())
+    _last_cache["tipo"] = tipo
+    _last_cache["items"] = out
+    return JSONResponse(out[:limit])

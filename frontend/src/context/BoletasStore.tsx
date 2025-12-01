@@ -101,7 +101,6 @@ export function BoletasProvider({ children }: { children: ReactNode }) {
         // initial fetch
         fetchAll();
 
-        // Poll every 60s
         intervalRef.current = window.setInterval(() => {
             // If token changed in localStorage, update tokenRef and fetch again
             const t = localStorage.getItem("token");
@@ -109,7 +108,7 @@ export function BoletasProvider({ children }: { children: ReactNode }) {
                 tokenRef.current = t;
             }
             fetchAll();
-        }, 60 * 1000);
+        }, 5 * 60 * 1000);
 
         // Listen for storage events (login/logout in other tabs)
         const onStorage = (ev: StorageEvent) => {
@@ -118,10 +117,13 @@ export function BoletasProvider({ children }: { children: ReactNode }) {
             }
         };
         window.addEventListener("storage", onStorage);
+        const onVis = () => { if (document.visibilityState === 'visible') fetchAll(); };
+        document.addEventListener('visibilitychange', onVis);
 
         return () => {
             if (intervalRef.current) window.clearInterval(intervalRef.current);
             window.removeEventListener("storage", onStorage);
+            document.removeEventListener('visibilitychange', onVis);
         };
     }, []);
 
