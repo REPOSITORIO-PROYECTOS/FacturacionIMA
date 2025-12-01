@@ -13,10 +13,12 @@ export async function GET(request: NextRequest) {
         return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
     }
 
-    const bases = [
-        process.env.BACKEND_INTERNAL_URL || 'http://127.0.0.1:8008',
+    const basesRaw = [
         process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8008',
+        process.env.BACKEND_INTERNAL_URL || 'http://127.0.0.1:8008',
     ];
+    const bases = Array.from(new Set(basesRaw.map(b => b.replace(/\/$/, ''))));
+    const host = (() => { try { return new URL(request.url).host } catch { return null } })();
 
     for (const base of bases) {
         try {
@@ -24,11 +26,13 @@ export async function GET(request: NextRequest) {
             if (tipo) params.append('tipo', tipo);
             params.append('limit', limit);
 
-            const url = `${base.replace(/\/$/, '')}/sheets/boletas?${params.toString()}`;
+            const url = `${base}/sheets/boletas?${params.toString()}`;
+            try { const h = new URL(url).host; if (host && h === host && base !== process.env.BACKEND_INTERNAL_URL) { throw new Error('skip_same_host'); } } catch {}
             console.log(`[Sheets Boletas] Intentando: ${url}`);
 
             const res = await fetch(url, {
-                headers: { Authorization: token },
+                headers: { Authorization: token, Accept: 'application/json' },
+                referrerPolicy: 'strict-origin-when-cross-origin' as any,
             });
 
             if (res.ok) {
@@ -38,6 +42,19 @@ export async function GET(request: NextRequest) {
             }
         } catch (e) {
             console.warn(`[Sheets Boletas] Error con ${base}:`, e);
+            // Fallback con prefijo /api si el backend está montado con API_PREFIX
+            try {
+                const apiUrl = `${base}/api/sheets/boletas?${params.toString()}`;
+                const res2 = await fetch(apiUrl, {
+                    headers: { Authorization: token, Accept: 'application/json' },
+                    referrerPolicy: 'strict-origin-when-cross-origin' as any,
+                });
+                if (res2.ok) {
+                    const data = await res2.json();
+                    console.log(`[Sheets Boletas] ✓ ${Array.isArray(data) ? data.length : (Array.isArray((data as any)?.items) ? (data as any).items.length : 0)} boletas obtenidas (API_PREFIX)`);
+                    return NextResponse.json(data);
+                }
+            } catch {}
             continue;
         }
     }

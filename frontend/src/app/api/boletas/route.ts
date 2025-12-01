@@ -26,7 +26,6 @@ export async function GET(request: Request): Promise<Response> {
   const skip = url.searchParams.get("skip") || "0";
   const limit = url.searchParams.get("limit") || "50";
   const tipo = url.searchParams.get("tipo") || "no-facturadas";
-  const incomingHost = (() => { try { return new URL(request.url).host; } catch { return ''; } })();
   const bases: string[] = [];
   const sanitizedEnv = sanitizeBase(envBase);
   if (sanitizedEnv) bases.push(sanitizedEnv);
@@ -42,18 +41,21 @@ export async function GET(request: Request): Promise<Response> {
 
   for (let i = 0; i < bases.length; i++) {
     let base = sanitizeBase(bases[i]);
-    try {
-      const h = new URL(base).host;
-      if (h === incomingHost && !internalOverride) {
-        console.warn(`[api/boletas] Saltando base ${base} (mismo host ${incomingHost}) para evitar recursion. Configure BACKEND_INTERNAL_URL.`);
-        continue;
-      }
-    } catch { }
     const endpoint = buildEndpoint(base);
     try {
-      const response = await fetch(endpoint, { headers: { Authorization: `Bearer ${token}`, 'X-Forwarded-Boletas': '1' } });
+      const response = await fetch(endpoint, { headers: { Authorization: `Bearer ${token}`, 'X-Forwarded-Boletas': '1', Accept: 'application/json' }, referrerPolicy: 'strict-origin-when-cross-origin' as any });
       if (response.status === 404) {
         console.warn(`[api/boletas] 404 en ${endpoint}, probando siguiente base...`);
+        // probar variante con API_PREFIX
+        const apiEndpoint = endpoint.replace(/\/boletas\?/, '/api/boletas?');
+        try {
+          const response2 = await fetch(apiEndpoint, { headers: { Authorization: `Bearer ${token}`, 'X-Forwarded-Boletas': '1', Accept: 'application/json' }, referrerPolicy: 'strict-origin-when-cross-origin' as any });
+          if (response2.ok) {
+            const text2 = await response2.text();
+            const parsed2 = text2 ? JSON.parse(text2) : [];
+            return new Response(JSON.stringify(parsed2), { status: response2.status, headers: { 'Content-Type': 'application/json' } });
+          }
+        } catch {}
         continue;
       }
       let raw = '';
