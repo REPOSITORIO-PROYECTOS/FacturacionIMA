@@ -139,7 +139,6 @@
     transform: rotate(360deg);
   }
 }
-
 .paginacion-facturacion {
   display: flex;
   gap: 1rem;

@@ -1,0 +1,53 @@
+[
+  {
+    "id": "test_anular_1766526849",
+    "original_data": {
+      "id": "test_anular_1766526849",
+      "total": 150.0,
+      "cliente_data": {
+        "cuit_o_dni": "0",
+        "nombre_razon_social": "Cliente Test Anulacion",
+        "domicilio": "Calle Pruebas 456",
+        "condicion_iva": "CONSUMIDOR_FINAL"
+      },
+      "conceptos": [
+        {
+          "descripcion": "Producto para Anular",
+          "cantidad": 1.0,
+          "precio_unitario": 150.0,
+          "subtotal": 150.0,
+          "tasa_iva": null
+        }
+      ],
+      "emisor_cuit": "30718331680"
+    },
+    "status": "SUCCESS",
+    "result": {
+      "estado": "EXITOSO",
+      "resultado": "A",
+      "cae": "75510111879397",
+      "vencimiento_cae": "20260102",
+      "numero_comprobante": 344,
+      "punto_venta": "3",
+      "tipo_comprobante": 6,
+      "fecha_comprobante": "2025-12-23T18:54:10.460400",
+      "importe_total": 150.0,
+      "cuit_emisor": 30718331680,
+      "debug_cuit_usado": "30718331680",
+      "debug_fuente_credenciales": "boveda",
+      "tipo_doc_receptor": 99,
+      "nro_doc_receptor": 0,
+      "tipo_documento": 99,
+      "documento": "0",
+      "tipo_afip": 6,
+      "total": 150.0,
+      "neto": 123.97,
+      "iva": 26.03,
+      "id_condicion_iva": 5,
+      "qr_code": "data:image/png;base64,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"
+    },
+    "db_save_status": "SUCCESS",
+    "factura_id": 352,
+    "sheets_update_status": "FAILED"
+  }
+]

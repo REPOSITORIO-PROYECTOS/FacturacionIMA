@@ -198,47 +198,23 @@ async def anular_afip(factura_id: int, body: AnularAfipPayload | None = None) ->
             "asociado_fecha_comprobante": str(row.fecha_comprobante),
         }
         # Resolver credenciales del emisor (multi-tenant)
-        credenciales: Dict[str, Any] | None = None
-        try:
-            # 1) Intentar desde tabla AfipCredencial
-            from sqlmodel import select
-            from backend.modelos import AfipCredencial
-            cred = db.exec(select(AfipCredencial).where(AfipCredencial.cuit == str(row.cuit_emisor))).first()
-            if cred and cred.certificado_pem and cred.clave_privada_pem:
-                credenciales = {
-                    "cuit": str(row.cuit_emisor),
-                    "certificado": cred.certificado_pem,
-                    "clave_privada": cred.clave_privada_pem,
-                }
-            if not credenciales:
-                # 2) Intentar desde ConfiguracionEmpresa en campos encriptados (asumimos almacenados como texto PEM)
-                from backend.modelos import Empresa, ConfiguracionEmpresa
-                empresa = db.exec(select(Empresa).where(Empresa.cuit == str(row.cuit_emisor))).first()
-                if empresa:
-                    conf = db.exec(select(ConfiguracionEmpresa).where(ConfiguracionEmpresa.id_empresa == empresa.id)).first()
-                    if conf and conf.afip_certificado_encrypted and conf.afip_clave_privada_encrypted:
-                        credenciales = {
-                            "cuit": str(row.cuit_emisor),
-                            "certificado": conf.afip_certificado_encrypted,
-                            "clave_privada": conf.afip_clave_privada_encrypted,
-                        }
-            if not credenciales:
-                # 3) Intentar desde bóveda temporal en disco
-                import os, json
-                boveda_path = os.path.join(os.path.dirname(__file__), '..', '..', '..', 'boveda_afip_temporal')
-                emisor_file = os.path.join(boveda_path, f'emisor_{str(row.cuit_emisor).strip()}.json')
-                if os.path.exists(emisor_file):
-                    with open(emisor_file, 'r', encoding='utf-8') as f:
-                        d = json.load(f)
-                        cert = d.get('certificado') or d.get('cert')
-                        key = d.get('clave_privada') or d.get('key')
-                        if cert and key:
-                            credenciales = {"cuit": str(row.cuit_emisor), "certificado": cert, "clave_privada": key}
-        except Exception as e:
-            logger.error(f"Error resolviendo credenciales del emisor: {e}", exc_info=True)
-            credenciales = None
-        if not credenciales:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Credenciales AFIP no disponibles para el CUIT emisor")
+        from backend.utils.afipTools import _resolve_afip_credentials, _sanitize_pem
+        
+        cuit_res, cert_res, key_res, fuente = _resolve_afip_credentials(str(row.cuit_emisor))
+        
+        if not (cuit_res and cert_res and key_res):
+             # Fallback: si no devolvió nada, intentar sin CUIT específico si se permite (aunque para NC debería ser el mismo emisor)
+             if not row.cuit_emisor:
+                 cuit_res, cert_res, key_res, fuente = _resolve_afip_credentials(None)
+        
+        if not (cuit_res and cert_res and key_res):
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Credenciales AFIP no disponibles para el CUIT emisor {row.cuit_emisor}")
+
+        credenciales = {
+            "cuit": str(cuit_res),
+            "certificado": _sanitize_pem(cert_res, 'cert'),
+            "clave_privada": _sanitize_pem(key_res, 'key'),
+        }
         payload_nc = {"credenciales": credenciales, "datos_factura": datos_factura}
         try:
             import os, requests
