@@ -159,12 +159,32 @@ export default function DashboardPage() {
   // Filtrado de listas de resumen
   const [filtroFacturadas, setFiltroFacturadas] = useState("");
   const [filtroNoFacturadas, setFiltroNoFacturadas] = useState("");
-  const { boletasFacturadas, boletasNoFacturadas, loading: storeLoading, reload } = useBoletas();
+  const { boletasFacturadas, boletasNoFacturadas, loading: storeLoading, reload, filters, setFilters } = useBoletas();
   const [cargando, setCargando] = useState(false);
   const [mostrarTodasFacturadas, setMostrarTodasFacturadas] = useState(false);
   const [mostrarTodasNoFacturadas, setMostrarTodasNoFacturadas] = useState(false);
   // Modal de detalle de boleta
   const [boletaDetalle, setBoletaDetalle] = useState<Boleta | null>(null);
+  const [sincronizando, setSincronizando] = useState(false);
+
+  const handleSincronizar = async () => {
+    if (!token) return;
+    setSincronizando(true);
+    try {
+      const res = await fetch('/api/sheets/sincronizar', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (!res.ok) throw new Error('Error al sincronizar');
+      const data = await res.json();
+      toast.success('Sincronización completada', `Total: ${data.total_boletas} boletas`);
+      reload();
+    } catch (e) {
+      toast.error('Falló la sincronización');
+    } finally {
+      setSincronizando(false);
+    }
+  };
 
   // --- Filtros globales (incluye búsqueda por quien registró la operación) ---
   const aplicaFiltrosGlobales = useCallback((b: Boleta): boolean => {
@@ -177,24 +197,17 @@ export default function DashboardPage() {
       if (!rs.includes(filtroRazonSocial.toLowerCase())) return false;
     }
 
-    // Búsqueda general: incluye cliente, CUIT/DNI, repartidor, tipo de pago,
-    // número de comprobante y QUIEN REGISTRÓ (operador/usuario/cajero)
+    // Búsqueda general
     if (busqueda) {
       const v = (key: string) => String((b as Record<string, unknown>)[key] ?? "").toLowerCase();
       const texto = busqueda.toLowerCase();
 
       const campos: string[] = [
-        // Cliente / razón social
         "cliente", "nombre", "Razon Social",
-        // Identificación
         "cuit", "CUIT", "dni",
-        // Repartidor
         "Repartidor", "repartidor", "Nombre de Repartidor", "nombre_repartidor",
-        // Tipo de pago
         "Tipo Pago", "tipo_pago",
-        // Comprobante
         "Nro Comprobante", "Comprobante", "NroComp",
-        // QUIEN REGISTRÓ / OPERADOR
         "Registrado por", "Registrado Por", "registrado por", "registrado_por",
         "Usuario", "usuario", "Operador", "operador", "Cajero", "cajero",
       ];
@@ -203,32 +216,22 @@ export default function DashboardPage() {
       if (!coincide) return false;
     }
 
-    // Filtro por fecha (si se estableció)
-    const normalizaFecha = (texto: string): string | null => {
-      if (!texto) return null;
-      const t = texto.trim();
-      // Quitar hora si existe
-      const base = t.split(" ")[0].split("T")[0];
-      if (/^\d{4}-\d{2}-\d{2}$/.test(base)) return base; // YYYY-MM-DD
-      if (/^\d{2}\/\d{2}\/\d{4}$/.test(base)) {
-        const [dd, mm, yyyy] = base.split("/");
-        return `${yyyy}-${mm}-${dd}`;
-      }
-      if (/^\d{4}\/\d{2}\/\d{2}$/.test(base)) {
-        const [yyyy, mm, dd] = base.split("/");
-        return `${yyyy}-${mm}-${dd}`;
-      }
-      return null;
-    };
-    if (fechaDesde || fechaHasta) {
-      const fechaRaw = String((b as Record<string, unknown>)["Fecha"] || (b as Record<string, unknown>)["fecha"] || "");
-      const f = normalizaFecha(fechaRaw);
-      if (!f) return false;
-      if (fechaDesde && f < fechaDesde) return false;
-      if (fechaHasta && f > fechaHasta) return false;
-    }
+    // Nota: El filtro por fecha ya lo hace el backend, no necesitamos filtrar de nuevo aquí
+    // salvo que queramos refinar sobre lo traído. Por eficiencia, confiamos en el backend.
+
     return true;
-  }, [busqueda, filtroRazonSocial, soloFacturables, isFacturable, fechaDesde, fechaHasta]);
+  }, [busqueda, filtroRazonSocial, soloFacturables, isFacturable]);
+
+  // Manejadores de fecha conectados al Store
+  const handleFechaChange = (tipo: 'desde' | 'hasta', valor: string) => {
+    if (tipo === 'desde') {
+      setFechaDesde(valor);
+      setFilters({ ...filters, fechaDesde: valor });
+    } else {
+      setFechaHasta(valor);
+      setFilters({ ...filters, fechaHasta: valor });
+    }
+  };
 
   // Variante para listas rápidas: ignora "solo facturables", pero respeta búsqueda y razón social
   const aplicaFiltrosParaListas = useCallback((b: Boleta): boolean => {
@@ -251,31 +254,9 @@ export default function DashboardPage() {
       const coincide = campos.some((k) => v(k).includes(texto));
       if (!coincide) return false;
     }
-    // Aplicar también filtro por fecha a las listas rápidas
-    const normalizaFecha = (texto: string): string | null => {
-      if (!texto) return null;
-      const t = texto.trim();
-      const base = t.split(" ")[0].split("T")[0];
-      if (/^\d{4}-\d{2}-\d{2}$/.test(base)) return base;
-      if (/^\d{2}\/\d{2}\/\d{4}$/.test(base)) {
-        const [dd, mm, yyyy] = base.split("/");
-        return `${yyyy}-${mm}-${dd}`;
-      }
-      if (/^\d{4}\/\d{2}\/\d{2}$/.test(base)) {
-        const [yyyy, mm, dd] = base.split("/");
-        return `${yyyy}-${mm}-${dd}`;
-      }
-      return null;
-    };
-    if (fechaDesde || fechaHasta) {
-      const fechaRaw = String((b as Record<string, unknown>)["Fecha"] || (b as Record<string, unknown>)["fecha"] || "");
-      const f = normalizaFecha(fechaRaw);
-      if (!f) return false;
-      if (fechaDesde && f < fechaDesde) return false;
-      if (fechaHasta && f > fechaHasta) return false;
-    }
+    // Backend se encarga de fechas
     return true;
-  }, [busqueda, filtroRazonSocial, fechaDesde, fechaHasta]);
+  }, [busqueda, filtroRazonSocial]);
 
   // Aplicar filtros globales previos a los específicos de cada tarjeta
   const boletasFacturadasGlobal = useMemo(
@@ -387,19 +368,30 @@ export default function DashboardPage() {
       <div className="flex-1 flex flex-col">
         <header className="bg-white border-b p-4 flex justify-between items-center">
           <h1 className="text-xl font-bold text-blue-700">Dashboard</h1>
-          <div className="flex flex-col items-end gap-2 text-sm">
-            {/* Advertencia si falta token o user_info */}
-            {(!token || !userInfo) && (
-              <div className="bg-red-100 text-red-700 px-3 py-1 rounded text-xs font-semibold">
-                ⚠️ No se detecta token o user_info en localStorage. Revisa el login.
-              </div>
-            )}
-            {/* Mostrar solo si el usuario es admin, y mostrar mensaje si no hay userInfo */}
-            {userInfo?.role === "Admin" ? (
-              <Link className="text-blue-600 font-semibold" href="/usuarios">Ir a Usuarios</Link>
-            ) : (
-              <span className="text-gray-400 text-xs">No eres admin</span>
-            )}
+          <div className="flex items-center gap-4">
+            <button
+              onClick={handleSincronizar}
+              disabled={sincronizando}
+              className={`px-3 py-1 rounded text-sm font-semibold flex items-center gap-2 ${sincronizando ? 'bg-gray-200 text-gray-500' : 'bg-blue-50 text-blue-700 hover:bg-blue-100'}`}
+              title="Sincronizar con Google Sheets"
+            >
+              {sincronizando ? <LoadingSpinner size="sm" /> : '🔄'}
+              {sincronizando ? 'Sincronizando...' : 'Sincronizar'}
+            </button>
+            <div className="flex flex-col items-end gap-2 text-sm">
+              {/* Advertencia si falta token o user_info */}
+              {(!token || !userInfo) && (
+                <div className="bg-red-100 text-red-700 px-3 py-1 rounded text-xs font-semibold">
+                  ⚠️ No se detecta token o user_info en localStorage. Revisa el login.
+                </div>
+              )}
+              {/* Mostrar solo si el usuario es admin, y mostrar mensaje si no hay userInfo */}
+              {userInfo?.role === "Admin" ? (
+                <Link className="text-blue-600 font-semibold" href="/usuarios">Ir a Usuarios</Link>
+              ) : (
+                <span className="text-gray-400 text-xs">No eres admin</span>
+              )}
+            </div>
           </div>
         </header>
 
@@ -654,7 +646,7 @@ export default function DashboardPage() {
                 type="date"
                 className="w-full border rounded px-3 py-2"
                 value={fechaDesde}
-                onChange={(e) => setFechaDesde(e.target.value)}
+                onChange={(e) => handleFechaChange('desde', e.target.value)}
                 title="Seleccionar fecha desde"
                 placeholder="Fecha desde"
               />
@@ -665,7 +657,7 @@ export default function DashboardPage() {
                 type="date"
                 className="w-full border rounded px-3 py-2"
                 value={fechaHasta}
-                onChange={(e) => setFechaHasta(e.target.value)}
+                onChange={(e) => handleFechaChange('hasta', e.target.value)}
                 title="Seleccionar fecha hasta"
                 placeholder="Fecha hasta"
               />
@@ -704,6 +696,7 @@ export default function DashboardPage() {
                 onClick={() => {
                   const today = new Date().toISOString().split('T')[0];
                   setFechaDesde(today); setFechaHasta(today); _setFechasInicializadas(true);
+                  setFilters({ ...filters, fechaDesde: today, fechaHasta: today });
                 }}
                 title="Hoy"
               >Hoy</button>
@@ -714,13 +707,17 @@ export default function DashboardPage() {
                   const d = new Date(); d.setDate(d.getDate() - 1);
                   const y = d.toISOString().split('T')[0];
                   setFechaDesde(y); setFechaHasta(y); _setFechasInicializadas(true);
+                  setFilters({ ...filters, fechaDesde: y, fechaHasta: y });
                 }}
                 title="Ayer"
               >Ayer</button>
               <button
                 type="button"
                 className="px-2 py-1 text-xs rounded border hover:bg-gray-50"
-                onClick={() => { setFechaDesde(""); setFechaHasta(""); }}
+                onClick={() => {
+                  setFechaDesde(""); setFechaHasta("");
+                  setFilters({ ...filters, fechaDesde: undefined, fechaHasta: undefined });
+                }}
                 title="Limpiar fecha"
               >Borrar</button>
             </div>

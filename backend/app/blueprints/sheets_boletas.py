@@ -1,206 +1,230 @@
-"""
-Endpoint para cargar boletas directamente desde Google Sheets.
-Ya no depende de gestion_ima_db - todo desde Sheets.
-"""
-from fastapi import APIRouter, Depends, HTTPException, Query
-from fastapi.responses import JSONResponse
-from datetime import datetime
+from fastapi import APIRouter, Depends, HTTPException, Query, BackgroundTasks
+from datetime import datetime, date
 import time
 import os
+import json
 import logging
+import asyncio
 from typing import Dict, Any, List, Optional
 
+from sqlmodel import select, desc
+from backend.database import get_db, SessionLocal
 from backend.security import obtener_usuario_actual
-from backend.modelos import Usuario
+from backend.modelos import Usuario, IngresoSheets
 from backend.utils.tablasHandler import TablasHandler
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/sheets", tags=["sheets"])
 
-# Cache simple en memoria
-_last_cache: dict = {"ts": 0, "tipo": None, "items": []}
-CACHE_TTL_SEC = int(os.getenv('SHEETS_CACHE_TTL_SEC', '60'))  # Reducido a 60s para mayor frescura
+# Tiempo mínimo entre sincronizaciones automáticas en background (para no saturar Sheets)
+# Aumentado a 5 minutos para evitar error 429 (Quota Exceeded) de Google API
+SYNC_COOLDOWN_SEC = 300
+
+def _parse_fecha_key(raw: str) -> date | None:
+    t = str(raw or '').strip()
+    if not t: return None
+    try:
+        # ISO YYYY-MM-DD
+        if '-' in t:
+            return datetime.strptime(t.split('T')[0], '%Y-%m-%d').date()
+        # DD/MM/YYYY
+        if '/' in t:
+            return datetime.strptime(t.split(' ')[0], '%d/%m/%Y').date()
+    except Exception:
+        pass
+    return None
+
+def _sync_sheets_to_db():
+    """
+    Función síncrona que descarga de Sheets y actualiza la tabla SQL 'ingresos_sheets'.
+    Se ejecuta en background thread.
+    """
+    logger.info("🔄 DB-Sync: Iniciando descarga desde Sheets...")
+    try:
+        sheets_handler = TablasHandler()
+        try:
+            boletas = sheets_handler.cargar_ingresos() or []
+        except Exception as e:
+            if "429" in str(e) or "Quota exceeded" in str(e):
+                logger.warning(f"⚠️ Google API Quota Exceeded (429). Saltando sincronización por ahora. Datos locales intactos.")
+                return
+            raise e
+        
+        if not boletas:
+            logger.warning("⚠️ DB-Sync: Lista vacía desde Sheets (posible error silencioso o sheet vacío). No se actualiza DB.")
+            return
+
+        db = SessionLocal()
+        try:
+            count_new = 0
+            count_updated = 0
+            
+            # Estrategia: Upsert (Insert or Update)
+            # Como SQLModel no tiene upsert nativo portable, lo hacemos manualmente optimizado.
+            # 1. Obtener IDs existentes para saber qué hacer
+            existing_ids = {i.id_ingreso for i in db.exec(select(IngresoSheets.id_ingreso)).all()}
+            
+            for b in boletas:
+                id_ingreso = str(b.get('ID Ingresos') or b.get('id_ingreso') or b.get('id', '')).strip()
+                if not id_ingreso: continue
+                
+                fecha_val = _parse_fecha_key(b.get('Fecha') or b.get('fecha') or b.get('FECHA'))
+                facturacion_val = str(b.get('facturacion') or b.get('Facturacion', '')).strip()
+                data_json_val = json.dumps(b, ensure_ascii=False)
+                
+                if id_ingreso in existing_ids:
+                    # Update
+                    # Optimizacion: Solo actualizar si cambió algo crítico o el JSON
+                    # Para simplificar, actualizamos.
+                    statement = select(IngresoSheets).where(IngresoSheets.id_ingreso == id_ingreso)
+                    obj = db.exec(statement).first()
+                    if obj:
+                        obj.fecha = fecha_val
+                        obj.facturacion = facturacion_val
+                        obj.data_json = data_json_val
+                        obj.last_synced_at = datetime.utcnow()
+                        db.add(obj)
+                        count_updated += 1
+                else:
+                    # Insert
+                    new_obj = IngresoSheets(
+                        id_ingreso=id_ingreso,
+                        fecha=fecha_val,
+                        facturacion=facturacion_val,
+                        data_json=data_json_val,
+                        last_synced_at=datetime.utcnow()
+                    )
+                    db.add(new_obj)
+                    existing_ids.add(id_ingreso)
+                    count_new += 1
+            
+            db.commit()
+            logger.info(f"✅ DB-Sync: Completado. Nuevos: {count_new}, Actualizados: {count_updated}")
+            
+        except Exception as e:
+            db.rollback()
+            logger.error(f"❌ DB-Sync Error insertando en BD: {e}")
+        finally:
+            db.close()
+            
+    except Exception as e:
+        logger.error(f"❌ DB-Sync Error general: {e}")
+
+async def refresh_sheets_data_background():
+    """Wrapper async para correr en background task"""
+    loop = asyncio.get_event_loop()
+    await loop.run_in_executor(None, _sync_sheets_to_db)
 
 @router.get("/boletas")
-async def obtener_boletas_desde_sheets(
+async def obtener_boletas_desde_db(
+    background_tasks: BackgroundTasks,
+    db = Depends(get_db),
     usuario: Usuario = Depends(obtener_usuario_actual),
     tipo: Optional[str] = Query(None, description="Filtro: 'no-facturadas', 'facturadas', o None para todas"),
     limit: Optional[int] = Query(300, description="Límite de registros"),
-    nocache: Optional[int] = Query(None, description="1 para forzar recarga"),
+    nocache: Optional[int] = Query(None, description="1 para forzar recarga síncrona"),
     fecha_desde: Optional[str] = Query(None, description="YYYY-MM-DD"),
     fecha_hasta: Optional[str] = Query(None, description="YYYY-MM-DD")
 ) -> List[Dict[str, Any]]:
     """
-    Obtiene todas las boletas directamente desde Google Sheets.
-    Soporta caché y filtrado robusto.
+    Obtiene boletas directamente desde la Base de Datos (espejo de Sheets).
+    Dispara sincronización en background si es necesario.
     """
-    global _last_cache
     
-    # Lógica de Caché
-    now = int(time.time())
-    use_cache = (nocache != 1) and (_last_cache["tipo"] == tipo) and (now - _last_cache["ts"] < CACHE_TTL_SEC)
+    # 1. Verificar frescura de los datos
+    last_sync = db.exec(select(IngresoSheets.last_synced_at).order_by(desc(IngresoSheets.last_synced_at)).limit(1)).first()
+    should_refresh = False
     
-    if use_cache and _last_cache["items"]:
-        logger.info(f"⚡ Sirviendo {len(_last_cache['items'])[:limit]} boletas desde caché (tipo={tipo})")
-        return _last_cache["items"][:limit]
-
-    try:
-        sheets_handler = TablasHandler()
-        
-        # Cargar todos los ingresos desde el Sheet
-        logger.info(f"📊 Cargando boletas desde Google Sheets (tipo={tipo}, limit={limit})...")
-        boletas = sheets_handler.cargar_ingresos()
-        
-        if not boletas:
-            logger.warning("⚠️ No se encontraron boletas en Google Sheets")
-            return []
-        
-        logger.info(f"✅ Boletas cargadas desde Sheets: {len(boletas)}")
-        
-        # Helper para normalizar el estado de facturación
-        def _normalizar_estado(b: Dict[str, Any]) -> str:
-            val = str(b.get('facturacion', '') or b.get('Facturacion', '')).strip().lower()
-            return val
-
-        # 1. Filtrar registros vacíos (sin información útil de estado)
-        # Se omiten aquellos donde el estado sea vacío/None
-        boletas_antes_vacias = len(boletas)
-        boletas = [
-            b for b in boletas
-            if _normalizar_estado(b) != ''
-        ]
-        logger.info(f"🧹 Filtro de vacíos: {boletas_antes_vacias} → {len(boletas)} boletas (se eliminaron registros sin estado)")
-
-        # Filtrar según el tipo solicitado
-        if tipo == "no-facturadas":
-            boletas_antes = len(boletas)
-            # Solo mostrar: "Falta Facturar" (o variantes similares que indiquen pendiente)
-            # Excluir explícitamente: "Facturado", "Anulada", "No falta facturar"
-            # Nota: Como ya filtramos los vacíos arriba, aquí nos queda lo que tiene texto.
-            boletas = [
-                b for b in boletas
-                if _normalizar_estado(b) in ['falta facturar', 'pendiente', 'falta'] 
-                or (_normalizar_estado(b) not in ['facturado', 'facturada', 'si', 'sí', 'yes', 'true', 'anulada', 'anulado', 'no falta facturar', 'no falta'])
-            ]
-            logger.info(f"🔍 Filtro 'no-facturadas': {boletas_antes} → {len(boletas)} boletas")
+    if not last_sync:
+        should_refresh = True # Nunca se sincronizó
+    else:
+        delta = datetime.utcnow() - last_sync
+        if delta.total_seconds() > SYNC_COOLDOWN_SEC:
+            should_refresh = True
             
-        elif tipo == "facturadas":
-            boletas_antes = len(boletas)
-            # Incluye Facturado y Anulada
-            # Excluye "Falta facturar", "No falta facturar"
-            boletas = [
-                b for b in boletas
-                if _normalizar_estado(b) in ['facturado', 'facturada', 'si', 'sí', 'yes', 'true', 'anulada', 'anulado']
-            ]
-            logger.info(f"🔍 Filtro 'facturadas': {boletas_antes} → {len(boletas)} boletas")
-
-        # Nota: Si tipo es None (todas), se mostrarán "Falta facturar", "Facturado" y "No falta facturar".
-        # Los vacíos ya fueron eliminados al inicio.
-
-
-        # Helper para parsear fechas
-        def _parse_fecha_key(raw: str) -> int:
-            t = str(raw or '').strip()
-            # Intentar formato ISO YYYY-MM-DD
-            if '-' in t:
-                parts = t.split(' ')[0].split('-')
-                if len(parts) == 3:
-                    try:
-                        return int(parts[0]) * 10000 + int(parts[1]) * 100 + int(parts[2])
-                    except: pass
-            # Intentar formato DD/MM/YYYY
-            if '/' in t:
-                parts = t.split(' ')[0].split('/')
-                if len(parts) == 3:
-                    try:
-                        y = int(parts[2])
-                        if y < 100: y += 2000
-                        return y * 10000 + int(parts[1]) * 100 + int(parts[0])
-                    except: pass
-            return 0
-
-        # Filtro por fechas
-        if fecha_desde or fecha_hasta:
-            desde_key = int(fecha_desde.replace('-', '')) if fecha_desde else 0
-            hasta_key = int(fecha_hasta.replace('-', '')) if fecha_hasta else 99999999
+    if nocache == 1:
+        # Forzar sincronización bloqueante ahora
+        logger.info("⏳ Forzando sincronización síncrona (nocache=1)")
+        _sync_sheets_to_db()
+    elif should_refresh:
+        # Disparar background task
+        logger.info("🕒 Datos antiguos, disparando sync en background")
+        background_tasks.add_task(refresh_sheets_data_background)
+        
+    # 2. Construir Query SQL
+    query = select(IngresoSheets)
+    
+    # Filtro 1: No vacíos
+    query = query.where(IngresoSheets.facturacion != "")
+    
+    # Filtro 2: Tipo
+    if tipo == "no-facturadas":
+        # Pendientes: No es Facturado, No es Anulada, No es 'No falta facturar'
+        # Usamos NOT IN para simplificar
+        query = query.where(IngresoSheets.facturacion.notin_(['Facturado', 'Facturada', 'Anulada', 'Anulado', 'No falta facturar', 'No falta']))
+    elif tipo == "facturadas":
+        query = query.where(IngresoSheets.facturacion.in_(['Facturado', 'Facturada', 'Anulada', 'Anulado']))
+        
+    # Filtro 3: Fechas
+    if fecha_desde:
+        try:
+            d_desde = datetime.strptime(fecha_desde, '%Y-%m-%d').date()
+            query = query.where(IngresoSheets.fecha >= d_desde)
+        except: pass
+        
+    if fecha_hasta:
+        try:
+            d_hasta = datetime.strptime(fecha_hasta, '%Y-%m-%d').date()
+            query = query.where(IngresoSheets.fecha <= d_hasta)
+        except: pass
+        
+    # Ordenar y Limitar
+    query = query.order_by(desc(IngresoSheets.fecha))
+    if limit:
+        query = query.limit(limit)
+        
+    # Ejecutar
+    results = db.exec(query).all()
+    
+    # Serializar respuesta
+    # Desempaquetamos el JSON guardado pero sobreescribimos con los valores frescos de las columnas si fuera necesario
+    response = []
+    for r in results:
+        try:
+            item = json.loads(r.data_json)
+            # Asegurar que el ID sea el correcto
+            item['ID Ingresos'] = r.id_ingreso
+            # Normalizar campos clave para el front (retrocompatibilidad)
+            # (Esto ya viene en el JSON, pero reforzamos)
+            response.append(item)
+        except:
+            continue
             
-            antes = len(boletas)
-            boletas = [
-                b for b in boletas
-                if desde_key <= _parse_fecha_key(str(b.get('Fecha') or b.get('fecha') or b.get('FECHA') or '')) <= hasta_key
-            ]
-            logger.info(f"📆 Filtro por fecha: {antes} → {len(boletas)} boletas")
-
-        # Ordenar por fecha descendente (más recientes primero)
-        boletas.sort(key=lambda b: _parse_fecha_key(str(b.get('Fecha') or b.get('fecha') or b.get('FECHA') or '')), reverse=True)
-        
-        # Actualizar caché con TODOS los resultados filtrados (sin límite aplicado aún para reuso)
-        # Nota: El caché es por 'tipo'. Si se filtra por fecha, el caché podría ser incorrecto si se pide otro rango.
-        # Para seguridad, solo cacheamos si NO hay filtro de fecha.
-        if not fecha_desde and not fecha_hasta:
-            _last_cache["ts"] = int(time.time())
-            _last_cache["tipo"] = tipo
-            _last_cache["items"] = boletas
-        
-        # Aplicar límite para respuesta
-        if limit and limit > 0:
-            boletas = boletas[:limit]
-            logger.info(f"📏 Límite aplicado: mostrando {len(boletas)} boletas")
-        
-        logger.info(f"🎯 Retornando {len(boletas)} boletas al frontend")
-        
-        # Normalizar campos para el frontend
-        boletas_normalizadas = []
-        for b in boletas:
-            boleta_norm = {
-                'ID Ingresos': b.get('ID Ingresos') or b.get('id_ingreso') or b.get('id', ''),
-                'Fecha': b.get('Fecha') or b.get('fecha', ''),
-                'Repartidor': b.get('Repartidor') or b.get('repartidor', ''),
-                'Razon Social': b.get('Razon Social') or b.get('razon_social', ''),
-                'CUIT': b.get('CUIT') or b.get('cuit', ''),
-                'INGRESOS': b.get('INGRESOS') or b.get('total') or b.get('Total a Pagar', 0),
-                'Tipo Pago': b.get('Tipo Pago') or b.get('medio_pago', 'Efectivo'),
-                'facturacion': b.get('facturacion') or b.get('Facturacion', ''),
-                'Domicilio': b.get('Domicilio') or b.get('domicilio', ''),
-                'condicion_iva': b.get('condicion_iva') or b.get('condicion-iva', 'CONSUMIDOR_FINAL'),
-                # Incluir todos los demás campos originales
-                **b
-            }
-            boletas_normalizadas.append(boleta_norm)
-        
-        return boletas_normalizadas
-        
-    except Exception as e:
-        logger.error(f"Error obteniendo boletas desde Sheets: {e}", exc_info=True)
-        # En caso de error, devolver lista vacía para no romper el frontend, pero loguear fuerte
-        return []
+    return response
 
 @router.post("/sincronizar")
 async def sincronizar_boletas(
     usuario: Usuario = Depends(obtener_usuario_actual)
 ) -> Dict[str, Any]:
     """
-    Fuerza una re-sincronización de boletas desde Google Sheets.
-    Invalida el caché.
+    Fuerza actualización síncrona DB <-> Sheets.
     """
-    global _last_cache
     try:
-        # Invalidar caché
-        _last_cache = {"ts": 0, "tipo": None, "items": []}
+        # Ejecutar sync en el hilo principal (bloqueante pero seguro)
+        _sync_sheets_to_db()
         
-        sheets_handler = TablasHandler()
-        boletas = sheets_handler.cargar_ingresos()
+        # Contar total
+        db = SessionLocal()
+        total = db.query(IngresoSheets).count()
+        db.close()
         
         return {
             "success": True,
-            "message": "Sincronización exitosa",
-            "total_boletas": len(boletas),
-            "timestamp": str(logging.time)
+            "message": "Sincronización exitosa con Base de Datos",
+            "total_boletas": total,
+            "timestamp": str(datetime.now())
         }
     except Exception as e:
         logger.error(f"Error en sincronización: {e}", exc_info=True)
-        raise HTTPException(
-            status_code=500,
-            detail=f"Error sincronizando: {str(e)}"
-        )
+        raise HTTPException(status_code=500, detail=f"Error sincronizando: {str(e)}")

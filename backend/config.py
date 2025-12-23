@@ -125,6 +125,20 @@ if not CREDENTIALS_FILE_PATH.exists():
         raise FileNotFoundError(msg + " (Establece DEV_MODE=1 para no abortar en desarrollo).")
 # ===== FIN DE LA MODIFICACIÓN =====
 
+# Construir la URL de SQLAlchemy
+DATABASE_URL = ""
+if DB_HOST and DB_USER and DB_NAME:
+    # Usar mysql+pymysql como driver
+    # Si DB_PASSWORD es None o vacío, la URL no debe tener ":None@"
+    pwd_part = f":{DB_PASSWORD}" if DB_PASSWORD else ""
+    DATABASE_URL = f"mysql+pymysql://{DB_USER}{pwd_part}@{DB_HOST}:3306/{DB_NAME}"
+elif os.getenv("SQLITE_DB_PATH"):
+    # Fallback a SQLite si se prefiere en dev
+    DATABASE_URL = f"sqlite:///{os.getenv('SQLITE_DB_PATH')}"
+else:
+    # Fallback seguro para que no rompa importaciones si no hay DB configurada
+    DATABASE_URL = "sqlite:///:memory:"
+
 print(f"DEBUG_CFG: Configuración cargada. Usando GOOGLE_SERVICE_ACCOUNT_FILE='{GOOGLE_SERVICE_ACCOUNT_FILE}'")
 for key in ["DB_HOST", "DB_USER", "DB_PASSWORD", "DB_NAME"]:
     print(f"{key} = {os.getenv(key)}")

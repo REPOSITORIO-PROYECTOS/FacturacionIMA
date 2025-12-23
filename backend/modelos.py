@@ -470,3 +470,26 @@ class AfipEmisorEmpresa(SQLModel, table=True):
         default_factory=datetime.utcnow,
         sa_column=Column(TIMESTAMP, server_default=func.now(), onupdate=func.now())
     )
+
+class IngresoSheets(SQLModel, table=True):
+    """
+    Espejo local de las boletas de Google Sheets para caché persistente y consultas rápidas.
+    Se actualiza mediante sincronización (background o manual).
+    """
+    __tablename__ = "ingresos_sheets"
+    
+    id: Optional[int] = Field(default=None, primary_key=True)
+    id_ingreso: str = Field(index=True, unique=True, description="ID único en Google Sheets (ID Ingresos)")
+    
+    # Campos core para filtrado y ordenamiento
+    fecha: Optional[date] = Field(sa_column=Column(Date, index=True))
+    facturacion: str = Field(index=True, default="", description="Estado de facturación (Falta Facturar, Facturado, etc)")
+    
+    # Datos adicionales (serializados o columnas individuales según necesidad de búsqueda)
+    # Para simplicidad y flexibilidad, guardamos todo el objeto JSON crudo, pero extraemos lo vital.
+    data_json: str = Field(sa_column=Column(Text), description="JSON completo de la fila de Sheets")
+    
+    # Metadatos de sincronización
+    last_synced_at: datetime = Field(default_factory=datetime.utcnow)
+
+
