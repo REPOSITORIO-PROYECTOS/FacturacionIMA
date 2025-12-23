@@ -214,13 +214,15 @@ export default function BoletasNoFacturadasPage() {
     // La carga de boletas ahora la gestiona el BoletasStore (carga inicial + polling cada 60s)
 
     // El store hace polling periódicamente; eliminamos el intervalo local
-
+    // Mantenemos la selección entre recargas para evitar que se pierda al actualizarse la lista
+    /* 
     useEffect(() => {
         // reset selection when items change
         const map: Record<string, boolean> = {};
         items.forEach((b) => { const id = String((b as Record<string, unknown>)['ID Ingresos'] || b.id || ''); if (id) { map[id] = false; } });
         setSelectedIds(map);
     }, [items]);
+    */
 
     // user role not needed in this view
 
@@ -356,6 +358,12 @@ export default function BoletasNoFacturadasPage() {
         if (!token) { showError('No autenticado'); return; }
         const ids = Object.keys(selectedIds).filter(k => selectedIds[k]);
         if (ids.length === 0) { showWarning('No hay boletas seleccionadas'); return; }
+        
+        // Validar límite de 5 boletas
+        if (ids.length > 5) {
+            showError(`Límite excedido: Seleccionaste ${ids.length} boletas. El máximo permitido es 5 por operación.`);
+            return;
+        }
 
         // Confirmar acción
         if (!confirm(`¿Facturar ${ids.length} boleta(s) seleccionada(s)?`)) return;

@@ -50,8 +50,15 @@ async def create_batch_invoices(
     max_parallel_workers: int = 5 # Permite al cliente especificar el número de workers, con un default
 ) -> List[Dict[str, Any]]:
     """
-    Endpoint para procesar facturas en lote.
+    endpoint para procesar facturas en lote.
     """
+    # Validar límite de 5 boletas
+    if len(invoices) > 5:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, 
+            detail="Se permite facturar máximo 5 boletas por operación."
+        )
+
     logger.info(f"Recibida solicitud POST /bill/batch con {len(invoices)} facturas.")
 
     # Convertir los modelos Pydantic a la lista de diccionarios que espera

@@ -1,0 +1,179 @@
+[
+  {
+    "id": "test_limit_1766521662_0",
+    "original_data": {
+      "id": "test_limit_1766521662_0",
+      "total": 100.0,
+      "cliente_data": {
+        "cuit_o_dni": "0",
+        "nombre_razon_social": "Cliente Test Limit",
+        "domicilio": "Calle Falsa 123",
+        "condicion_iva": "CONSUMIDOR_FINAL"
+      },
+      "conceptos": [
+        {
+          "descripcion": "Item 0",
+          "cantidad": 1.0,
+          "precio_unitario": 100.0,
+          "subtotal": 100.0,
+          "tasa_iva": null
+        }
+      ],
+      "emisor_cuit": "30718331680"
+    },
+    "status": "FAILED",
+    "error": "Error en el servicio de facturación: Status: 500. Body: Error interno del servidor: RuntimeError: AFIP rechazó la factura: 502: Error interno de base de datos -  Autorizador CAE - TransacciÃ³n Activa"
+  },
+  {
+    "id": "test_limit_1766521662_1",
+    "original_data": {
+      "id": "test_limit_1766521662_1",
+      "total": 101.0,
+      "cliente_data": {
+        "cuit_o_dni": "0",
+        "nombre_razon_social": "Cliente Test Limit",
+        "domicilio": "Calle Falsa 123",
+        "condicion_iva": "CONSUMIDOR_FINAL"
+      },
+      "conceptos": [
+        {
+          "descripcion": "Item 1",
+          "cantidad": 1.0,
+          "precio_unitario": 101.0,
+          "subtotal": 101.0,
+          "tasa_iva": null
+        }
+      ],
+      "emisor_cuit": "30718331680"
+    },
+    "status": "SUCCESS",
+    "result": {
+      "estado": "EXITOSO",
+      "resultado": "A",
+      "cae": "75510092460001",
+      "vencimiento_cae": "20260102",
+      "numero_comprobante": 329,
+      "punto_venta": "3",
+      "tipo_comprobante": 6,
+      "fecha_comprobante": "2025-12-23T17:27:43.273036",
+      "importe_total": 101.0,
+      "cuit_emisor": 30718331680,
+      "debug_cuit_usado": "30718331680",
+      "debug_fuente_credenciales": "boveda",
+      "tipo_doc_receptor": 99,
+      "nro_doc_receptor": 0,
+      "tipo_documento": 99,
+      "documento": "0",
+      "tipo_afip": 6,
+      "total": 101.0,
+      "neto": 83.47,
+      "iva": 17.53,
+      "id_condicion_iva": 5,
+      "qr_code": "data:image/png;base64,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"
+    },
+    "db_save_status": "SUCCESS",
+    "factura_id": 337,
+    "sheets_update_status": "FAILED"
+  },
+  {
+    "id": "test_limit_1766521662_4",
+    "original_data": {
+      "id": "test_limit_1766521662_4",
+      "total": 104.0,
+      "cliente_data": {
+        "cuit_o_dni": "0",
+        "nombre_razon_social": "Cliente Test Limit",
+        "domicilio": "Calle Falsa 123",
+        "condicion_iva": "CONSUMIDOR_FINAL"
+      },
+      "conceptos": [
+        {
+          "descripcion": "Item 4",
+          "cantidad": 1.0,
+          "precio_unitario": 104.0,
+          "subtotal": 104.0,
+          "tasa_iva": null
+        }
+      ],
+      "emisor_cuit": "30718331680"
+    },
+    "status": "FAILED",
+    "error": "Error en el servicio de facturación: Status: 500. Body: Error interno del servidor: RuntimeError: AFIP rechazó la factura: 10245: El campo Condicion Frente al IVA del receptor resultara obligatorio conforme lo reglamentado por la Resolucion General Nro 5616. Para mas informacion consular metodo FEParamGetCondicionIvaReceptor. 10016: El numero o fecha del comprobante no se corresponde con el proximo a autorizar. Consultar metodo FECompUltimoAutorizado."
+  },
+  {
+    "id": "test_limit_1766521662_3",
+    "original_data": {
+      "id": "test_limit_1766521662_3",
+      "total": 103.0,
+      "cliente_data": {
+        "cuit_o_dni": "0",
+        "nombre_razon_social": "Cliente Test Limit",
+        "domicilio": "Calle Falsa 123",
+        "condicion_iva": "CONSUMIDOR_FINAL"
+      },
+      "conceptos": [
+        {
+          "descripcion": "Item 3",
+          "cantidad": 1.0,
+          "precio_unitario": 103.0,
+          "subtotal": 103.0,
+          "tasa_iva": null
+        }
+      ],
+      "emisor_cuit": "30718331680"
+    },
+    "status": "FAILED",
+    "error": "Error en el servicio de facturación: Status: 500. Body: Error interno del servidor: RuntimeError: AFIP rechazó la factura: 10245: El campo Condicion Frente al IVA del receptor resultara obligatorio conforme lo reglamentado por la Resolucion General Nro 5616. Para mas informacion consular metodo FEParamGetCondicionIvaReceptor. 10016: El numero o fecha del comprobante no se corresponde con el proximo a autorizar. Consultar metodo FECompUltimoAutorizado."
+  },
+  {
+    "id": "test_limit_1766521662_2",
+    "original_data": {
+      "id": "test_limit_1766521662_2",
+      "total": 102.0,
+      "cliente_data": {
+        "cuit_o_dni": "0",
+        "nombre_razon_social": "Cliente Test Limit",
+        "domicilio": "Calle Falsa 123",
+        "condicion_iva": "CONSUMIDOR_FINAL"
+      },
+      "conceptos": [
+        {
+          "descripcion": "Item 2",
+          "cantidad": 1.0,
+          "precio_unitario": 102.0,
+          "subtotal": 102.0,
+          "tasa_iva": null
+        }
+      ],
+      "emisor_cuit": "30718331680"
+    },
+    "status": "SUCCESS",
+    "result": {
+      "estado": "EXITOSO",
+      "resultado": "A",
+      "cae": "75510092460690",
+      "vencimiento_cae": "20260102",
+      "numero_comprobante": 330,
+      "punto_venta": "3",
+      "tipo_comprobante": 6,
+      "fecha_comprobante": "2025-12-23T17:27:43.423578",
+      "importe_total": 102.0,
+      "cuit_emisor": 30718331680,
+      "debug_cuit_usado": "30718331680",
+      "debug_fuente_credenciales": "boveda",
+      "tipo_doc_receptor": 99,
+      "nro_doc_receptor": 0,
+      "tipo_documento": 99,
+      "documento": "0",
+      "tipo_afip": 6,
+      "total": 102.0,
+      "neto": 84.3,
+      "iva": 17.7,
+      "id_condicion_iva": 5,
+      "qr_code": "data:image/png;base64,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"
+    },
+    "db_save_status": "SUCCESS",
+    "factura_id": 338,
+    "sheets_update_status": "FAILED"
+  }
+]
