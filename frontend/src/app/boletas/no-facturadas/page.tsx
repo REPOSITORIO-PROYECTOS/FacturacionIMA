@@ -358,7 +358,7 @@ export default function BoletasNoFacturadasPage() {
         if (!token) { showError('No autenticado'); return; }
         const ids = Object.keys(selectedIds).filter(k => selectedIds[k]);
         if (ids.length === 0) { showWarning('No hay boletas seleccionadas'); return; }
-        
+
         // Validar límite de 5 boletas
         if (ids.length > 5) {
             showError(`Límite excedido: Seleccionaste ${ids.length} boletas. El máximo permitido es 5 por operación.`);
