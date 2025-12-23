@@ -63,7 +63,8 @@ def _sync_sheets_to_db():
             # Estrategia: Upsert (Insert or Update)
             # Como SQLModel no tiene upsert nativo portable, lo hacemos manualmente optimizado.
             # 1. Obtener IDs existentes para saber qué hacer
-            existing_ids = {i.id_ingreso for i in db.exec(select(IngresoSheets.id_ingreso)).all()}
+            # select(IngresoSheets.id_ingreso) devuelve valores directos (strings), no objetos
+            existing_ids = {i for i in db.exec(select(IngresoSheets.id_ingreso)).all()}
             
             for b in boletas:
                 id_ingreso = str(b.get('ID Ingresos') or b.get('id_ingreso') or b.get('id', '')).strip()

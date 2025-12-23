@@ -106,8 +106,11 @@ export function BoletasProvider({ children }: { children: ReactNode }) {
     };
 
     useEffect(() => {
-        // Cargar filtros iniciales (muestra loading)
-        fetchAll(filters, false);
+        // Cargar filtros iniciales
+        // Si ya tenemos datos, hacemos un fetch silencioso (background) para actualizar
+        // Si no hay datos, mostramos loading
+        const hasData = boletasFacturadas.length > 0 || boletasNoFacturadas.length > 0;
+        fetchAll(filters, hasData);
 
         intervalRef.current = window.setInterval(() => {
             const t = localStorage.getItem("token");
