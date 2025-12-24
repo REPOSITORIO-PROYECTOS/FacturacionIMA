@@ -168,18 +168,20 @@ export default function DashboardPage() {
   const [sincronizando, setSincronizando] = useState(false);
 
   const handleSincronizar = async () => {
+    // Versión 3: Usar Proxy interno de Next.js para garantizar conexión con Backend
     if (!token) return;
     setSincronizando(true);
     try {
-      const res = await fetch('/api/sheets/sincronizar', {
+      const res = await fetch('/api/sync-sheets', {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}` }
       });
       if (!res.ok) throw new Error('Error al sincronizar');
       const data = await res.json();
-      toast.success('Sincronización completada', `Total: ${data.total_boletas} boletas`);
+      toast.success('Sincronización completada', `Total: ${data.total_boletas || '?'} boletas`);
       reload();
     } catch (e) {
+      console.error(e);
       toast.error('Falló la sincronización');
     } finally {
       setSincronizando(false);

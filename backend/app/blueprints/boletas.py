@@ -76,7 +76,34 @@ def _get_handler_for_user(user) -> TablasHandler:
         # Fallback al handler global
         return TablasHandler()
 
-# Endpoint universal para /boletas?tipo=...
+from backend.app.blueprints.sheets_boletas import _sync_sheets_to_db
+
+@router.post("/sincronizar-sheets")
+async def sincronizar_boletas_endpoint(usuario_actual = Depends(obtener_usuario_actual)):
+    """
+    Fuerza actualización síncrona DB <-> Sheets.
+    Endpoint espejo de /sheets/sincronizar para evitar problemas de enrutamiento 404.
+    """
+    try:
+        # Ejecutar sync en el hilo principal (bloqueante pero seguro)
+        _sync_sheets_to_db()
+        
+        # Contar total para devolver feedback
+        from backend.database import SessionLocal
+        from backend.modelos import IngresoSheets
+        db = SessionLocal()
+        total = db.query(IngresoSheets).count()
+        db.close()
+        
+        return {
+            "success": True,
+            "message": "Sincronización exitosa con Base de Datos (vía boletas)",
+            "total_boletas": total,
+            "timestamp": str(datetime.now())
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error sincronizando: {str(e)}")
+
 @router.get("")
 async def obtener_boletas_tipo(request: Request, tipo: Optional[str] = None, skip: int = 0, limit: int = 20, ver_todas: bool = False, usuario_actual = Depends(obtener_usuario_actual)):
     """
