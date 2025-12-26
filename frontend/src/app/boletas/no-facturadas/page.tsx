@@ -16,6 +16,11 @@ interface BoletaRecord {
     'ID Ingresos'?: number | string;
     Repartidor?: string;
     'Nro Comprobante'?: string | number;
+    Fecha?: string;
+    fecha?: string;
+    facturacion?: string;
+    Estado?: string;
+    estado?: string;
     [key: string]: unknown;
 }
 
@@ -47,7 +52,7 @@ export default function BoletasNoFacturadasPage() {
         const token = localStorage.getItem('token');
         if (!token) { showError('No autenticado'); return; }
 
-        const ventaId = String((boleta as Record<string, unknown>)['ID Ingresos'] || boleta.id || '');
+        const ventaId = getStableId(boleta, 0);
 
         // Marcar como en proceso
         setProcessingIds(prev => new Set([...prev, ventaId]));
@@ -66,17 +71,19 @@ export default function BoletasNoFacturadasPage() {
             }
 
             // Obtener conceptos de la venta
-            if (ventaId) {
-                const conceptos = await getVentaConceptos(ventaId, token);
+            // Usamos el ID real de la venta para los conceptos, no el stableId generado
+            const realVentaId = String((boleta as Record<string, unknown>)['ID Ingresos'] || boleta.id || '');
+            if (realVentaId) {
+                const conceptos = await getVentaConceptos(realVentaId, token);
                 if (conceptos.length > 0) {
                     (built as any).conceptos = conceptos;
-                    console.log(`✓ Boleta ${ventaId}: ${conceptos.length} conceptos cargados`);
+                    console.log(`✓ Boleta ${realVentaId}: ${conceptos.length} conceptos cargados`);
                 }
             }
 
             const result = await facturarItems([built as any], token);
             if (!result.ok) {
-                // Si el error es por credenciales AFIP faltantes, mostrar mensaje especial
+                // ... rest of error handling remains same
                 if (result.error && result.error.toLowerCase().includes('no existen credenciales afip')) {
                     showError('No existen credenciales de AFIP para esta empresa. Solicite a un administrador que cargue las credenciales antes de facturar.');
                 } else if (result.error && result.error.toLowerCase().includes('emisor_cuit no especificado')) {
@@ -174,8 +181,12 @@ export default function BoletasNoFacturadasPage() {
                 }
             }
 
-            // ✅ El sistema ya marca automáticamente en Sheets durante la facturación
-            // Ver: sheets_update_status en la respuesta del backend
+            // Si tuvo éxito, limpiar de la selección
+            setSelectedIds(prev => {
+                const next = { ...prev };
+                delete next[ventaId];
+                return next;
+            });
 
             showSuccess(successMsg);
         } catch (error) {
@@ -243,7 +254,7 @@ export default function BoletasNoFacturadasPage() {
 
     // --- Filtrado por fecha robusto ---
     // Acepta formatos comunes: YYYY-MM-DD, DD/MM/YYYY, DD-MM-YYYY, YYYY/MM/DD, DD/MM/YY
-    function parseFechaToKey(raw: string): number | null {
+    function parseFechaToKey(raw: string | null | undefined): number | null {
         if (!raw) return null;
         const t = String(raw).trim();
         const base = t.split(' ')[0].split('T')[0];
@@ -270,54 +281,67 @@ export default function BoletasNoFacturadasPage() {
         return (yyyy * 10000) + (mm * 100) + dd; // clave comparable
     }
 
-    const desdeKey = fechaDesde ? parseFechaToKey(fechaDesde) : null; // fechaDesde ya viene en YYYY-MM-DD
-    const hastaKey = fechaHasta ? parseFechaToKey(fechaHasta) : null;
+    const getStableId = (b: BoletaRecord, index: number) => {
+        const id = b['ID Ingresos'] || b.id;
+        if (id) return String(id);
+        // Si no hay ID, generamos uno basado en propiedades para que sea más estable que el simple índice de página
+        return `temp-${b.cliente || b.nombre}-${b.total}-${b.Fecha || b.fecha || index}`;
+    };
 
-    const itemsConFecha = items.filter((b) => {
-        if (!desdeKey && !hastaKey) return true;
-        const fechaRaw = String(
-            (b as Record<string, unknown>)['Fecha'] ||
-            (b as Record<string, unknown>)['fecha'] ||
-            (b as Record<string, unknown>)['FECHA'] || ''
-        );
-        const key = parseFechaToKey(fechaRaw);
-        if (key == null) return false; // si no se pudo parsear, excluir
-        if (desdeKey && key < desdeKey) return false;
-        if (hastaKey && key > hastaKey) return false;
-        return true;
-    });
+    const desdeKey = useMemo(() => fechaDesde ? parseFechaToKey(fechaDesde) : null, [fechaDesde]);
+    const hastaKey = useMemo(() => fechaHasta ? parseFechaToKey(fechaHasta) : null, [fechaHasta]);
+
+    const itemsConFecha = useMemo(() => {
+        return items.filter((b) => {
+            if (!desdeKey && !hastaKey) return true;
+            const fechaRaw = String(
+                (b as Record<string, unknown>)['Fecha'] ||
+                (b as Record<string, unknown>)['fecha'] ||
+                (b as Record<string, unknown>)['FECHA'] || ''
+            );
+            const key = parseFechaToKey(fechaRaw);
+            if (key == null) return false;
+            if (desdeKey && key < desdeKey) return false;
+            if (hastaKey && key > hastaKey) return false;
+            return true;
+        });
+    }, [items, desdeKey, hastaKey]);
 
     // Filtrar solo boletas no facturadas
-    const itemsNoFacturadas = itemsConFecha.filter((b) => {
-        const estado = String(b.facturacion ?? b.Estado ?? b.estado ?? '').toLowerCase();
-        return estado.includes('falta facturar') || estado.includes('no facturada');
-    });
-
-    // (Resumen por repartidor eliminado: no se muestra en esta vista)
+    const itemsNoFacturadas = useMemo(() => {
+        return itemsConFecha.filter((b) => {
+            const estado = String(b.facturacion ?? b.Estado ?? b.estado ?? '').toLowerCase();
+            return estado.includes('falta facturar') || estado.includes('no facturada');
+        });
+    }, [itemsConFecha]);
 
     // Filtrar items por búsqueda
-    const filteredItems = itemsNoFacturadas.filter((b) => {
-        const razonSocial = (b.cliente || b.nombre || b['Razon Social'] || '').toString().toLowerCase();
-        const repartidor = (b.Repartidor ?? (b as Record<string, unknown>)['repartidor'] ?? '').toString().toLowerCase();
+    const filteredItems = useMemo(() => {
         const searchText = search.toLowerCase();
-        return razonSocial.includes(searchText) || repartidor.includes(searchText);
-    });
+        if (!searchText) return itemsNoFacturadas;
+        return itemsNoFacturadas.filter((b) => {
+            const razonSocial = (b.cliente || b.nombre || b['Razon Social'] || '').toString().toLowerCase();
+            const repartidor = (b.Repartidor ?? (b as Record<string, unknown>)['repartidor'] ?? '').toString().toLowerCase();
+            return razonSocial.includes(searchText) || repartidor.includes(searchText);
+        });
+    }, [itemsNoFacturadas, search]);
 
     const [sortDesc, setSortDesc] = useState<boolean>(true);
-    function getFechaKeyFromBoleta(b: Record<string, unknown>): number {
-        const fechaRaw = String(
-            (b as Record<string, unknown>)['Fecha'] ||
-            (b as Record<string, unknown>)['fecha'] ||
-            (b as Record<string, unknown>)['FECHA'] || ''
-        );
-        const key = parseFechaToKey(fechaRaw);
-        return key == null ? 0 : key;
-    }
-    const sortedItems = [...filteredItems].sort((a, b) => {
-        const ak = getFechaKeyFromBoleta(a as any);
-        const bk = getFechaKeyFromBoleta(b as any);
-        return sortDesc ? (bk - ak) : (ak - bk);
-    });
+
+    const sortedItems = useMemo(() => {
+        function getFechaKeyFromBoleta(b: Record<string, unknown>): number {
+            const fechaRaw = String(
+                b['Fecha'] || b['fecha'] || b['FECHA'] || ''
+            );
+            const key = parseFechaToKey(fechaRaw);
+            return key == null ? 0 : key;
+        }
+        return [...filteredItems].sort((a, b) => {
+            const ak = getFechaKeyFromBoleta(a as any);
+            const bk = getFechaKeyFromBoleta(b as any);
+            return sortDesc ? (bk - ak) : (ak - bk);
+        });
+    }, [filteredItems, sortDesc]);
 
     const [page, setPage] = useState(1);
     const PAGE_SIZE = 25;
@@ -375,9 +399,12 @@ export default function BoletasNoFacturadasPage() {
         try {
             // Sin confirm: acción directa
             const selectedRaw = ids
-                .map(id => items.find(b => String((b as any)['ID Ingresos'] || (b as any).id || '') === id))
+                .map(id => items.find((b, i) => getStableId(b, i) === id))
                 .filter(Boolean)
-                .filter(b => !facturadasSet.has(String((b as any)['ID Ingresos'] || (b as any).id || '')));
+                .filter(b => {
+                    const id = getStableId(b as BoletaRecord, 0);
+                    return !facturadasSet.has(id);
+                });
             const { valid, invalid } = buildValidItems(selectedRaw as any[]);
             if (valid.length === 0) {
                 showWarning('No hay boletas válidas para facturar (todas con total <= 0 o sin ID)');
@@ -411,6 +438,13 @@ export default function BoletasNoFacturadasPage() {
             const data = result.data;
 
             console.log('📦 Respuesta múltiple de facturación:', JSON.stringify(data, null, 2));
+
+            // Si tuvo éxito, limpiar de la selección los IDs procesados
+            setSelectedIds(prev => {
+                const next = { ...prev };
+                ids.forEach(id => delete next[id]);
+                return next;
+            });
 
             let successMsg = 'Facturación procesada';
             if (Array.isArray(data)) {
@@ -562,12 +596,12 @@ export default function BoletasNoFacturadasPage() {
                             const totalNum = typeof rawTotal === 'number' ? rawTotal : parseFloat(String(rawTotal).replace(/,/g, ''));
                             const total = isNaN(totalNum) ? rawTotal : Math.round(totalNum).toString();
                             const razonSocial = b.cliente || b.nombre || b['Razon Social'] || '';
-                            const id = b['ID Ingresos'] || b.id || i;
+                            const id = getStableId(b, i);
                             const repartidor = (b.Repartidor ?? (b as Record<string, unknown>)['repartidor'] ?? '') as string;
-                            const ya = facturadasSet.has(String(id));
+                            const ya = facturadasSet.has(id);
                             return (
-                                <div key={`${String(id)}-${i}`} className="px-3 py-2 flex items-center justify-between gap-3">
-                                    <input aria-label={`Seleccionar boleta ${String(id)}`} type="checkbox" checked={!!selectedIds[String(id)]} onChange={(e) => setSelectedIds(s => ({ ...s, [String(id)]: e.target.checked }))} />
+                                <div key={`${id}-${i}`} className="px-3 py-2 flex items-center justify-between gap-3">
+                                    <input aria-label={`Seleccionar boleta ${id}`} type="checkbox" checked={!!selectedIds[id]} onChange={(e) => setSelectedIds(s => ({ ...s, [id]: e.target.checked }))} />
                                     <div className="min-w-0">
                                         <div className="font-medium truncate">{razonSocial || '— Sin razón social —'}</div>
                                         <div className="text-[11px] text-gray-600">Repartidor: {repartidor || '-'}</div>
@@ -582,14 +616,14 @@ export default function BoletasNoFacturadasPage() {
                                     <div className="shrink-0 flex gap-2">
                                         {!(b['Nro Comprobante']) && (
                                             <button
-                                                className={`text-xs px-2 py-1 rounded transition-colors ${processingIds.has(String(id)) || ya
+                                                className={`text-xs px-2 py-1 rounded transition-colors ${processingIds.has(id) || ya
                                                     ? 'bg-gray-400 cursor-not-allowed'
                                                     : 'bg-green-600 hover:bg-green-700 text-white'
                                                     }`}
                                                 onClick={() => facturarBoleta(b)}
-                                                disabled={processingIds.has(String(id)) || isProcessing || ya}
+                                                disabled={processingIds.has(id) || isProcessing || ya}
                                             >
-                                                {processingIds.has(String(id)) ? (
+                                                {processingIds.has(id) ? (
                                                     <span className="flex items-center gap-1">
                                                         <svg className="animate-spin h-3 w-3" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                                                             <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
@@ -611,7 +645,7 @@ export default function BoletasNoFacturadasPage() {
                         <table className="w-full text-sm">
                             <thead className="bg-purple-50">
                                 <tr>
-                                    <th className="p-2"><input aria-label="Seleccionar todas" type="checkbox" onChange={(e) => { const v = e.target.checked; const m: Record<string, boolean> = {}; pageItems.forEach(b => { const id = String((b as Record<string, unknown>)['ID Ingresos'] || b.id || ''); if (id && !facturadasSet.has(id)) m[id] = v; }); setSelectedIds(s => ({ ...s, ...m })); }} /></th>
+                                    <th className="p-2"><input aria-label="Seleccionar todas" type="checkbox" onChange={(e) => { const v = e.target.checked; const m: Record<string, boolean> = {}; pageItems.forEach((b, i) => { const id = getStableId(b, i); if (id && !facturadasSet.has(id)) m[id] = v; }); setSelectedIds(s => ({ ...s, ...m })); }} /></th>
                                     <th className="p-2">Repartidor</th>
                                     <th className="p-2">Razón Social</th>
                                     <th className="p-2">Fecha</th>
@@ -625,13 +659,13 @@ export default function BoletasNoFacturadasPage() {
                                     const totalNum = typeof rawTotal === 'number' ? rawTotal : parseFloat(String(rawTotal).replace(/,/g, ''));
                                     const total = isNaN(totalNum) ? rawTotal : Math.round(totalNum).toString();
                                     const razonSocial = b.cliente || b.nombre || b['Razon Social'] || '';
-                                    const id = b['ID Ingresos'] || b.id || i;
+                                    const id = getStableId(b, i);
                                     const repartidor = (b.Repartidor ?? (b as Record<string, unknown>)['repartidor'] ?? '') as string;
                                     const fecha = String((b as Record<string, unknown>)['Fecha'] || (b as Record<string, unknown>)['fecha'] || '');
-                                    const ya = facturadasSet.has(String(id));
+                                    const ya = facturadasSet.has(id);
                                     return (
-                                        <tr key={`${String(id)}-${i}`} className="border-t">
-                                            <td className="p-2"><input aria-label={`Seleccionar boleta ${String(id)}`} type="checkbox" checked={!!selectedIds[String(id)]} onChange={(e) => setSelectedIds(s => ({ ...s, [String(id)]: e.target.checked }))} /></td>
+                                        <tr key={`${id}-${i}`} className="border-t">
+                                            <td className="p-2"><input aria-label={`Seleccionar boleta ${id}`} type="checkbox" checked={!!selectedIds[id]} onChange={(e) => setSelectedIds(s => ({ ...s, [id]: e.target.checked }))} /></td>
                                             <td className="p-2">{repartidor}</td>
                                             <td className="p-2">{razonSocial}</td>
                                             <td className="p-2">{fecha}</td>
@@ -639,14 +673,14 @@ export default function BoletasNoFacturadasPage() {
                                             <td className="p-2 flex gap-2">
                                                 {!(b['Nro Comprobante']) && (
                                                     <button
-                                                        className={`px-2 py-1 rounded transition ${processingIds.has(String(id)) || ya
+                                                        className={`px-2 py-1 rounded transition ${processingIds.has(id) || ya
                                                             ? 'bg-gray-400 cursor-not-allowed'
                                                             : 'bg-green-500 hover:bg-green-600 text-white'
                                                             }`}
                                                         onClick={() => facturarBoleta(b)}
-                                                        disabled={processingIds.has(String(id)) || isProcessing || ya}
+                                                        disabled={processingIds.has(id) || isProcessing || ya}
                                                     >
-                                                        {processingIds.has(String(id)) ? (
+                                                        {processingIds.has(id) ? (
                                                             <span className="flex items-center gap-1">
                                                                 <svg className="animate-spin h-3 w-3" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                                                                     <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
