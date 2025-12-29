@@ -35,11 +35,20 @@ def _parse_fecha_key(raw: str) -> date | None:
         pass
     return None
 
+# Flag global para evitar múltiples sincronizaciones simultáneas
+_sync_in_progress = False
+
 def _sync_sheets_to_db():
     """
     Función síncrona que descarga de Sheets y actualiza la tabla SQL 'ingresos_sheets'.
     Se ejecuta en background thread.
     """
+    global _sync_in_progress
+    if _sync_in_progress:
+        logger.info("⏭️ DB-Sync: Ya hay una sincronización en curso. Saltando.")
+        return
+
+    _sync_in_progress = True
     logger.info("🔄 DB-Sync: Iniciando descarga desde Sheets...")
     try:
         sheets_handler = TablasHandler()
@@ -60,11 +69,10 @@ def _sync_sheets_to_db():
             count_new = 0
             count_updated = 0
             
-            # Estrategia: Upsert (Insert or Update)
-            # Como SQLModel no tiene upsert nativo portable, lo hacemos manualmente optimizado.
-            # 1. Obtener IDs existentes para saber qué hacer
-            # select(IngresoSheets.id_ingreso) devuelve valores directos (strings), no objetos
-            existing_ids = {i for i in db.exec(select(IngresoSheets.id_ingreso)).all()}
+            # Estrategia: Upsert (Insert or Update) optimizado
+            # 1. Obtener todos los objetos existentes indexados por id_ingreso
+            # Usamos un diccionario para acceso O(1) y evitar N+1 queries
+            existing_objs = {obj.id_ingreso: obj for obj in db.exec(select(IngresoSheets)).all()}
             
             for b in boletas:
                 id_ingreso = str(b.get('ID Ingresos') or b.get('id_ingreso') or b.get('id', '')).strip()
@@ -74,13 +82,14 @@ def _sync_sheets_to_db():
                 facturacion_val = str(b.get('facturacion') or b.get('Facturacion', '')).strip()
                 data_json_val = json.dumps(b, ensure_ascii=False)
                 
-                if id_ingreso in existing_ids:
+                if id_ingreso in existing_objs:
                     # Update
-                    # Optimizacion: Solo actualizar si cambió algo crítico o el JSON
-                    # Para simplificar, actualizamos.
-                    statement = select(IngresoSheets).where(IngresoSheets.id_ingreso == id_ingreso)
-                    obj = db.exec(statement).first()
-                    if obj:
+                    obj = existing_objs[id_ingreso]
+                    # Solo actualizar si hubo cambios para reducir carga en DB
+                    if (obj.facturacion != facturacion_val or 
+                        obj.fecha != fecha_val or 
+                        obj.data_json != data_json_val):
+                        
                         obj.fecha = fecha_val
                         obj.facturacion = facturacion_val
                         obj.data_json = data_json_val
@@ -97,7 +106,7 @@ def _sync_sheets_to_db():
                         last_synced_at=datetime.utcnow()
                     )
                     db.add(new_obj)
-                    existing_ids.add(id_ingreso)
+                    existing_objs[id_ingreso] = new_obj
                     count_new += 1
             
             db.commit()
@@ -111,6 +120,8 @@ def _sync_sheets_to_db():
             
     except Exception as e:
         logger.error(f"❌ DB-Sync Error general: {e}")
+    finally:
+        _sync_in_progress = False
 
 async def refresh_sheets_data_background():
     """Wrapper async para correr en background task"""

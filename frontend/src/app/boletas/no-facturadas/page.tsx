@@ -222,14 +222,15 @@ export default function BoletasNoFacturadasPage() {
         }
     }
 
-    const { boletasNoFacturadas, boletasFacturadas, loading: storeLoading, error: storeError, reload } = useBoletas();
+    const { boletasNoFacturadas, boletasFacturadas, loading, error: storeError, reload, filters: storeFilters } = useBoletas();
+    const error = storeError ?? '';
     const [search, setSearch] = useState('');
     const [fechaDesde, setFechaDesde] = useState<string>('');
     const [fechaHasta, setFechaHasta] = useState<string>('');
+
     // items provienen del store
     const items = boletasNoFacturadas ?? [];
-    const loading = storeLoading;
-    const error = storeError ?? '';
+
     const facturadasSet = useMemo(() => {
         const arr = boletasFacturadas ?? [];
         const s = new Set<string>();
@@ -241,20 +242,28 @@ export default function BoletasNoFacturadasPage() {
         return s;
     }, [boletasFacturadas]);
 
-    // Restaurar/persistir fechas
+    // Restaurar fechas desde localStorage al inicio
     useEffect(() => {
         try {
             const fd = localStorage.getItem('boletas_no_facturadas_fecha_desde') || '';
             const fh = localStorage.getItem('boletas_no_facturadas_fecha_hasta') || '';
-            if (fd || fh) { setFechaDesde(fd); setFechaHasta(fh); }
+            if (fd) setFechaDesde(fd);
+            if (fh) setFechaHasta(fh);
         } catch { /* noop */ }
     }, []);
+
+    // Persistir fechas en localStorage y sincronizar con el store
     useEffect(() => {
         try {
             localStorage.setItem('boletas_no_facturadas_fecha_desde', fechaDesde);
             localStorage.setItem('boletas_no_facturadas_fecha_hasta', fechaHasta);
         } catch { /* noop */ }
-    }, [fechaDesde, fechaHasta]);
+
+        // Solo sincronizar con el store si los valores son diferentes
+        if (fechaDesde !== (storeFilters.fechaDesde || '') || fechaHasta !== (storeFilters.fechaHasta || '')) {
+            reload({ fechaDesde, fechaHasta });
+        }
+    }, [fechaDesde, fechaHasta, reload, storeFilters.fechaDesde, storeFilters.fechaHasta]);
 
     // --- Filtrado por fecha robusto ---
     function parseFechaToKey(raw: string | null | undefined): number | null {
@@ -349,7 +358,7 @@ export default function BoletasNoFacturadasPage() {
             }
             return changed ? next : prev;
         });
-    }, [filteredItems, selectedIds]);
+    }, [filteredItems]); // Removido selectedIds para evitar loops infinitos
 
     const [sortDesc, setSortDesc] = useState<boolean>(true);
 

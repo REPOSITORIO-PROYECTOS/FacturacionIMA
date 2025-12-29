@@ -36,7 +36,15 @@ if not all([DB_USER, DB_PASSWORD, DB_HOST, DB_NAME]):
 DATABASE_URL = f"mysql+pymysql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
 print(f"[DB] DATABASE_URL destino (ocultando password): mysql+pymysql://{DB_USER}:***@{DB_HOST}:{DB_PORT}/{DB_NAME}")
 
-engine = create_engine(DATABASE_URL, echo=True)
+# Aumentamos el pool de conexiones para evitar QueuePool limit errors en procesos de fondo (DB-Sync)
+engine = create_engine(
+    DATABASE_URL, 
+    echo=False, # Reducimos verbosidad en producción si es posible, o mantenemos True si prefieres debug
+    pool_size=20, 
+    max_overflow=40,
+    pool_recycle=3600,
+    pool_pre_ping=True
+)
 
 # --- ESTA ES LA ADICIÓN CLAVE ---
 # Creamos una "Fábrica de Sesiones" que puede ser importada y usada por scripts externos.

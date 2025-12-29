@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useState, useMemo, useRef } from 'react';
-import { useBoletas, BoletasFilters } from '@/context/BoletasStore';
+import { useBoletas } from '@/context/BoletasStore';
 // Image import removed because data-URL QR previews use plain <img>
 import { LoadingSpinner } from "../../components/LoadingSpinner";
 import { useToast } from "@/hooks/useToast";
@@ -201,35 +201,35 @@ export default function BoletasFacturadasPage() {
             setProcessingId(null);
         }
     }
-    const { boletasFacturadas, loading: storeLoading, error: storeError, reload } = useBoletas();
-    const [items, setItems] = useState<BoletaRecord[]>([]);
-    const [loading, setLoading] = useState(true);
-    const [error, setError] = useState('');
+    const { boletasFacturadas, loading, error: storeError, reload, filters: storeFilters } = useBoletas();
+    const error = storeError ?? '';
     const [search, setSearch] = useState('');
     const [fechaDesde, setFechaDesde] = useState<string>('');
     const [fechaHasta, setFechaHasta] = useState<string>('');
     const [statusFilter, setStatusFilter] = useState<'all' | 'anuladas' | 'activas'>('all');
-    useEffect(() => {
-        // Mirror store data to local state
-        setLoading(storeLoading);
-        setError(storeError ?? '');
-        setItems(boletasFacturadas as BoletaRecord[]);
-    }, [boletasFacturadas, storeLoading, storeError]);
 
-    // Restaurar/persistir fechas
+    // Restaurar fechas desde localStorage al inicio
     useEffect(() => {
         try {
             const fd = localStorage.getItem('boletas_facturadas_fecha_desde') || '';
             const fh = localStorage.getItem('boletas_facturadas_fecha_hasta') || '';
-            if (fd || fh) { setFechaDesde(fd); setFechaHasta(fh); }
+            if (fd) setFechaDesde(fd);
+            if (fh) setFechaHasta(fh);
         } catch { /* noop */ }
     }, []);
+
+    // Persistir fechas en localStorage y sincronizar con el store
     useEffect(() => {
         try {
             localStorage.setItem('boletas_facturadas_fecha_desde', fechaDesde);
             localStorage.setItem('boletas_facturadas_fecha_hasta', fechaHasta);
         } catch { /* noop */ }
-    }, [fechaDesde, fechaHasta]);
+
+        // Solo sincronizar con el store si los valores son diferentes
+        if (fechaDesde !== (storeFilters.fechaDesde || '') || fechaHasta !== (storeFilters.fechaHasta || '')) {
+            reload({ fechaDesde, fechaHasta });
+        }
+    }, [fechaDesde, fechaHasta, reload, storeFilters.fechaDesde, storeFilters.fechaHasta]);
 
     const normalizaFecha = (texto: string): string | null => {
         if (!texto) return null;
@@ -249,7 +249,7 @@ export default function BoletasFacturadasPage() {
 
     const filteredItems = useMemo(() => {
         const searchText = search.toLowerCase();
-        return items.filter((b) => {
+        return boletasFacturadas.filter((b) => {
             // Filtro por búsqueda
             const razonSocial = (b.cliente || b.nombre || b['Razon Social'] || '').toString().toLowerCase();
             const repartidor = (b.Repartidor ?? (b as Record<string, unknown>)['repartidor'] ?? '').toString().toLowerCase();
@@ -279,7 +279,7 @@ export default function BoletasFacturadasPage() {
 
             return true;
         });
-    }, [items, search, statusFilter, fechaDesde, fechaHasta]);
+    }, [boletasFacturadas, search, statusFilter, fechaDesde, fechaHasta]);
 
     const [sortDesc, setSortDesc] = useState<boolean>(true);
 
@@ -312,23 +312,6 @@ export default function BoletasFacturadasPage() {
     const startIndex = (currentPage - 1) * PAGE_SIZE;
     const endIndex = startIndex + PAGE_SIZE;
     const pageItems = sortedItems.slice(startIndex, endIndex);
-    // Sincronizar filtros con el store de forma controlada
-    const initialLoadRef = useRef(false);
-    useEffect(() => {
-        // Evitar el primer render si los filtros están vacíos (el store ya carga por defecto)
-        if (!initialLoadRef.current && !fechaDesde && !fechaHasta) {
-            initialLoadRef.current = true;
-            return;
-        }
-
-        const filters: BoletasFilters = {};
-        if (fechaDesde) filters.fechaDesde = fechaDesde;
-        if (fechaHasta) filters.fechaHasta = fechaHasta;
-
-        reload(filters);
-        initialLoadRef.current = true;
-    }, [fechaDesde, fechaHasta, reload]);
-
     useEffect(() => { setPage(1); }, [search, fechaDesde, fechaHasta]);
 
     return (
