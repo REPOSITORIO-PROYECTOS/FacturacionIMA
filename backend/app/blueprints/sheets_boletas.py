@@ -10,7 +10,7 @@ from typing import Dict, Any, List, Optional
 from sqlmodel import select, desc
 from backend.database import get_db, SessionLocal
 from backend.security import obtener_usuario_actual
-from backend.modelos import Usuario, IngresoSheets
+from backend.modelos import Usuario, IngresoSheets, FacturaElectronica
 from backend.utils.tablasHandler import TablasHandler
 
 logger = logging.getLogger(__name__)
@@ -165,8 +165,9 @@ async def obtener_boletas_desde_db(
         # Usamos NOT IN para simplificar
         query = query.where(IngresoSheets.facturacion.notin_(['Facturado', 'Facturada', 'Anulada', 'Anulado', 'No falta facturar', 'No falta']))
     elif tipo == "facturadas":
+        # Para facturadas, volvemos al orden por fecha común
         query = query.where(IngresoSheets.facturacion.in_(['Facturado', 'Facturada', 'Anulada', 'Anulado']))
-        
+    
     # Filtro 3: Fechas
     if fecha_desde:
         try:
@@ -182,6 +183,7 @@ async def obtener_boletas_desde_db(
         
     # Ordenar y Limitar
     query = query.order_by(desc(IngresoSheets.fecha))
+    
     if limit:
         query = query.limit(limit)
         
@@ -191,13 +193,11 @@ async def obtener_boletas_desde_db(
     # Serializar respuesta
     # Desempaquetamos el JSON guardado pero sobreescribimos con los valores frescos de las columnas si fuera necesario
     response = []
-    for r in results:
+    for obj in results:
         try:
-            item = json.loads(r.data_json)
+            item = json.loads(obj.data_json)
             # Asegurar que el ID sea el correcto
-            item['ID Ingresos'] = r.id_ingreso
-            # Normalizar campos clave para el front (retrocompatibilidad)
-            # (Esto ya viene en el JSON, pero reforzamos)
+            item['ID Ingresos'] = obj.id_ingreso
             response.append(item)
         except:
             continue

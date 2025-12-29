@@ -21,7 +21,7 @@ try:
     from .tablasHandler import TablasHandler
     # --- NUEVO: Importaciones para la Base de Datos ---
     from backend.database import SessionLocal  # Asume que tienes un `database.py` que crea la sesión
-    from backend.modelos import FacturaElectronica  # Asume que tienes un `models.py` con tu tabla de facturas
+    from backend.modelos import FacturaElectronica, IngresoSheets  # Asume que tienes un `models.py` con tu tabla de facturas
 except ImportError as e:
     # Algunos módulos son opcionales en entornos de demo; registrar y seguir adelante
     logging.critical(f"No se pudieron importar algunos módulos opcionales: {e} — continuando en modo degradado.")
@@ -408,13 +408,36 @@ def _process_single_invoice_full_cycle(
             single_invoice_result["error_db"] = str(db_error)
             logger.error(f"[{invoice_id}] ERROR al guardar en la base de datos: {db_error}", exc_info=True)
 
-        # --- 2. Actualizar Google Sheets ---
+        # --- 2. Actualizar Google Sheets y DB Local ---
         if single_invoice_result.get("db_save_status") == "SUCCESS" and sheets_handler:
             try:
+                # 2a. Actualizar Google Sheets
                 update_success = sheets_handler.marcar_boleta_facturada(id_ingreso=str(invoice_id))
                 single_invoice_result["sheets_update_status"] = "SUCCESS" if update_success else "FAILED"
+                
                 if update_success:
                     logger.info(f"[{invoice_id}] Sheets actualizado.")
+                    # 2b. Actualizar Espejo Local (IngresoSheets) para que el front vea el cambio YA
+                    try:
+                        from sqlmodel import select as _select_sheets
+                        stmt = _select_sheets(IngresoSheets).where(IngresoSheets.id_ingreso == str(invoice_id))
+                        ingreso_obj = db.exec(stmt).first()
+                        if ingreso_obj:
+                            ingreso_obj.facturacion = "Facturado"
+                            # Actualizar el JSON interno también
+                            try:
+                                data = json.loads(ingreso_obj.data_json)
+                                # Actualizar tanto 'facturacion' como 'Facturacion' por si acaso
+                                if 'facturacion' in data: data['facturacion'] = "Facturado"
+                                if 'Facturacion' in data: data['Facturacion'] = "Facturado"
+                                ingreso_obj.data_json = json.dumps(data, ensure_ascii=False)
+                            except Exception:
+                                pass
+                            db.add(ingreso_obj)
+                            db.commit()
+                            logger.info(f"[{invoice_id}] Espejo local (IngresoSheets) actualizado a 'Facturado'.")
+                    except Exception as db_sync_err:
+                        logger.warning(f"[{invoice_id}] No se pudo actualizar espejo local IngresoSheets: {db_sync_err}")
                 else:
                     logger.warning(f"[{invoice_id}] Sheets NO actualizado.")
             except Exception as sheets_error:

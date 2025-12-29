@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import { useBoletas } from '@/context/BoletasStore';
 // Image import removed because data-URL QR previews use plain <img>
 import { LoadingSpinner } from "../../components/LoadingSpinner";
@@ -168,22 +168,23 @@ export default function BoletasFacturadasPage() {
         return null;
     };
 
-    const itemsConFecha = items.filter((b) => {
-        if (!fechaDesde && !fechaHasta) return true;
-        // soportar las claves que envía el backend: fecha_comprobante, created_at, Fecha, fecha, FECHA
-        const fechaRaw = String(
-            (b as Record<string, unknown>)['fecha_comprobante'] ||
-            (b as Record<string, unknown>)['created_at'] ||
-            (b as Record<string, unknown>)['Fecha'] ||
-            (b as Record<string, unknown>)['fecha'] ||
-            (b as Record<string, unknown>)['FECHA'] || ''
-        );
-        const f = normalizaFecha(fechaRaw);
-        if (!f) return false;
-        if (fechaDesde && f < fechaDesde) return false;
-        if (fechaHasta && f > fechaHasta) return false;
-        return true;
-    });
+    const itemsConFecha = useMemo(() => {
+        return items.filter((b) => {
+            if (!fechaDesde && !fechaHasta) return true;
+            const fechaRaw = String(
+                (b as Record<string, unknown>)['fecha_comprobante'] ||
+                (b as Record<string, unknown>)['created_at'] ||
+                (b as Record<string, unknown>)['Fecha'] ||
+                (b as Record<string, unknown>)['fecha'] ||
+                (b as Record<string, unknown>)['FECHA'] || ''
+            );
+            const f = normalizaFecha(fechaRaw);
+            if (!f) return false;
+            if (fechaDesde && f < fechaDesde) return false;
+            if (fechaHasta && f > fechaHasta) return false;
+            return true;
+        });
+    }, [items, fechaDesde, fechaHasta]);
 
     // Filtrar items por búsqueda
     function isAnulada(b: BoletaRecord): boolean {
@@ -191,37 +192,42 @@ export default function BoletasFacturadasPage() {
         return v === true || v === 1 || v === '1' || String(v).toLowerCase() === 'true';
     }
 
-    const filteredItems = itemsConFecha.filter((b) => {
-        const razonSocial = (b.cliente || b.nombre || b['Razon Social'] || '').toString().toLowerCase();
-        const repartidor = (b.Repartidor ?? (b as Record<string, unknown>)['repartidor'] ?? '').toString().toLowerCase();
+    const filteredItems = useMemo(() => {
         const searchText = search.toLowerCase();
-        const match = razonSocial.includes(searchText) || repartidor.includes(searchText);
-        if (!match) return false;
-        if (statusFilter === 'all') return true;
-        if (statusFilter === 'anuladas') return isAnulada(b);
-        return !isAnulada(b);
-    });
+        return itemsConFecha.filter((b) => {
+            const razonSocial = (b.cliente || b.nombre || b['Razon Social'] || '').toString().toLowerCase();
+            const repartidor = (b.Repartidor ?? (b as Record<string, unknown>)['repartidor'] ?? '').toString().toLowerCase();
+            const match = razonSocial.includes(searchText) || repartidor.includes(searchText);
+            if (!match) return false;
+            if (statusFilter === 'all') return true;
+            if (statusFilter === 'anuladas') return isAnulada(b);
+            return !isAnulada(b);
+        });
+    }, [itemsConFecha, search, statusFilter]);
 
     const [sortDesc, setSortDesc] = useState<boolean>(true);
-    function getFechaKey(b: BoletaRecord): number {
-        const raw = String(
-            (b as Record<string, unknown>)['fecha_comprobante'] ||
-            (b as Record<string, unknown>)['created_at'] ||
-            (b as Record<string, unknown>)['Fecha'] ||
-            (b as Record<string, unknown>)['fecha'] ||
-            (b as Record<string, unknown>)['FECHA'] || ''
-        );
-        const norm = normalizaFecha(raw);
-        if (!norm) return 0;
-        const [yyyy, mm, dd] = norm.split('-');
-        const n = parseInt(`${yyyy}${mm}${dd}`, 10);
-        return isNaN(n) ? 0 : n;
-    }
-    const sortedItems = [...filteredItems].sort((a, b) => {
-        const ak = getFechaKey(a);
-        const bk = getFechaKey(b);
-        return sortDesc ? (bk - ak) : (ak - bk);
-    });
+
+    const sortedItems = useMemo(() => {
+        function getFechaKey(b: BoletaRecord): number {
+            const raw = String(
+                (b as Record<string, unknown>)['fecha_comprobante'] ||
+                (b as Record<string, unknown>)['created_at'] ||
+                (b as Record<string, unknown>)['Fecha'] ||
+                (b as Record<string, unknown>)['fecha'] ||
+                (b as Record<string, unknown>)['FECHA'] || ''
+            );
+            const norm = normalizaFecha(raw);
+            if (!norm) return 0;
+            const [yyyy, mm, dd] = norm.split('-');
+            const n = parseInt(`${yyyy}${mm}${dd}`, 10);
+            return isNaN(n) ? 0 : n;
+        }
+        return [...filteredItems].sort((a, b) => {
+            const ak = getFechaKey(a);
+            const bk = getFechaKey(b);
+            return sortDesc ? (bk - ak) : (ak - bk);
+        });
+    }, [filteredItems, sortDesc]);
 
     const [page, setPage] = useState(1);
     const PAGE_SIZE = 25;
