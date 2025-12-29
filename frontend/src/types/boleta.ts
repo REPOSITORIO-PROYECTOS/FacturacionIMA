@@ -1,8 +1,12 @@
 export type Boleta = Record<string, string | number | boolean | undefined> & {
+    id?: string | number;
     "ID Ingresos"?: string | number;
     "INGRESOS"?: string | number;
+    factura_id?: string | number;
+    ingreso_id?: string | number;
     tabla?: string;
     total?: number | string;
+    importe_total?: number | string;
     CUIT?: string | number;
     dni?: string | number;
     cuit?: string | number;
@@ -12,4 +16,6 @@ export type Boleta = Record<string, string | number | boolean | undefined> & {
     "Domicilio"?: string;
     condicion_iva?: string;
     "condicion-iva"?: string;
+    cae?: string;
+    anulada?: boolean | number | string;
 };

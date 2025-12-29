@@ -14,6 +14,10 @@ interface BoletaRecord {
     'ID Ingresos'?: number | string;
     Repartidor?: string;
     'Nro Comprobante'?: string | number;
+    factura_id?: string | number;
+    ingreso_id?: string | number;
+    importe_total?: string | number;
+    numero_comprobante?: string | number;
     [key: string]: unknown;
 }
 
@@ -36,13 +40,14 @@ export default function BoletasMobilePage() {
     }, [tipo, boletasFacturadas, boletasNoFacturadas, storeLoading, storeError]);
 
     const resumidos = useMemo(() => items.map((b, i) => {
-        const rawTotal = b.total || b.INGRESOS || '';
+        const rawTotal = b.importe_total || b.total || b.INGRESOS || '';
         const totalNum = typeof rawTotal === 'number' ? rawTotal : parseFloat(String(rawTotal).replace(/,/g, ''));
         const total = isNaN(totalNum) ? rawTotal : Math.round(totalNum).toString();
         const cliente = b.cliente || b.nombre || b['Razon Social'] || '';
-        const id = b['ID Ingresos'] || b.id || i;
+        // Priorizar IDs consistentes: factura_id para facturadas, ingreso_id para pendientes
+        const id = b.factura_id || b.ingreso_id || b.id || b['ID Ingresos'] || `temp-${i}`;
         const repartidor = (b.Repartidor ?? (b as Record<string, unknown>)['repartidor'] ?? '') as string;
-        const nroComp = (b['Nro Comprobante'] ?? (b as Record<string, unknown>)['nroComprobante'] ?? '') as string | number;
+        const nroComp = (b.numero_comprobante ?? b['Nro Comprobante'] ?? (b as Record<string, unknown>)['nroComprobante'] ?? '') as string | number;
         return { id, cliente, total, repartidor, nroComp };
     }), [items]);
 

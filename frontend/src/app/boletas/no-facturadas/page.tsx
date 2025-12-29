@@ -1,8 +1,8 @@
 "use client";
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, useRef } from 'react';
 import { useBoletas } from '@/context/BoletasStore';
 import { LoadingSpinner } from "../../components/LoadingSpinner";
-import { buildInvoiceItem, facturarItems, buildValidItems, getVentaConceptos } from "../../lib/facturacion";
+import { buildInvoiceItem, facturarItems, buildValidItems, getVentaConceptos, InvoiceItemRequest } from "../../lib/facturacion";
 import { useToast } from "@/hooks/useToast";
 import { ToastContainer } from "@/components/Toast";
 
@@ -26,25 +26,35 @@ interface BoletaRecord {
 
 export default function BoletasNoFacturadasPage() {
     // Toast notifications
-    const { toasts, removeToast, success: showSuccess, error: showError, warning: showWarning, info: showInfo } = useToast();
+    const { toasts, removeToast, success: showSuccess, error: showError, warning: showWarning } = useToast();
 
     // user role not needed in this view
-    const [repartidoresMap, setRepartidoresMap] = useState<Record<string, string[]> | null>(null);
     const [selectedIds, setSelectedIds] = useState<Record<string, boolean>>({});
     const [processingIds, setProcessingIds] = useState<Set<string>>(new Set()); // IDs en proceso
     const [isProcessing, setIsProcessing] = useState(false); // Flag general de procesamiento
-    // estado para acciones masivas
-    interface FacturarPayload {
-        id: string | number;
-        total: number;
-        medio_pago?: string;
-        cliente_data?: {
-            cuit_o_dni?: string;
-            nombre_razon_social?: string;
-            domicilio?: string;
-            condicion_iva?: string;
+
+    // Referencia para limpiar URLs de objetos (PDFs)
+    const objectUrlsRef = useRef<Set<string>>(new Set());
+
+    // Limpieza de URLs al desmontar el componente
+    useEffect(() => {
+        const urls = objectUrlsRef.current;
+        return () => {
+            console.log('🧹 Limpiando recursos de memoria (ObjectURLs)...');
+            urls.forEach(url => {
+                window.URL.revokeObjectURL(url);
+            });
+            urls.clear();
         };
-    }
+    }, []);
+
+    // Contador de boletas seleccionadas
+    const selectedCount = useMemo(() => Object.values(selectedIds).filter(Boolean).length, [selectedIds]);
+
+    // Función para limpiar toda la selección manualmente
+    const clearSelection = () => {
+        setSelectedIds({});
+    };
 
     // buildInvoiceItem ahora proviene de helper unificado (importado)
 
@@ -52,7 +62,7 @@ export default function BoletasNoFacturadasPage() {
         const token = localStorage.getItem('token');
         if (!token) { showError('No autenticado'); return; }
 
-        const ventaId = getStableId(boleta, 0);
+        const ventaId = getStableId(boleta);
 
         // Marcar como en proceso
         setProcessingIds(prev => new Set([...prev, ventaId]));
@@ -76,12 +86,12 @@ export default function BoletasNoFacturadasPage() {
             if (realVentaId) {
                 const conceptos = await getVentaConceptos(realVentaId, token);
                 if (conceptos.length > 0) {
-                    (built as any).conceptos = conceptos;
+                    built.conceptos = conceptos;
                     console.log(`✓ Boleta ${realVentaId}: ${conceptos.length} conceptos cargados`);
                 }
             }
 
-            const result = await facturarItems([built as any], token);
+            const result = await facturarItems([built], token);
             if (!result.ok) {
                 // ... rest of error handling remains same
                 if (result.error && result.error.toLowerCase().includes('no existen credenciales afip')) {
@@ -94,7 +104,7 @@ export default function BoletasNoFacturadasPage() {
                 return;
             }
             const data = result.data;
-            let successMsg = 'Facturación exitosa';
+            let successMsgStr = 'Facturación exitosa';
 
             console.log('📦 Respuesta completa de facturación:', JSON.stringify(data, null, 2));
 
@@ -103,8 +113,11 @@ export default function BoletasNoFacturadasPage() {
                 const firstResult = data[0];
                 console.log('📋 Primer resultado:', JSON.stringify(firstResult, null, 2));
 
-                const okCount = data.filter((r: any) => r && typeof r === 'object' && r.ok !== false && r.status === 'SUCCESS').length;
-                successMsg = `Facturación procesada: ${okCount} / ${data.length}`;
+                const okCount = data.filter((r: unknown) => {
+                    const res = r as Record<string, unknown>;
+                    return res && typeof res === 'object' && res.ok !== false && res.status === 'SUCCESS';
+                }).length;
+                successMsgStr = `Facturación procesada: ${okCount} / ${data.length}`;
 
                 // Buscar factura_id en diferentes ubicaciones posibles
                 const facturaId = firstResult?.factura_id || firstResult?.result?.factura_id;
@@ -135,6 +148,8 @@ export default function BoletasNoFacturadasPage() {
 
                             // Método mejorado de descarga compatible con todos los navegadores
                             const url = window.URL.createObjectURL(blob);
+                            objectUrlsRef.current.add(url); // Registrar para limpieza
+
                             const a = document.createElement('a');
                             a.style.display = 'none';
                             a.href = url;
@@ -154,21 +169,22 @@ export default function BoletasNoFacturadasPage() {
                             // También intentar abrir en ventana nueva como fallback
                             try {
                                 window.open(url, '_blank');
-                            } catch (e) {
+                            } catch {
                                 console.log('ℹ️ No se pudo abrir en ventana nueva (normal si se descargó)');
                             }
 
-                            // Limpiar después de un momento
+                            // Limpiar después de un momento (tiempo suficiente para que el navegador inicie la descarga)
                             setTimeout(() => {
                                 window.URL.revokeObjectURL(url);
+                                objectUrlsRef.current.delete(url);
                                 if (document.body.contains(a)) {
                                     document.body.removeChild(a);
                                 }
                                 console.log('✅ Recursos de descarga liberados');
-                            }, 2000);
+                            }, 5000);
 
                             console.log('✅ Comprobante descargado exitosamente');
-                            successMsg += ' ✅ PDF descargado';
+                            successMsgStr += ' ✅ PDF descargado';
                         } else {
                             const errorText = await pdfRes.text();
                             console.error('❌ Error descargando PDF:', pdfRes.status, errorText);
@@ -181,17 +197,21 @@ export default function BoletasNoFacturadasPage() {
                 }
             }
 
-            // Si tuvo éxito, limpiar de la selección
+            // Si tuvo éxito, limpiar de la selección y recargar
             setSelectedIds(prev => {
                 const next = { ...prev };
                 delete next[ventaId];
                 return next;
             });
+            await reload();
 
-            showSuccess(successMsg);
+            showSuccess(successMsgStr);
         } catch (error) {
             console.error('❌ Error en facturación:', error);
         } finally {
+            // Asegurar que si hubo algún error en el flujo, se intente limpiar recursos
+            // (aunque en este punto el blob/url solo se crea si el fetch pdf tiene éxito)
+
             // Remover de procesamiento
             setProcessingIds(prev => {
                 const newSet = new Set(prev);
@@ -201,8 +221,6 @@ export default function BoletasNoFacturadasPage() {
             setIsProcessing(false);
         }
     }
-
-    // helper removed (not used)
 
     const { boletasNoFacturadas, boletasFacturadas, loading: storeLoading, error: storeError, reload } = useBoletas();
     const [search, setSearch] = useState('');
@@ -215,27 +233,13 @@ export default function BoletasNoFacturadasPage() {
     const facturadasSet = useMemo(() => {
         const arr = boletasFacturadas ?? [];
         const s = new Set<string>();
-        for (const b of arr as any[]) {
-            const id = String((b as any).ingreso_id ?? (b as any)['ID Ingresos'] ?? (b as any).id ?? '');
+        for (const b of arr as Record<string, unknown>[]) {
+            // Usar la misma lógica de ID que el store para cruzar datos
+            const id = String(b.ingreso_id ?? b['ID Ingresos'] ?? b.id ?? '');
             if (id) s.add(id);
         }
         return s;
     }, [boletasFacturadas]);
-
-    // La carga de boletas ahora la gestiona el BoletasStore (carga inicial + polling cada 60s)
-
-    // El store hace polling periódicamente; eliminamos el intervalo local
-    // Mantenemos la selección entre recargas para evitar que se pierda al actualizarse la lista
-    /* 
-    useEffect(() => {
-        // reset selection when items change
-        const map: Record<string, boolean> = {};
-        items.forEach((b) => { const id = String((b as Record<string, unknown>)['ID Ingresos'] || b.id || ''); if (id) { map[id] = false; } });
-        setSelectedIds(map);
-    }, [items]);
-    */
-
-    // user role not needed in this view
 
     // Restaurar/persistir fechas
     useEffect(() => {
@@ -253,7 +257,6 @@ export default function BoletasNoFacturadasPage() {
     }, [fechaDesde, fechaHasta]);
 
     // --- Filtrado por fecha robusto ---
-    // Acepta formatos comunes: YYYY-MM-DD, DD/MM/YYYY, DD-MM-YYYY, YYYY/MM/DD, DD/MM/YY
     function parseFechaToKey(raw: string | null | undefined): number | null {
         if (!raw) return null;
         const t = String(raw).trim();
@@ -278,14 +281,18 @@ export default function BoletasNoFacturadasPage() {
             return null;
         }
         if (!yyyy || !mm || !dd || mm < 1 || mm > 12 || dd < 1 || dd > 31) return null;
-        return (yyyy * 10000) + (mm * 100) + dd; // clave comparable
+        return (yyyy * 10000) + (mm * 100) + dd;
     }
 
-    const getStableId = (b: BoletaRecord, index: number) => {
-        const id = b['ID Ingresos'] || b.id;
+    const getStableId = (b: BoletaRecord) => {
+        const id = b['ID Ingresos'] || b.id || b.ingreso_id;
         if (id) return String(id);
-        // Si no hay ID, generamos uno basado en propiedades para que sea más estable que el simple índice de página
-        return `temp-${b.cliente || b.nombre}-${b.total}-${b.Fecha || b.fecha || index}`;
+        const fecha = String(b.Fecha || b.fecha || b.FECHA || '');
+        const total = String(b.total || b.INGRESOS || '0');
+        const cliente = String(b.cliente || b.nombre || b['Razon Social'] || 'anon');
+        const repartidor = String(b.Repartidor || b.repartidor || '');
+        // Generar un identificador único basado en datos relevantes sin depender del índice
+        return `temp-${cliente}-${repartidor}-${total}-${fecha}`.replace(/\s+/g, '_').toLowerCase();
     };
 
     const desdeKey = useMemo(() => fechaDesde ? parseFechaToKey(fechaDesde) : null, [fechaDesde]);
@@ -307,7 +314,6 @@ export default function BoletasNoFacturadasPage() {
         });
     }, [items, desdeKey, hastaKey]);
 
-    // Filtrar solo boletas no facturadas
     const itemsNoFacturadas = useMemo(() => {
         return itemsConFecha.filter((b) => {
             const estado = String(b.facturacion ?? b.Estado ?? b.estado ?? '').toLowerCase();
@@ -315,7 +321,6 @@ export default function BoletasNoFacturadasPage() {
         });
     }, [itemsConFecha]);
 
-    // Filtrar items por búsqueda
     const filteredItems = useMemo(() => {
         const searchText = search.toLowerCase();
         if (!searchText) return itemsNoFacturadas;
@@ -326,19 +331,37 @@ export default function BoletasNoFacturadasPage() {
         });
     }, [itemsNoFacturadas, search]);
 
+    // Limpieza automática de selecciones obsoletas
+    useEffect(() => {
+        if (Object.keys(selectedIds).length === 0) return;
+
+        // Obtener IDs de los items actualmente visibles/filtrados
+        const currentVisibleIds = new Set(filteredItems.map((b) => getStableId(b)));
+
+        setSelectedIds(prev => {
+            const next = { ...prev };
+            let changed = false;
+            for (const id in next) {
+                if (next[id] && !currentVisibleIds.has(id)) {
+                    delete next[id];
+                    changed = true;
+                }
+            }
+            return changed ? next : prev;
+        });
+    }, [filteredItems, selectedIds]);
+
     const [sortDesc, setSortDesc] = useState<boolean>(true);
 
     const sortedItems = useMemo(() => {
         function getFechaKeyFromBoleta(b: Record<string, unknown>): number {
-            const fechaRaw = String(
-                b['Fecha'] || b['fecha'] || b['FECHA'] || ''
-            );
+            const fechaRaw = String(b['Fecha'] || b['fecha'] || b['FECHA'] || '');
             const key = parseFechaToKey(fechaRaw);
             return key == null ? 0 : key;
         }
         return [...filteredItems].sort((a, b) => {
-            const ak = getFechaKeyFromBoleta(a as any);
-            const bk = getFechaKeyFromBoleta(b as any);
+            const ak = getFechaKeyFromBoleta(a as Record<string, unknown>);
+            const bk = getFechaKeyFromBoleta(b as Record<string, unknown>);
             return sortDesc ? (bk - ak) : (ak - bk);
         });
     }, [filteredItems, sortDesc]);
@@ -364,166 +387,56 @@ export default function BoletasNoFacturadasPage() {
         reload();
     }
 
-
-
-    function getRazonesFor(repartidor: string | undefined): string[] {
-        if (!repartidor || !repartidoresMap) return [];
-        const key = Object.keys(repartidoresMap).find(k => k === repartidor || k.toLowerCase() === String(repartidor).toLowerCase());
-        if (key) return repartidoresMap[key] ?? [];
-        const key2 = Object.keys(repartidoresMap).find(k => k.toLowerCase().includes(String(repartidor).toLowerCase()) || String(repartidor).toLowerCase().includes(k.toLowerCase()));
-        return key2 ? (repartidoresMap[key2] ?? []) : [];
-    }
-
-    // descargar por imagen ya no se usa en este flujo
-
-    // Facturar varias boletas seleccionadas a la vez (usa el endpoint que acepta array)
     async function facturarSeleccionadas() {
         const token = localStorage.getItem('token');
         if (!token) { showError('No autenticado'); return; }
         const ids = Object.keys(selectedIds).filter(k => selectedIds[k]);
         if (ids.length === 0) { showWarning('No hay boletas seleccionadas'); return; }
-
-        // Validar límite de 5 boletas
         if (ids.length > 5) {
             showError(`Límite excedido: Seleccionaste ${ids.length} boletas. El máximo permitido es 5 por operación.`);
             return;
         }
-
-        // Confirmar acción
         if (!confirm(`¿Facturar ${ids.length} boleta(s) seleccionada(s)?`)) return;
-
-        // Marcar todas como en proceso
         setProcessingIds(new Set(ids));
         setIsProcessing(true);
-
         try {
-            // Sin confirm: acción directa
-            const selectedRaw = ids
-                .map(id => items.find((b, i) => getStableId(b, i) === id))
-                .filter(Boolean)
-                .filter(b => {
-                    const id = getStableId(b as BoletaRecord, 0);
-                    return !facturadasSet.has(id);
-                });
-            const { valid, invalid } = buildValidItems(selectedRaw as any[]);
-            if (valid.length === 0) {
-                showWarning('No hay boletas válidas para facturar (todas con total <= 0 o sin ID)');
-                return;
-            }
-            if (invalid.length > 0) {
-                console.warn('[facturarSeleccionadas] Saltando boletas inválidas:', invalid);
-            }
-
-            // Cargar conceptos para cada boleta válida
-            console.log(`📦 Cargando conceptos para ${valid.length} boletas...`);
-            const itemsConConceptos = await Promise.all(
-                valid.map(async (item: any) => {
-                    const ventaId = String(item.id || '');
-                    let next = item;
-                    if (ventaId) {
-                        const conceptos = await getVentaConceptos(ventaId, token);
-                        if (conceptos.length > 0) {
-                            next = { ...next, conceptos };
-                        }
-                    }
-                    return next;
-                })
-            );
-
-            const result = await facturarItems(itemsConConceptos as any, token);
-            if (!result.ok) {
-                showError(result.error || 'Error al facturar');
-                return;
-            }
-            const data = result.data;
-
-            console.log('📦 Respuesta múltiple de facturación:', JSON.stringify(data, null, 2));
-
-            // Si tuvo éxito, limpiar de la selección los IDs procesados
-            setSelectedIds(prev => {
-                const next = { ...prev };
-                ids.forEach(id => delete next[id]);
-                return next;
-            });
-
-            let successMsg = 'Facturación procesada';
-            if (Array.isArray(data)) {
-                const okCount = data.filter((r: any) => r && typeof r === 'object' && r.ok !== false && r.status === 'SUCCESS').length;
-                successMsg = `Facturación procesada: ${okCount} / ${data.length}`;
-
-                // ⭐ Descargar PDFs automáticamente para facturas exitosas
-                const exitosas = data.filter((r: any) => {
-                    if (!r || r.status !== 'SUCCESS') return false;
-                    // Buscar factura_id en ambas ubicaciones posibles
-                    return r.factura_id || (r.result && r.result.factura_id);
-                });
-
-                if (exitosas.length > 0) {
-                    console.log(`📄 Descargando ${exitosas.length} comprobantes...`);
-
-                    for (const item of exitosas) {
-                        const facturaId = item.factura_id || item.result?.factura_id;
-                        if (!facturaId) continue;
-
-                        console.log(`📥 Descargando comprobante #${facturaId}...`);
-
-                        try {
-                            const pdfRes = await fetch(`/api/comprobantes/${facturaId}/pdf`, {
-                                headers: { Authorization: `Bearer ${token}` }
-                            });
-
-                            if (pdfRes.ok) {
-                                const blob = await pdfRes.blob();
-                                console.log(`✅ PDF #${facturaId} descargado (${blob.size} bytes)`);
-
-                                const url = window.URL.createObjectURL(blob);
-                                const a = document.createElement('a');
-                                a.href = url;
-                                a.download = `comprobante_${facturaId}.pdf`;
-                                document.body.appendChild(a);
-                                a.click();
-                                window.URL.revokeObjectURL(url);
-                                document.body.removeChild(a);
-                                // Pequeña pausa entre descargas
-                                await new Promise(resolve => setTimeout(resolve, 500));
-                            } else {
-                                const errorText = await pdfRes.text();
-                                console.error(`❌ Error PDF #${facturaId}:`, pdfRes.status, errorText);
-                            }
-                        } catch (pdfError) {
-                            console.error(`❌ Excepción descargando PDF #${facturaId}:`, pdfError);
-                        }
-                    }
-                    console.log('✅ Proceso de descarga completado');
+            const selectedRaw = ids.map(id => items.find((b) => getStableId(b) === id)).filter(Boolean).filter(b => !facturadasSet.has(getStableId(b as BoletaRecord)));
+            const { valid } = buildValidItems(selectedRaw as Record<string, unknown>[]);
+            if (valid.length === 0) { showWarning('No hay boletas válidas para facturar'); return; }
+            const itemsConConceptos = await Promise.all((valid as unknown as InvoiceItemRequest[]).map(async (item: InvoiceItemRequest) => {
+                const ventaId = String(item.id || '');
+                if (ventaId) {
+                    const conceptos = await getVentaConceptos(ventaId, token);
+                    if (conceptos.length > 0) item.conceptos = conceptos;
                 }
+                return item;
+            }));
+            const result = await facturarItems(itemsConConceptos, token);
+            if (!result.ok) { showError(result.error || 'Error al facturar'); return; }
 
-                // ✅ El sistema ya marca automáticamente en Sheets durante la facturación
-                // Ver: sheets_update_status en la respuesta del backend
-            }
-            if (invalid.length > 0) successMsg += ` (Saltadas ${invalid.length})`;
-            showSuccess(successMsg);
-            // Recarga manual solicitada: delegar al store
-            reload();
+            // 1. Limpieza de IDs: Resetear el estado inmediatamente después de una operación exitosa
+            setSelectedIds({});
+
+            const successMsgStrMulti = `Facturación procesada: ${result.data?.length || 0}`;
+            showSuccess(successMsgStrMulti);
+
+            // 2. Sincronización de UI: Implementar la llamada a reload() después de la limpieza
+            // Garantizar que la actualización de la UI sea consistente
+            await reload();
         } catch (error) {
             console.error('❌ Error en facturación múltiple:', error);
             showError('Error durante la facturación múltiple');
         } finally {
-            // Limpiar todos los IDs de procesamiento
             setProcessingIds(new Set());
             setIsProcessing(false);
         }
     }
 
-    // Test imágenes eliminado del flujo
-
     return (
         <div className="p-4 md:p-6 space-y-4">
-            {/* Toast notifications container */}
             <ToastContainer toasts={toasts} onRemove={removeToast} />
-
             <h1 className="text-xl font-bold text-purple-700">Boletas No Facturadas</h1>
             <div className="flex flex-col gap-3 mb-4">
-                {/* Resumen eliminado en esta vista */}
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 max-w-3xl">
                     <div>
                         <label className="block text-sm text-gray-600 mb-1">Fecha desde</label>
@@ -557,28 +470,30 @@ export default function BoletasNoFacturadasPage() {
                 <div className="overflow-auto border rounded bg-white">
                     <div className="p-2 flex flex-wrap items-center gap-2 sticky top-0 bg-white z-10 border-b">
                         <button
-                            className={`px-3 py-2 rounded text-xs transition-colors flex items-center gap-2 ${isProcessing
-                                ? 'bg-gray-400 cursor-not-allowed'
-                                : 'bg-green-600 hover:bg-green-700 text-white'
-                                }`}
+                            className={`px-3 py-2 rounded text-xs transition-colors flex items-center gap-2 ${isProcessing ? 'bg-gray-400 cursor-not-allowed' : 'bg-green-600 hover:bg-green-700 text-white'}`}
                             onClick={facturarSeleccionadas}
                             disabled={isProcessing}
                         >
-                            {isProcessing && (
-                                <svg className="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                                </svg>
-                            )}
                             {isProcessing ? 'Procesando...' : 'Facturar seleccionadas'}
                         </button>
-                        <button className="px-3 py-2 bg-blue-500 text-white rounded text-xs" onClick={() => reload()}>Refrescar</button>
+                        <button className="px-3 py-2 bg-blue-500 text-white rounded text-xs" onClick={() => { clearSelection(); reload(); }}>Forzar actualización</button>
                         <button className="px-3 py-2 border rounded text-xs" onClick={clearFilters}>Borrar filtros</button>
-                        <div className="flex items-center gap-2">
+
+                        {/* Contador visual de selección con límite */}
+                        <div className={`px-3 py-2 rounded text-xs font-bold border flex items-center gap-2 ${selectedCount >= 5 ? 'bg-red-50 border-red-200 text-red-700' : (selectedCount > 0 ? 'bg-blue-50 border-blue-200 text-blue-700' : 'bg-gray-50 border-gray-200 text-gray-500')}`}>
+                            <span>Seleccionadas: {selectedCount} / 5</span>
+                            {selectedCount >= 5 && <span className="animate-pulse">⚠️ Límite alcanzado</span>}
+                        </div>
+
+                        {selectedCount > 0 && (
+                            <button className="px-3 py-2 bg-red-100 text-red-700 border border-red-200 rounded text-xs hover:bg-red-200 transition-colors" onClick={clearSelection}>
+                                Limpiar selección
+                            </button>
+                        )}
+                        <div className="flex items-center gap-2 ml-auto">
                             <label htmlFor="orden-lista" className="text-[12px] text-gray-600">Orden</label>
                             <select
                                 id="orden-lista"
-                                aria-label="Orden de lista"
                                 className="border rounded px-2 py-1 text-xs"
                                 value={sortDesc ? 'desc' : 'asc'}
                                 onChange={(e) => setSortDesc(e.target.value === 'desc')}
@@ -587,111 +502,150 @@ export default function BoletasNoFacturadasPage() {
                                 <option value="asc">Antiguas primero</option>
                             </select>
                         </div>
-                        <span className="ml-auto text-[11px] text-gray-500">Página {currentPage} de {totalPages} · Mostrando {pageItems.length} de {sortedItems.length}</span>
                     </div>
-                    {/* Mobile list */}
+
                     <div className="md:hidden divide-y">
                         {pageItems.map((b, i) => {
-                            const rawTotal = b.total || b.INGRESOS || '';
-                            const totalNum = typeof rawTotal === 'number' ? rawTotal : parseFloat(String(rawTotal).replace(/,/g, ''));
-                            const total = isNaN(totalNum) ? rawTotal : Math.round(totalNum).toString();
-                            const razonSocial = b.cliente || b.nombre || b['Razon Social'] || '';
-                            const id = getStableId(b, i);
-                            const repartidor = (b.Repartidor ?? (b as Record<string, unknown>)['repartidor'] ?? '') as string;
+                            const id = getStableId(b);
                             const ya = facturadasSet.has(id);
                             return (
                                 <div key={`${id}-${i}`} className="px-3 py-2 flex items-center justify-between gap-3">
-                                    <input aria-label={`Seleccionar boleta ${id}`} type="checkbox" checked={!!selectedIds[id]} onChange={(e) => setSelectedIds(s => ({ ...s, [id]: e.target.checked }))} />
-                                    <div className="min-w-0">
-                                        <div className="font-medium truncate">{razonSocial || '— Sin razón social —'}</div>
-                                        <div className="text-[11px] text-gray-600">Repartidor: {repartidor || '-'}</div>
-                                        {ya && <div className="text-[11px] text-red-600">Ya facturada</div>}
-                                        {(() => {
-                                            const razones = getRazonesFor(repartidor);
-                                            if (!razones || razones.length === 0) return null;
-                                            return <div className="text-[11px] text-gray-500">Razón: {razones.join(', ')}</div>;
-                                        })()}
-                                        <div className="text-[11px] text-gray-600">Total: {String(total)}</div>
+                                    <input
+                                        type="checkbox"
+                                        checked={!!selectedIds[id]}
+                                        disabled={!selectedIds[id] && selectedCount >= 5}
+                                        onChange={(e) => {
+                                            const isChecked = e.target.checked;
+                                            if (isChecked && selectedCount >= 5) {
+                                                showWarning('Límite de selección alcanzado (máximo 5 boletas)');
+                                                return;
+                                            }
+                                            setSelectedIds(prev => {
+                                                const next = { ...prev };
+                                                if (isChecked) next[id] = true;
+                                                else delete next[id];
+                                                return next;
+                                            });
+                                        }}
+                                    />
+                                    <div className="min-w-0 flex-1">
+                                        <div className="font-medium truncate">{String(b.cliente || b.nombre || b['Razon Social'] || '— Sin razón social —')}</div>
+                                        <div className="text-[11px] text-gray-600">Repartidor: {String(b.Repartidor || '-')}</div>
+                                        {ya && <div className="text-[11px] text-red-600 font-bold">Ya facturada</div>}
                                     </div>
-                                    <div className="shrink-0 flex gap-2">
-                                        {!(b['Nro Comprobante']) && (
-                                            <button
-                                                className={`text-xs px-2 py-1 rounded transition-colors ${processingIds.has(id) || ya
-                                                    ? 'bg-gray-400 cursor-not-allowed'
-                                                    : 'bg-green-600 hover:bg-green-700 text-white'
-                                                    }`}
-                                                onClick={() => facturarBoleta(b)}
-                                                disabled={processingIds.has(id) || isProcessing || ya}
-                                            >
-                                                {processingIds.has(id) ? (
-                                                    <span className="flex items-center gap-1">
-                                                        <svg className="animate-spin h-3 w-3" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                                                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                                                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                                                        </svg>
-                                                        Procesando...
-                                                    </span>
-                                                ) : 'Facturar'}
-                                            </button>
-                                        )}
+                                    <div className="text-right">
+                                        <div className="font-bold text-sm">${String(Math.round(parseFloat(String(b.total || b.INGRESOS || '0').replace(/,/g, ''))))}</div>
+                                        <button
+                                            className={`text-xs px-2 py-1 rounded mt-1 ${processingIds.has(id) || ya ? 'bg-gray-400 cursor-not-allowed' : 'bg-green-600 text-white'}`}
+                                            onClick={() => facturarBoleta(b)}
+                                            disabled={processingIds.has(id) || isProcessing || ya}
+                                        >
+                                            {processingIds.has(id) ? '...' : 'Facturar'}
+                                        </button>
                                     </div>
                                 </div>
                             );
                         })}
                     </div>
 
-                    {/* Desktop table */}
                     <div className="hidden md:block">
                         <table className="w-full text-sm">
                             <thead className="bg-purple-50">
                                 <tr>
-                                    <th className="p-2"><input aria-label="Seleccionar todas" type="checkbox" onChange={(e) => { const v = e.target.checked; const m: Record<string, boolean> = {}; pageItems.forEach((b, i) => { const id = getStableId(b, i); if (id && !facturadasSet.has(id)) m[id] = v; }); setSelectedIds(s => ({ ...s, ...m })); }} /></th>
-                                    <th className="p-2">Repartidor</th>
-                                    <th className="p-2">Razón Social</th>
-                                    <th className="p-2">Fecha</th>
-                                    <th className="p-2">Total</th>
-                                    <th className="p-2">Acciones</th>
+                                    <th className="p-2 w-10">
+                                        <input
+                                            type="checkbox"
+                                            onChange={(e) => {
+                                                const v = e.target.checked;
+                                                const m: Record<string, boolean> = {};
+
+                                                if (v) {
+                                                    // Si intentamos seleccionar todo, debemos respetar el límite de 5
+                                                    let count = selectedCount;
+                                                    pageItems.forEach((b) => {
+                                                        const id = getStableId(b);
+                                                        if (id && !facturadasSet.has(id) && !selectedIds[id]) {
+                                                            if (count < 5) {
+                                                                m[id] = true;
+                                                                count++;
+                                                            }
+                                                        }
+                                                    });
+                                                    if (count === 5 && pageItems.some(b => !facturadasSet.has(getStableId(b)) && !selectedIds[getStableId(b)] && !m[getStableId(b)])) {
+                                                        showWarning('Solo se seleccionaron las primeras boletas hasta alcanzar el límite de 5');
+                                                    }
+                                                } else {
+                                                    // Deseleccionar todos los visibles
+                                                    pageItems.forEach((b) => {
+                                                        const id = getStableId(b);
+                                                        if (id) m[id] = false;
+                                                    });
+                                                }
+
+                                                setSelectedIds(s => {
+                                                    const next = { ...s };
+                                                    Object.keys(m).forEach(k => {
+                                                        if (m[k]) next[k] = true;
+                                                        else delete next[k];
+                                                    });
+                                                    return next;
+                                                });
+                                            }}
+                                            checked={pageItems.length > 0 && pageItems.every((b) => {
+                                                const id = getStableId(b);
+                                                return facturadasSet.has(id) || !!selectedIds[id];
+                                            })}
+                                        />
+                                    </th>
+                                    <th className="p-2 text-left">Repartidor</th>
+                                    <th className="p-2 text-left">Razón Social</th>
+                                    <th className="p-2 text-left">Fecha</th>
+                                    <th className="p-2 text-right">Total</th>
+                                    <th className="p-2 text-center">Acciones</th>
                                 </tr>
                             </thead>
                             <tbody>
                                 {pageItems.map((b, i) => {
-                                    const rawTotal = b.total || b.INGRESOS || '';
-                                    const totalNum = typeof rawTotal === 'number' ? rawTotal : parseFloat(String(rawTotal).replace(/,/g, ''));
-                                    const total = isNaN(totalNum) ? rawTotal : Math.round(totalNum).toString();
-                                    const razonSocial = b.cliente || b.nombre || b['Razon Social'] || '';
-                                    const id = getStableId(b, i);
-                                    const repartidor = (b.Repartidor ?? (b as Record<string, unknown>)['repartidor'] ?? '') as string;
-                                    const fecha = String((b as Record<string, unknown>)['Fecha'] || (b as Record<string, unknown>)['fecha'] || '');
+                                    const id = getStableId(b);
                                     const ya = facturadasSet.has(id);
                                     return (
-                                        <tr key={`${id}-${i}`} className="border-t">
-                                            <td className="p-2"><input aria-label={`Seleccionar boleta ${id}`} type="checkbox" checked={!!selectedIds[id]} onChange={(e) => setSelectedIds(s => ({ ...s, [id]: e.target.checked }))} /></td>
-                                            <td className="p-2">{repartidor}</td>
-                                            <td className="p-2">{razonSocial}</td>
-                                            <td className="p-2">{fecha}</td>
-                                            <td className="p-2">{total}</td>
-                                            <td className="p-2 flex gap-2">
-                                                {!(b['Nro Comprobante']) && (
+                                        <tr key={`${id}-${i}`} className={`border-t hover:bg-gray-50 ${ya ? 'opacity-60 bg-gray-50' : ''}`}>
+                                            <td className="p-2 text-center">
+                                                <input
+                                                    type="checkbox"
+                                                    checked={!!selectedIds[id]}
+                                                    disabled={ya || (!selectedIds[id] && selectedCount >= 5)}
+                                                    onChange={(e) => {
+                                                        const isChecked = e.target.checked;
+                                                        if (isChecked && selectedCount >= 5) {
+                                                            showWarning('Límite de selección alcanzado (máximo 5 boletas)');
+                                                            return;
+                                                        }
+                                                        setSelectedIds(prev => {
+                                                            const next = { ...prev };
+                                                            if (isChecked) next[id] = true;
+                                                            else delete next[id];
+                                                            return next;
+                                                        });
+                                                    }}
+                                                />
+                                            </td>
+                                            <td className="p-2">{String(b.Repartidor || '-')}</td>
+                                            <td className="p-2">{String(b.cliente || b.nombre || b['Razon Social'] || '—')}</td>
+                                            <td className="p-2">{String(b.Fecha || b.fecha || '-')}</td>
+                                            <td className="p-2 text-right font-mono font-bold">${String(Math.round(parseFloat(String(b.total || b.INGRESOS || '0').replace(/,/g, ''))))}</td>
+                                            <td className="p-2 text-center">
+                                                {ya ? (
+                                                    <span className="text-xs font-bold text-red-600">YA FACTURADA</span>
+                                                ) : (
                                                     <button
-                                                        className={`px-2 py-1 rounded transition ${processingIds.has(id) || ya
-                                                            ? 'bg-gray-400 cursor-not-allowed'
-                                                            : 'bg-green-500 hover:bg-green-600 text-white'
-                                                            }`}
+                                                        className={`px-3 py-1 rounded text-xs transition ${processingIds.has(id) ? 'bg-gray-400' : 'bg-green-500 hover:bg-green-600 text-white'}`}
                                                         onClick={() => facturarBoleta(b)}
-                                                        disabled={processingIds.has(id) || isProcessing || ya}
+                                                        disabled={processingIds.has(id) || isProcessing}
                                                     >
-                                                        {processingIds.has(id) ? (
-                                                            <span className="flex items-center gap-1">
-                                                                <svg className="animate-spin h-3 w-3" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                                                                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                                                                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                                                                </svg>
-                                                                Procesando...
-                                                            </span>
-                                                        ) : 'Facturar'}
+                                                        {processingIds.has(id) ? 'Procesando...' : 'Facturar'}
                                                     </button>
                                                 )}
-                                                {ya && <span className="text-xs text-red-600">Ya facturada</span>}
                                             </td>
                                         </tr>
                                     );
@@ -700,18 +654,16 @@ export default function BoletasNoFacturadasPage() {
                         </table>
                     </div>
 
-                    <div className="flex items-center justify-between p-2 border-t gap-3">
-                        <div className="text-[11px] text-gray-500">Página {currentPage} de {totalPages} · Mostrando {pageItems.length} de {filteredItems.length}</div>
+                    <div className="flex items-center justify-between p-2 border-t gap-3 bg-gray-50">
+                        <div className="text-[11px] text-gray-500 font-medium">Página {currentPage} de {totalPages} · {filteredItems.length} boletas encontradas</div>
                         <div className="flex items-center gap-2">
                             <button
-                                aria-label="Página anterior"
-                                className={`px-3 py-2 rounded text-sm border ${currentPage <= 1 ? 'bg-gray-200 text-gray-500 cursor-not-allowed' : 'bg-white hover:bg-gray-50'}`}
+                                className={`px-3 py-1 rounded text-sm border ${currentPage <= 1 ? 'bg-gray-200 text-gray-400 cursor-not-allowed' : 'bg-white hover:bg-gray-100'}`}
                                 onClick={() => setPage(p => Math.max(1, p - 1))}
                                 disabled={currentPage <= 1}
                             >Anterior</button>
                             <button
-                                aria-label="Página siguiente"
-                                className={`px-3 py-2 rounded text-sm border ${currentPage >= totalPages ? 'bg-gray-200 text-gray-500 cursor-not-allowed' : 'bg-white hover:bg-gray-50'}`}
+                                className={`px-3 py-1 rounded text-sm border ${currentPage >= totalPages ? 'bg-gray-200 text-gray-400 cursor-not-allowed' : 'bg-white hover:bg-gray-100'}`}
                                 onClick={() => setPage(p => Math.min(totalPages, p + 1))}
                                 disabled={currentPage >= totalPages}
                             >Siguiente</button>
@@ -719,11 +671,10 @@ export default function BoletasNoFacturadasPage() {
                     </div>
 
                     {filteredItems.length === 0 && (
-                        <div className="p-4 text-gray-500">No hay boletas</div>
+                        <div className="p-12 text-center text-gray-500 italic">No se encontraron boletas con los filtros actuales</div>
                     )}
                 </div>
             )}
-            {/* Modal de detalles eliminado */}
         </div>
     );
 }

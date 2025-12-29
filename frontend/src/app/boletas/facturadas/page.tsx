@@ -1,6 +1,6 @@
 "use client";
-import { useEffect, useState, useMemo } from 'react';
-import { useBoletas } from '@/context/BoletasStore';
+import { useEffect, useState, useMemo, useRef } from 'react';
+import { useBoletas, BoletasFilters } from '@/context/BoletasStore';
 // Image import removed because data-URL QR previews use plain <img>
 import { LoadingSpinner } from "../../components/LoadingSpinner";
 import { useToast } from "@/hooks/useToast";
@@ -31,87 +31,181 @@ export default function BoletasFacturadasPage() {
     // Toast notifications
     const { toasts, removeToast, success: showSuccess, error: showError } = useToast();
 
-    function imprimirComprobante(b: BoletaRecord) {
-        // Descarga directa del PDF usando el factura_id
-        (async () => {
-            const token = localStorage.getItem('token');
-            if (!token) { showError('No autenticado'); return; }
+    // Estado de procesamiento para botones
+    const [processingId, setProcessingId] = useState<string | number | null>(null);
+    const objectUrlsRef = useRef<Set<string>>(new Set());
 
-            // Buscar el factura_id en la boleta
-            const facturaId = b.id; // En boletas facturadas, el ID es el factura_id
-            if (!facturaId) {
-                showError('ID de factura no disponible');
+    // Limpieza de ObjectURLs al desmontar
+    useEffect(() => {
+        const urls = objectUrlsRef.current;
+        return () => {
+            urls.forEach(url => window.URL.revokeObjectURL(url));
+            urls.clear();
+        };
+    }, []);
+
+    const getFacturaId = (b: BoletaRecord): string | number | null => {
+        // Priorizar IDs específicos de facturación AFIP si existen
+        return (b as Record<string, unknown>).factura_id as string | number | null || b.id || b.ingreso_id || b['ID Ingresos'] || null;
+    };
+
+    const isAnulada = (b: BoletaRecord): boolean => {
+        const v = (b as Record<string, unknown>).anulada;
+        return v === true || v === 1 || v === '1' || String(v).toLowerCase() === 'true';
+    };
+
+    async function imprimirComprobante(b: BoletaRecord) {
+        const token = localStorage.getItem('token');
+        if (!token) { showError('No autenticado'); return; }
+
+        const facturaId = getFacturaId(b);
+        if (!facturaId) {
+            showError('ID de factura no disponible');
+            return;
+        }
+
+        try {
+            setProcessingId(facturaId);
+            showSuccess('Generando PDF...');
+
+            const res = await fetch(`/api/comprobantes/${facturaId}/pdf`, {
+                headers: { Authorization: `Bearer ${token}` }
+            });
+
+            if (!res.ok) {
+                const txt = await res.text().catch(() => res.statusText || 'Error');
+                showError(`Error al descargar comprobante: ${txt}`);
                 return;
             }
 
-            try {
-                showSuccess('Descargando comprobante...');
-
-                const res = await fetch(`/api/comprobantes/${facturaId}/pdf`, {
-                    headers: { Authorization: `Bearer ${token}` }
-                });
-
-                if (!res.ok) {
-                    const txt = await res.text().catch(() => res.statusText || 'Error');
-                    showError(`Error al descargar comprobante: ${txt}`);
-                    return;
-                }
-
-                const blob = await res.blob();
-
-                // Verificar que sea un PDF
-                if (blob.type !== 'application/pdf') {
-                    showError('El archivo descargado no es un PDF válido');
-                    return;
-                }
-
-                const filename = `comprobante_${String(facturaId)}.pdf`;
-                const url = URL.createObjectURL(blob);
-                const a = document.createElement('a');
-                a.style.display = 'none';
-                a.href = url;
-                a.download = filename;
-                a.target = '_blank';
-                document.body.appendChild(a);
-
-                await new Promise(resolve => setTimeout(resolve, 100));
-                a.click();
-
-                // Intentar abrir en ventana nueva como fallback
-                try {
-                    window.open(url, '_blank');
-                } catch (e) {
-                    console.log('ℹ️ No se pudo abrir en ventana nueva');
-                }
-
-                setTimeout(() => {
-                    URL.revokeObjectURL(url);
-                    if (document.body.contains(a)) {
-                        document.body.removeChild(a);
-                    }
-                }, 2000);
-
-                showSuccess('✅ Comprobante descargado exitosamente');
-            } catch (error) {
-                showError('Error al descargar comprobante: ' + String(error));
+            const blob = await res.blob();
+            if (blob.type !== 'application/pdf') {
+                showError('El archivo descargado no es un PDF válido');
+                return;
             }
-        })();
+
+            const url = URL.createObjectURL(blob);
+            objectUrlsRef.current.add(url);
+
+            const filename = `comprobante_${String(facturaId)}.pdf`;
+            const a = document.createElement('a');
+            a.style.display = 'none';
+            a.href = url;
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+
+            // Fallback para visualización
+            window.open(url, '_blank');
+
+            setTimeout(() => {
+                URL.revokeObjectURL(url);
+                objectUrlsRef.current.delete(url);
+                if (document.body.contains(a)) document.body.removeChild(a);
+            }, 5000); // 5 segundos para asegurar la descarga
+
+            showSuccess('✅ Comprobante descargado');
+        } catch (error) {
+            showError('Error al descargar comprobante: ' + String(error));
+        } finally {
+            setProcessingId(null);
+        }
     }
 
-    // Removed unused helpers (facturarYImprimir, descargarComprobanteJPG) to avoid eslint warnings
+    async function descargarTicketNC(b: BoletaRecord) {
+        const token = localStorage.getItem('token');
+        if (!token) { showError('No autenticado'); return; }
 
-    // escapeXml removed: not used in this file
+        const fid = getFacturaId(b);
+        if (!fid) { showError('ID de factura no disponible'); return; }
 
-    // Helpers removed: QR image download/convert helpers were unused after removing QR UI
+        try {
+            setProcessingId(`nc-${fid}`);
+            showSuccess('Generando Ticket NC...');
 
-    // Obtener razones sociales asociadas a un repartidor, con coincidencia flexible
-    function getRazonesFor(_repartidor: string | undefined): string[] { return []; }
-    const { boletasFacturadas, loading: storeLoading, error: storeError, reload, lastUpdated } = useBoletas();
+            const res = await fetch(`/api/comprobantes/nota-credito/${fid}/pdf`, {
+                headers: { Authorization: `Bearer ${token}` }
+            });
+
+            if (!res.ok) {
+                const txt = await res.text().catch(() => 'Error al descargar');
+                showError(`No se pudo descargar Ticket NC: ${txt}`);
+                return;
+            }
+
+            const blob = await res.blob();
+            if (blob.type !== 'application/pdf') {
+                showError('El archivo no es un PDF válido');
+                return;
+            }
+
+            const url = URL.createObjectURL(blob);
+            objectUrlsRef.current.add(url);
+
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `nota_credito_${fid}.pdf`;
+            document.body.appendChild(a);
+            a.click();
+
+            setTimeout(() => {
+                URL.revokeObjectURL(url);
+                objectUrlsRef.current.delete(url);
+                if (document.body.contains(a)) document.body.removeChild(a);
+            }, 5000);
+
+            showSuccess('Ticket de Nota de Crédito descargado');
+        } catch (e) {
+            showError('Error descargando Ticket NC: ' + String(e));
+        } finally {
+            setProcessingId(null);
+        }
+    }
+
+    async function anularComprobante(b: BoletaRecord) {
+        const token = localStorage.getItem('token');
+        if (!token) { showError('No autenticado'); return; }
+
+        const fid = getFacturaId(b);
+        if (!fid) { showError('ID de factura no disponible'); return; }
+
+        const motivo = prompt('Motivo de anulación (opcional):') || '';
+
+        try {
+            setProcessingId(`anular-${fid}`);
+            showSuccess('Procesando anulación en AFIP (puede tardar unos segundos)...');
+
+            const res = await fetch(`/api/facturador/anular-afip/${fid}`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    Authorization: `Bearer ${token}`
+                },
+                body: JSON.stringify({ motivo, force: true })
+            });
+
+            const data = await res.json().catch(() => null);
+
+            if (!res.ok) {
+                const errorMsg = data?.detail || data?.error || 'Error al anular';
+                showError(String(errorMsg));
+                return;
+            }
+
+            showSuccess(`✅ Anulada exitosamente. NC: ${String(data?.codigo_nota_credito || '')}`);
+            // Recargar datos para reflejar el estado anulado
+            await reload();
+        } catch (e) {
+            showError('Error al procesar anulación: ' + String(e));
+        } finally {
+            setProcessingId(null);
+        }
+    }
+    const { boletasFacturadas, loading: storeLoading, error: storeError, reload } = useBoletas();
     const [items, setItems] = useState<BoletaRecord[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
     const [search, setSearch] = useState('');
-    const [repartidoresMap, setRepartidoresMap] = useState<Record<string, string[]> | null>(null);
     const [fechaDesde, setFechaDesde] = useState<string>('');
     const [fechaHasta, setFechaHasta] = useState<string>('');
     const [statusFilter, setStatusFilter] = useState<'all' | 'anuladas' | 'activas'>('all');
@@ -120,21 +214,6 @@ export default function BoletasFacturadasPage() {
         setLoading(storeLoading);
         setError(storeError ?? '');
         setItems(boletasFacturadas as BoletaRecord[]);
-
-        // Load repartidores mapping independently (unchanged)
-        (async function loadRepartidores() {
-            try {
-                const token = localStorage.getItem('token');
-                if (!token) return;
-                const r = await fetch('/api/boletas/repartidores', { headers: { Authorization: `Bearer ${token}` } });
-                if (!r.ok) return;
-                // Consumir endpoint para validación pero no poblar razones en UI facturadas
-                await r.json().catch(() => []);
-                setRepartidoresMap({});
-            } catch {
-                // no bloquear la carga de boletas si falla esta llamada
-            }
-        })();
     }, [boletasFacturadas, storeLoading, storeError]);
 
     // Restaurar/persistir fechas
@@ -168,42 +247,39 @@ export default function BoletasFacturadasPage() {
         return null;
     };
 
-    const itemsConFecha = useMemo(() => {
-        return items.filter((b) => {
-            if (!fechaDesde && !fechaHasta) return true;
-            const fechaRaw = String(
-                (b as Record<string, unknown>)['fecha_comprobante'] ||
-                (b as Record<string, unknown>)['created_at'] ||
-                (b as Record<string, unknown>)['Fecha'] ||
-                (b as Record<string, unknown>)['fecha'] ||
-                (b as Record<string, unknown>)['FECHA'] || ''
-            );
-            const f = normalizaFecha(fechaRaw);
-            if (!f) return false;
-            if (fechaDesde && f < fechaDesde) return false;
-            if (fechaHasta && f > fechaHasta) return false;
-            return true;
-        });
-    }, [items, fechaDesde, fechaHasta]);
-
-    // Filtrar items por búsqueda
-    function isAnulada(b: BoletaRecord): boolean {
-        const v: any = (b as any).anulada;
-        return v === true || v === 1 || v === '1' || String(v).toLowerCase() === 'true';
-    }
-
     const filteredItems = useMemo(() => {
         const searchText = search.toLowerCase();
-        return itemsConFecha.filter((b) => {
+        return items.filter((b) => {
+            // Filtro por búsqueda
             const razonSocial = (b.cliente || b.nombre || b['Razon Social'] || '').toString().toLowerCase();
             const repartidor = (b.Repartidor ?? (b as Record<string, unknown>)['repartidor'] ?? '').toString().toLowerCase();
             const match = razonSocial.includes(searchText) || repartidor.includes(searchText);
             if (!match) return false;
-            if (statusFilter === 'all') return true;
-            if (statusFilter === 'anuladas') return isAnulada(b);
-            return !isAnulada(b);
+
+            // Filtro por estado
+            const anulada = isAnulada(b);
+            if (statusFilter === 'anuladas' && !anulada) return false;
+            if (statusFilter === 'activas' && anulada) return false;
+
+            // Filtro por fecha (opcional como salvaguarda local)
+            if (fechaDesde || fechaHasta) {
+                const fechaRaw = String(
+                    (b as Record<string, unknown>)['fecha_comprobante'] ||
+                    (b as Record<string, unknown>)['created_at'] ||
+                    (b as Record<string, unknown>)['Fecha'] ||
+                    (b as Record<string, unknown>)['fecha'] ||
+                    (b as Record<string, unknown>)['FECHA'] || ''
+                );
+                const f = normalizaFecha(fechaRaw);
+                if (f) {
+                    if (fechaDesde && f < fechaDesde) return false;
+                    if (fechaHasta && f > fechaHasta) return false;
+                }
+            }
+
+            return true;
         });
-    }, [itemsConFecha, search, statusFilter]);
+    }, [items, search, statusFilter, fechaDesde, fechaHasta]);
 
     const [sortDesc, setSortDesc] = useState<boolean>(true);
 
@@ -236,6 +312,23 @@ export default function BoletasFacturadasPage() {
     const startIndex = (currentPage - 1) * PAGE_SIZE;
     const endIndex = startIndex + PAGE_SIZE;
     const pageItems = sortedItems.slice(startIndex, endIndex);
+    // Sincronizar filtros con el store de forma controlada
+    const initialLoadRef = useRef(false);
+    useEffect(() => {
+        // Evitar el primer render si los filtros están vacíos (el store ya carga por defecto)
+        if (!initialLoadRef.current && !fechaDesde && !fechaHasta) {
+            initialLoadRef.current = true;
+            return;
+        }
+
+        const filters: BoletasFilters = {};
+        if (fechaDesde) filters.fechaDesde = fechaDesde;
+        if (fechaHasta) filters.fechaHasta = fechaHasta;
+
+        reload(filters);
+        initialLoadRef.current = true;
+    }, [fechaDesde, fechaHasta, reload]);
+
     useEffect(() => { setPage(1); }, [search, fechaDesde, fechaHasta]);
 
     return (
@@ -294,7 +387,7 @@ export default function BoletasFacturadasPage() {
                         aria-label="Filtro de estado"
                         className="border rounded px-2 py-1 text-xs"
                         value={statusFilter}
-                        onChange={(e) => setStatusFilter(e.target.value as any)}
+                        onChange={(e) => setStatusFilter(e.target.value as 'all' | 'anuladas' | 'activas')}
                     >
                         <option value="all">Todas</option>
                         <option value="activas">Activas</option>
@@ -317,84 +410,50 @@ export default function BoletasFacturadasPage() {
                             const totalNum = typeof rawTotal === 'number' ? rawTotal : parseFloat(String(rawTotal).replace(/,/g, ''));
                             const total = isNaN(totalNum) ? rawTotal : Math.round(totalNum).toString();
                             const razonSocial = b.razon_social || b.cliente || b.nombre || b['Razon Social'] || '';
-                            const id = b.ingreso_id || b['ID Ingresos'] || b.id || i;
+                            const fid = getFacturaId(b) || i;
                             const repartidor = (b.repartidor ?? b.Repartidor ?? '') as string;
-                            const nroComp = b['Nro Comprobante'] || b.numero_comprobante || (b as Record<string, unknown>)['numero_comprobante'];
+                            const anulada = isAnulada(b);
+
                             return (
-                                <div key={`${String(id)}-${i}`} className="px-3 py-2 flex items-center justify-between gap-3">
-                                    <div className="min-w-0">
-                                        <div className="font-medium truncate">{String(razonSocial)}</div>
+                                <div key={`${String(fid)}-${i}`} className="px-3 py-2 flex items-center justify-between gap-3">
+                                    <div className="min-w-0 flex-1">
+                                        <div className="flex items-center gap-2">
+                                            <div className="font-medium truncate">{String(razonSocial)}</div>
+                                            <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${anulada ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'}`}>
+                                                {anulada ? 'ANULADA' : 'VIGENTE'}
+                                            </span>
+                                        </div>
                                         <div className="text-[11px] text-gray-600">Repartidor: {String(repartidor || '-')}</div>
-                                        {/* Mostrar sólo la razón social de la boleta; no listar razones del repartidor */}
                                         <div className="text-[11px] text-gray-600">Fecha: {String(b.fecha_comprobante || b.created_at || '-')}</div>
-                                        <div className="text-[11px] text-gray-600">Total: {String(total)}</div>
+                                        <div className="text-[11px] text-gray-600 font-bold">Total: ${String(total)}</div>
                                     </div>
-                                    <div className="shrink-0 flex gap-2">
-                                        {/* Botón de detalles y facturar removidos */}
-                                        <button
-                                            className="text-xs bg-gray-200 px-2 py-1 rounded hover:bg-gray-300"
-                                            onClick={() => imprimirComprobante(b)}
-                                        >Imprimir</button>
-                                        <button
-                                            className="text-xs bg-blue-500 text-white px-2 py-1 rounded hover:bg-blue-600"
-                                            onClick={() => {
-                                                (async () => {
-                                                    const token = localStorage.getItem('token')
-                                                    if (!token) { showError('No autenticado'); return }
-                                                    const fid = String(b.id || b.ingreso_id || '')
-                                                    if (!fid) { showError('ID de factura no disponible'); return }
-                                                    try {
-                                                        const bases = [process.env.NEXT_PUBLIC_BACKEND_URL || '', window.location.origin]
-                                                        const paths = [`/comprobantes/nota-credito/${fid}/pdf`, `/api/comprobantes/nota-credito/${fid}/pdf`]
-                                                        let done = false
-                                                        for (const base of bases) {
-                                                            for (const p of paths) {
-                                                                const urlTry = `${String(base).replace(/\/$/, '')}${p}`
-                                                                try {
-                                                                    const res = await fetch(urlTry, { headers: { Authorization: `Bearer ${token}` } })
-                                                                    if (res.ok) {
-                                                                        const blob = await res.blob()
-                                                                        if (blob.type !== 'application/pdf') continue
-                                                                        const url = URL.createObjectURL(blob)
-                                                                        const a = document.createElement('a')
-                                                                        a.href = url
-                                                                        a.download = `nota_credito_${fid}.pdf`
-                                                                        document.body.appendChild(a)
-                                                                        a.click()
-                                                                        setTimeout(() => { URL.revokeObjectURL(url); if (document.body.contains(a)) document.body.removeChild(a) }, 1500)
-                                                                        showSuccess('Ticket de Nota de Crédito descargado')
-                                                                        done = true
-                                                                        break
-                                                                    }
-                                                                } catch { }
-                                                            }
-                                                            if (done) break
-                                                        }
-                                                        if (!done) showError('No se pudo descargar Ticket NC')
-                                                    } catch (e) { showError('Error descargando Ticket NC: ' + String(e)) }
-                                                })()
-                                            }}
-                                        >Ticket NC</button>
-                                        <button
-                                            className="text-xs bg-red-500 text-white px-2 py-1 rounded hover:bg-red-600"
-                                            onClick={() => {
-                                                (async () => {
-                                                    const token = localStorage.getItem('token')
-                                                    if (!token) { showError('No autenticado'); return }
-                                                    const motivo = prompt('Motivo de anulación (opcional):') || ''
-                                                    const res = await fetch(`/api/facturador/anular-afip/${String(b.id || b.ingreso_id || '')}`, {
-                                                        method: 'POST',
-                                                        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-                                                        referrerPolicy: 'strict-origin-when-cross-origin',
-                                                        body: JSON.stringify({ motivo, force: true })
-                                                    })
-                                                    const data = await res.json().catch(() => null)
-                                                    if (!res.ok) { showError(String((data as any)?.detail || (data as any)?.error || 'Error al anular')); return }
-                                                    showSuccess(`Anulada. Código: ${String((data as any)?.codigo_nota_credito || '')}`)
-                                                    reload()
-                                                })()
-                                            }}
-                                        >Anular</button>
+                                    <div className="shrink-0 flex flex-col gap-1">
+                                        {!anulada ? (
+                                            <>
+                                                <button
+                                                    disabled={!!processingId}
+                                                    className={`text-[11px] px-2 py-1.5 rounded font-medium min-w-[70px] ${processingId ? 'bg-gray-100 text-gray-400' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'}`}
+                                                    onClick={() => imprimirComprobante(b)}
+                                                >
+                                                    {processingId === fid ? <LoadingSpinner size="xs" /> : 'Imprimir'}
+                                                </button>
+                                                <button
+                                                    disabled={!!processingId}
+                                                    className={`text-[11px] px-2 py-1.5 rounded font-medium min-w-[70px] ${processingId ? 'bg-gray-100 text-gray-400' : 'bg-red-500 text-white hover:bg-red-600'}`}
+                                                    onClick={() => anularComprobante(b)}
+                                                >
+                                                    {processingId === `anular-${fid}` ? '...' : 'Anular'}
+                                                </button>
+                                            </>
+                                        ) : (
+                                            <button
+                                                disabled={!!processingId}
+                                                className={`text-[11px] px-2 py-1.5 rounded font-medium min-w-[80px] ${processingId ? 'bg-gray-100 text-gray-400' : 'bg-blue-500 text-white hover:bg-blue-600'}`}
+                                                onClick={() => descargarTicketNC(b)}
+                                            >
+                                                {processingId === `nc-${fid}` ? <LoadingSpinner size="xs" /> : 'Ticket NC'}
+                                            </button>
+                                        )}
                                     </div>
                                 </div>
                             );
@@ -417,102 +476,57 @@ export default function BoletasFacturadasPage() {
                             </thead>
                             <tbody>
                                 {pageItems.map((b, i) => {
-                                    // Acomodar el campo importe_total que manda el backend
                                     const rawTotal = b.importe_total || b.total || b.INGRESOS || '';
                                     const totalNum = typeof rawTotal === 'number' ? rawTotal : parseFloat(String(rawTotal).replace(/,/g, ''));
                                     const total = isNaN(totalNum) ? rawTotal : Math.round(totalNum).toString();
                                     const razonSocial = b.cliente || b.nombre || b['Razon Social'] || '';
-                                    const id = b.ingreso_id || b['ID Ingresos'] || b.id || i;
+                                    const fid = getFacturaId(b) || i;
                                     const repartidor = (b.Repartidor ?? (b as Record<string, unknown>)['repartidor'] ?? '') as string;
-                                    const nroComp = b['Nro Comprobante'] || b.numero_comprobante || (b as Record<string, unknown>)['numero_comprobante'];
-                                    const anulada = isAnulada(b)
+                                    const anulada = isAnulada(b);
+
                                     return (
-                                        <tr key={`${String(id)}-${i}`} className="border-t">
+                                        <tr key={`${String(fid)}-${i}`} className="border-t hover:bg-gray-50">
                                             <td className="p-2">
                                                 <div>{String(repartidor)}</div>
                                             </td>
                                             <td className="p-2">{String(razonSocial)}</td>
                                             <td className="p-2">{String(b.fecha_comprobante || b.created_at || '-')}</td>
-                                            <td className="p-2">{total}</td>
-                                            <td className="p-2">{b.cae || '-'}</td>
+                                            <td className="p-2 font-medium">${total}</td>
+                                            <td className="p-2 text-xs text-gray-500 font-mono">{b.cae || '-'}</td>
                                             <td className="p-2">
-                                                <span className={`px-2 py-1 rounded text-xs ${anulada ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'}`}>{anulada ? 'Anulada' : 'Vigente'}</span>
+                                                <span className={`px-2 py-1 rounded text-[10px] font-bold ${anulada ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'}`}>
+                                                    {anulada ? 'ANULADA' : 'VIGENTE'}
+                                                </span>
                                             </td>
-                                            <td className="p-2 flex gap-2">
-                                                <button
-                                                    className={`text-xs px-2 py-1 rounded ${anulada ? 'bg-gray-300 text-gray-500 cursor-not-allowed' : 'bg-gray-200 hover:bg-gray-300'}`}
-                                                    onClick={() => { if (!anulada) imprimirComprobante(b) }}
-                                                    disabled={anulada}
-                                                >Imprimir</button>
-                                                <button
-                                                    className="text-xs bg-blue-500 text-white px-2 py-1 rounded hover:bg-blue-600"
-                                                    onClick={() => {
-                                                        (async () => {
-                                                            const token = localStorage.getItem('token')
-                                                            if (!token) { showError('No autenticado'); return }
-                                                            const fid = String(b.id || (b as any).ingreso_id || '')
-                                                            if (!fid) { showError('ID de factura no disponible'); return }
-                                                            try {
-                                                                const bases = [process.env.NEXT_PUBLIC_BACKEND_URL || '', window.location.origin]
-                                                                const paths = [`/comprobantes/nota-credito/${fid}/pdf`, `/api/comprobantes/nota-credito/${fid}/pdf`]
-                                                                let done = false
-                                                                for (const base of bases) {
-                                                                    for (const p of paths) {
-                                                                        const urlTry = `${String(base).replace(/\/$/, '')}${p}`
-                                                                        try {
-                                                                            const res = await fetch(urlTry, { headers: { Authorization: `Bearer ${token}` } })
-                                                                            if (res.ok) {
-                                                                                const blob = await res.blob()
-                                                                                if (blob.type !== 'application/pdf') continue
-                                                                                const url = URL.createObjectURL(blob)
-                                                                                const a = document.createElement('a')
-                                                                                a.href = url
-                                                                                a.download = `nota_credito_${fid}.pdf`
-                                                                                document.body.appendChild(a)
-                                                                                a.click()
-                                                                                setTimeout(() => { URL.revokeObjectURL(url); if (document.body.contains(a)) document.body.removeChild(a) }, 1500)
-                                                                                showSuccess('Ticket de Nota de Crédito descargado')
-                                                                                done = true
-                                                                                break
-                                                                            }
-                                                                        } catch { }
-                                                                    }
-                                                                    if (done) break
-                                                                }
-                                                                if (!done) showError('No se pudo descargar Ticket NC')
-                                                            } catch (e) { showError('Error descargando Ticket NC: ' + String(e)) }
-                                                        })()
-                                                    }}
-                                                >Ticket NC</button>
-                                                <button
-                                                    className="text-xs bg-red-500 text-white px-2 py-1 rounded hover:bg-red-600"
-                                                    onClick={() => {
-                                                        (async () => {
-                                                            const token = localStorage.getItem('token')
-                                                            if (!token) { showError('No autenticado'); return }
-                                                            const motivo = prompt('Motivo de anulación (opcional):') || ''
-                                                            const fid2 = String(b.id || (b as any).ingreso_id || '')
-                                                            const bases2 = [process.env.NEXT_PUBLIC_BACKEND_URL || '', window.location.origin]
-                                                            const paths2 = [`/facturador/anular-afip/${fid2}`, `/api/facturador/anular-afip/${fid2}`]
-                                                            let ok = false, data: any = null
-                                                            for (const base of bases2) {
-                                                                for (const p of paths2) {
-                                                                    const urlTry = `${String(base).replace(/\/$/, '')}${p}`
-                                                                    try {
-                                                                        const r = await fetch(urlTry, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, referrerPolicy: 'strict-origin-when-cross-origin', body: JSON.stringify({ motivo, force: true }) })
-                                                                        const t = await r.text()
-                                                                        data = t && (t.trim().startsWith('{') || t.trim().startsWith('[')) ? JSON.parse(t) : t
-                                                                        if (r.ok) { ok = true; break }
-                                                                    } catch { }
-                                                                }
-                                                                if (ok) break
-                                                            }
-                                                            if (!ok) { showError(String((data as any)?.detail || (data as any)?.error || 'Error al anular')); return }
-                                                            showSuccess(`Anulada. Código: ${String((data as any)?.codigo_nota_credito || '')}`)
-                                                            reload()
-                                                        })()
-                                                    }}
-                                                >Anular</button>
+                                            <td className="p-2">
+                                                <div className="flex gap-2">
+                                                    {!anulada ? (
+                                                        <>
+                                                            <button
+                                                                disabled={!!processingId}
+                                                                className={`text-[11px] px-2 py-1 rounded font-medium min-w-[70px] ${processingId ? 'bg-gray-100 text-gray-400' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'}`}
+                                                                onClick={() => imprimirComprobante(b)}
+                                                            >
+                                                                {processingId === fid ? <LoadingSpinner size="xs" /> : 'Imprimir'}
+                                                            </button>
+                                                            <button
+                                                                disabled={!!processingId}
+                                                                className={`text-[11px] px-2 py-1 rounded font-medium min-w-[70px] ${processingId ? 'bg-gray-100 text-gray-400' : 'bg-red-500 text-white hover:bg-red-600'}`}
+                                                                onClick={() => anularComprobante(b)}
+                                                            >
+                                                                {processingId === `anular-${fid}` ? '...' : 'Anular'}
+                                                            </button>
+                                                        </>
+                                                    ) : (
+                                                        <button
+                                                            disabled={!!processingId}
+                                                            className={`text-[11px] px-2 py-1 rounded font-medium min-w-[80px] ${processingId ? 'bg-gray-100 text-gray-400' : 'bg-blue-500 text-white hover:bg-blue-600'}`}
+                                                            onClick={() => descargarTicketNC(b)}
+                                                        >
+                                                            {processingId === `nc-${fid}` ? <LoadingSpinner size="xs" /> : 'Ticket NC'}
+                                                        </button>
+                                                    )}
+                                                </div>
                                             </td>
                                         </tr>
                                     );

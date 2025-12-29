@@ -1,5 +1,5 @@
 "use client";
-import React, { createContext, useContext, useEffect, useState, useRef, ReactNode } from "react";
+import React, { createContext, useContext, useEffect, useState, useRef, ReactNode, useCallback } from "react";
 
 type Boleta = Record<string, any>;
 
@@ -47,7 +47,8 @@ export function BoletasProvider({ children }: { children: ReactNode }) {
     const tokenRef = useRef<string | null>(null);
     const intervalRef = useRef<number | null>(null);
 
-    const fetchAll = async (currentFilters: BoletasFilters = {}, isBackground = false) => {
+    // Memoize fetchAll to avoid unnecessary effect re-runs
+    const fetchAll = useCallback(async (currentFilters: BoletasFilters = {}, isBackground = false) => {
         const token = localStorage.getItem("token");
         tokenRef.current = token;
         if (!token) {
@@ -71,11 +72,19 @@ export function BoletasProvider({ children }: { children: ReactNode }) {
             if (currentFilters.fechaDesde) params.append('fecha_desde', currentFilters.fechaDesde);
             if (currentFilters.fechaHasta) params.append('fecha_hasta', currentFilters.fechaHasta);
 
-            // Fetch paralelo optimizado (solo al endpoint SQL nuevo)
+            // Fetch paralelo optimizado
             const [nfRes, fRes] = await Promise.all([
                 fetch(`/api/sheets/boletas?tipo=no-facturadas&${params.toString()}`, { headers }),
                 fetch(`/api/sheets/boletas?tipo=facturadas&${params.toString()}`, { headers }),
             ]);
+
+            // Manejo de errores de autenticación
+            if (nfRes.status === 401 || fRes.status === 401) {
+                localStorage.removeItem("token");
+                localStorage.removeItem("user_info");
+                window.location.href = "/login?expired=true";
+                return;
+            }
 
             const [nfData, fData] = await Promise.all([
                 nfRes.ok ? nfRes.json().catch(() => []) : [],
@@ -89,29 +98,24 @@ export function BoletasProvider({ children }: { children: ReactNode }) {
             setBoletasNoFacturadas(arrNF as Boleta[]);
             setBoletasFacturadas(arrF as Boleta[]);
             setLastUpdated(new Date().toISOString());
-        } catch (e: any) {
+        } catch (e: unknown) {
             console.error("Error fetching boletas:", e);
-            setError(String(e?.message || e));
+            setError(String((e as Error)?.message || e));
         } finally {
             setLoading(false);
         }
-    };
+    }, []);
 
     // Reload manual que acepta nuevos filtros opcionales
-    const reload = (newFilters?: BoletasFilters) => {
+    const reload = async (newFilters?: BoletasFilters) => {
         const nextFilters = { ...filters, ...newFilters };
         if (newFilters) setFilters(nextFilters);
         // Reload manual siempre muestra loading
-        fetchAll(nextFilters, false);
+        return await fetchAll(nextFilters, false);
     };
 
     useEffect(() => {
-        // Cargar filtros iniciales
-        // Si ya tenemos datos, hacemos un fetch silencioso (background) para actualizar
-        // Si no hay datos, mostramos loading
-        const hasData = boletasFacturadas.length > 0 || boletasNoFacturadas.length > 0;
-        fetchAll(filters, hasData);
-
+        // Configuramos el intervalo de actualización automática
         intervalRef.current = window.setInterval(() => {
             const t = localStorage.getItem("token");
             if (t !== tokenRef.current) tokenRef.current = t;
@@ -131,12 +135,16 @@ export function BoletasProvider({ children }: { children: ReactNode }) {
             window.removeEventListener("storage", onStorage);
             document.removeEventListener('visibilitychange', onVis);
         };
-    }, []); // Run once on mount
+    }, [filters, fetchAll]); // Agregamos filters y fetchAll como dependencia
 
-    // Re-fetch cuando cambian los filtros explícitamente (con loading)
+    // Único punto de entrada para la carga inicial y cambios de filtros
     useEffect(() => {
-        fetchAll(filters, false);
-    }, [filters.fechaDesde, filters.fechaHasta]);
+        // Si ya tenemos datos, hacemos un fetch silencioso (background) para actualizar
+        // Si no hay datos, mostramos loading
+        const hasData = boletasFacturadas.length > 0 || boletasNoFacturadas.length > 0;
+        fetchAll(filters, hasData);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [filters.fechaDesde, filters.fechaHasta, fetchAll]);
 
     return (
         <BoletasContext.Provider value={{ boletasFacturadas, boletasNoFacturadas, loading, error, lastUpdated, reload, filters, setFilters }}>
