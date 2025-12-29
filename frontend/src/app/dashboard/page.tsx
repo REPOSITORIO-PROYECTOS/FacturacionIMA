@@ -60,6 +60,14 @@ export default function DashboardPage() {
     return entero.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ".");
   };
 
+  const getNombreMes = (mes: number): string => {
+    const meses = [
+      "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
+      "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"
+    ];
+    return meses[mes - 1] || "Desconocido";
+  };
+
   const getId = (b: Boleta) => String(b["id"] ?? b["ID Ingresos"] ?? b["ID Ingreso"] ?? b["ID"] ?? "");
 
   const isFacturable = useCallback((b: Boleta) => {
@@ -166,6 +174,37 @@ export default function DashboardPage() {
   // Modal de detalle de boleta
   const [boletaDetalle, setBoletaDetalle] = useState<Boleta | null>(null);
   const [sincronizando, setSincronizando] = useState(false);
+  const [statsMensuales, setStatsMensuales] = useState<any[]>([]);
+  const [loadingStats, setLoadingStats] = useState(false);
+  const [lastUpdatedStats, setLastUpdatedStats] = useState<Date | null>(null);
+
+  const fetchStatsMensuales = useCallback(async () => {
+    if (!token) return;
+    setLoadingStats(true);
+    try {
+      const res = await fetch('/api/sheets/stats/mensuales', {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (!res.ok) throw new Error('Error al obtener estadísticas');
+      const data = await res.json();
+      setStatsMensuales(data);
+      setLastUpdatedStats(new Date());
+    } catch (e) {
+      console.error('Error stats:', e);
+      toast.error('No se pudieron cargar las estadísticas mensuales');
+    } finally {
+      setLoadingStats(false);
+    }
+  }, [token, toast]);
+
+  useEffect(() => {
+    if (token) {
+      fetchStatsMensuales();
+      // Actualizar cada 10 minutos
+      const interval = setInterval(fetchStatsMensuales, 10 * 60 * 1000);
+      return () => clearInterval(interval);
+    }
+  }, [token, fetchStatsMensuales]);
 
   const handleSincronizar = async () => {
     // Versión 3: Usar Proxy interno de Next.js para garantizar conexión con Backend
@@ -436,6 +475,55 @@ export default function DashboardPage() {
             <div className="p-4 rounded border bg-white">
               <div className="text-xs text-gray-500">Diferencia (Fact - No Fact)</div>
               <div className="text-2xl font-bold text-blue-700">$ {formatSinCentavos(sumaFacturadas - sumaNoFacturadas)}</div>
+            </div>
+          </div>
+
+          {/* Estadísticas Mensuales */}
+          <div className="bg-white rounded border overflow-hidden">
+            <div className="p-3 font-semibold border-b flex justify-between items-center bg-gray-50">
+              <div className="flex items-center gap-2">
+                <span>Estadísticas Mensuales (Histórico)</span>
+                {loadingStats && <LoadingSpinner size="sm" />}
+              </div>
+              <div className="text-[10px] text-gray-400 font-normal italic">
+                {lastUpdatedStats ? `Actualizado: ${lastUpdatedStats.toLocaleTimeString()}` : 'Cargando...'}
+              </div>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm text-left">
+                <thead className="bg-blue-50 text-blue-800 text-xs uppercase font-semibold">
+                  <tr>
+                    <th className="px-4 py-2 border-b">Período</th>
+                    <th className="px-4 py-2 border-b text-center">Registros</th>
+                    <th className="px-4 py-2 border-b text-right">Total Ingresos</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100">
+                  {statsMensuales.length === 0 && !loadingStats ? (
+                    <tr>
+                      <td colSpan={3} className="px-4 py-8 text-center text-gray-500 italic">
+                        No hay datos estadísticos disponibles.
+                      </td>
+                    </tr>
+                  ) : (
+                    statsMensuales.map((s) => (
+                      <tr key={s.periodo} className="hover:bg-blue-50/30 transition-colors">
+                        <td className="px-4 py-3 font-medium text-gray-700">
+                          {getNombreMes(s.month)} {s.year}
+                        </td>
+                        <td className="px-4 py-3 text-center text-gray-600">
+                          <span className="bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full text-xs font-bold">
+                            {s.cantidad}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 text-right font-bold text-green-700">
+                          $ {formatSinCentavos(s.total_ingresos)}
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
             </div>
           </div>
 

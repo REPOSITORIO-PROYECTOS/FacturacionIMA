@@ -222,11 +222,20 @@ export default function BoletasNoFacturadasPage() {
         }
     }
 
-    const { boletasNoFacturadas, boletasFacturadas, loading, error: storeError, reload, filters: storeFilters } = useBoletas();
+    const {
+        boletasNoFacturadas,
+        boletasFacturadas,
+        totalNoFacturadas,
+        loading,
+        error: storeError,
+        reload,
+        filters: storeFilters
+    } = useBoletas();
     const error = storeError ?? '';
     const [search, setSearch] = useState('');
     const [fechaDesde, setFechaDesde] = useState<string>('');
     const [fechaHasta, setFechaHasta] = useState<string>('');
+    const [page, setPage] = useState(1);
 
     // items provienen del store
     const items = boletasNoFacturadas ?? [];
@@ -235,37 +244,22 @@ export default function BoletasNoFacturadasPage() {
         const arr = boletasFacturadas ?? [];
         const s = new Set<string>();
         for (const b of arr as Record<string, unknown>[]) {
-            // Usar la misma lógica de ID que el store para cruzar datos
             const id = String(b.ingreso_id ?? b['ID Ingresos'] ?? b.id ?? '');
             if (id) s.add(id);
         }
         return s;
     }, [boletasFacturadas]);
 
-    // Restaurar fechas desde localStorage al inicio
-    useEffect(() => {
-        try {
-            const fd = localStorage.getItem('boletas_no_facturadas_fecha_desde') || '';
-            const fh = localStorage.getItem('boletas_no_facturadas_fecha_hasta') || '';
-            if (fd) setFechaDesde(fd);
-            if (fh) setFechaHasta(fh);
-        } catch { /* noop */ }
-    }, []);
+    const getStableId = (b: BoletaRecord) => {
+        const id = b['ID Ingresos'] || b.id || b.ingreso_id;
+        if (id) return String(id);
+        const fecha = String(b.Fecha || b.fecha || b.FECHA || '');
+        const total = String(b.total || b.INGRESOS || '0');
+        const cliente = String(b.cliente || b.nombre || b['Razon Social'] || 'anon');
+        const repartidor = String(b.Repartidor || b.repartidor || '');
+        return `temp-${cliente}-${repartidor}-${total}-${fecha}`.replace(/\s+/g, '_').toLowerCase();
+    };
 
-    // Persistir fechas en localStorage y sincronizar con el store
-    useEffect(() => {
-        try {
-            localStorage.setItem('boletas_no_facturadas_fecha_desde', fechaDesde);
-            localStorage.setItem('boletas_no_facturadas_fecha_hasta', fechaHasta);
-        } catch { /* noop */ }
-
-        // Solo sincronizar con el store si los valores son diferentes
-        if (fechaDesde !== (storeFilters.fechaDesde || '') || fechaHasta !== (storeFilters.fechaHasta || '')) {
-            reload({ fechaDesde, fechaHasta });
-        }
-    }, [fechaDesde, fechaHasta, reload, storeFilters.fechaDesde, storeFilters.fechaHasta]);
-
-    // --- Filtrado por fecha robusto ---
     function parseFechaToKey(raw: string | null | undefined): number | null {
         if (!raw) return null;
         const t = String(raw).trim();
@@ -293,52 +287,45 @@ export default function BoletasNoFacturadasPage() {
         return (yyyy * 10000) + (mm * 100) + dd;
     }
 
-    const getStableId = (b: BoletaRecord) => {
-        const id = b['ID Ingresos'] || b.id || b.ingreso_id;
-        if (id) return String(id);
-        const fecha = String(b.Fecha || b.fecha || b.FECHA || '');
-        const total = String(b.total || b.INGRESOS || '0');
-        const cliente = String(b.cliente || b.nombre || b['Razon Social'] || 'anon');
-        const repartidor = String(b.Repartidor || b.repartidor || '');
-        // Generar un identificador único basado en datos relevantes sin depender del índice
-        return `temp-${cliente}-${repartidor}-${total}-${fecha}`.replace(/\s+/g, '_').toLowerCase();
+    // Persistir fechas y búsqueda en el store (con debounce para evitar loops)
+    useEffect(() => {
+        const timer = setTimeout(() => {
+            const newFilters: any = {};
+            let changed = false;
+
+            if (fechaDesde !== (storeFilters.fechaDesde || '')) {
+                newFilters.fechaDesde = fechaDesde;
+                changed = true;
+            }
+            if (fechaHasta !== (storeFilters.fechaHasta || '')) {
+                newFilters.fechaHasta = fechaHasta;
+                changed = true;
+            }
+            if (search !== (storeFilters.search || '')) {
+                newFilters.search = search;
+                newFilters.page = 1; // Reset a página 1 al buscar
+                setPage(1);
+                changed = true;
+            }
+
+            if (changed) {
+                console.log('🔄 Sincronizando filtros con el Store:', newFilters);
+                reload(newFilters);
+            }
+        }, 500);
+
+        return () => clearTimeout(timer);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [fechaDesde, fechaHasta, search]);
+
+    // Manejo de cambio de página
+    const handlePageChange = (newPage: number) => {
+        setPage(newPage);
+        reload({ page: newPage });
     };
 
-    const desdeKey = useMemo(() => fechaDesde ? parseFechaToKey(fechaDesde) : null, [fechaDesde]);
-    const hastaKey = useMemo(() => fechaHasta ? parseFechaToKey(fechaHasta) : null, [fechaHasta]);
-
-    const itemsConFecha = useMemo(() => {
-        return items.filter((b) => {
-            if (!desdeKey && !hastaKey) return true;
-            const fechaRaw = String(
-                (b as Record<string, unknown>)['Fecha'] ||
-                (b as Record<string, unknown>)['fecha'] ||
-                (b as Record<string, unknown>)['FECHA'] || ''
-            );
-            const key = parseFechaToKey(fechaRaw);
-            if (key == null) return false;
-            if (desdeKey && key < desdeKey) return false;
-            if (hastaKey && key > hastaKey) return false;
-            return true;
-        });
-    }, [items, desdeKey, hastaKey]);
-
-    const itemsNoFacturadas = useMemo(() => {
-        return itemsConFecha.filter((b) => {
-            const estado = String(b.facturacion ?? b.Estado ?? b.estado ?? '').toLowerCase();
-            return estado.includes('falta facturar') || estado.includes('no facturada');
-        });
-    }, [itemsConFecha]);
-
-    const filteredItems = useMemo(() => {
-        const searchText = search.toLowerCase();
-        if (!searchText) return itemsNoFacturadas;
-        return itemsNoFacturadas.filter((b) => {
-            const razonSocial = (b.cliente || b.nombre || b['Razon Social'] || '').toString().toLowerCase();
-            const repartidor = (b.Repartidor ?? (b as Record<string, unknown>)['repartidor'] ?? '').toString().toLowerCase();
-            return razonSocial.includes(searchText) || repartidor.includes(searchText);
-        });
-    }, [itemsNoFacturadas, search]);
+    // Eliminamos filtrado local ya que el backend lo hace ahora
+    const filteredItems = items;
 
     // Limpieza automática de selecciones obsoletas
     useEffect(() => {
@@ -375,25 +362,16 @@ export default function BoletasNoFacturadasPage() {
         });
     }, [filteredItems, sortDesc]);
 
-    const [page, setPage] = useState(1);
-    const PAGE_SIZE = 25;
-    const totalPages = Math.max(1, Math.ceil(sortedItems.length / PAGE_SIZE));
-    const currentPage = Math.min(page, totalPages);
-    const startIndex = (currentPage - 1) * PAGE_SIZE;
-    const endIndex = startIndex + PAGE_SIZE;
-    const pageItems = sortedItems.slice(startIndex, endIndex);
-    useEffect(() => { setPage(1); }, [search, fechaDesde, fechaHasta]);
+    const pageItems = sortedItems;
+    const PAGE_SIZE = 50;
+    const totalPages = Math.max(1, Math.ceil(totalNoFacturadas / PAGE_SIZE));
 
     function clearFilters() {
         setFechaDesde('');
         setFechaHasta('');
         setSearch('');
-        try {
-            localStorage.removeItem('boletas_no_facturadas_fecha_desde');
-            localStorage.removeItem('boletas_no_facturadas_fecha_hasta');
-        } catch { /* noop */ }
         setPage(1);
-        reload();
+        reload({ fechaDesde: '', fechaHasta: '', search: '', page: 1 });
     }
 
     async function facturarSeleccionadas() {
@@ -410,7 +388,7 @@ export default function BoletasNoFacturadasPage() {
         setIsProcessing(true);
         try {
             const selectedRaw = ids.map(id => items.find((b) => getStableId(b) === id)).filter(Boolean).filter(b => !facturadasSet.has(getStableId(b as BoletaRecord)));
-            const { valid } = buildValidItems(selectedRaw as Record<string, unknown>[]);
+            const { valid } = await buildValidItems(selectedRaw as Record<string, unknown>[]);
             if (valid.length === 0) { showWarning('No hay boletas válidas para facturar'); return; }
             const itemsConConceptos = await Promise.all((valid as unknown as InvoiceItemRequest[]).map(async (item: InvoiceItemRequest) => {
                 const ventaId = String(item.id || '');
@@ -663,18 +641,20 @@ export default function BoletasNoFacturadasPage() {
                         </table>
                     </div>
 
-                    <div className="flex items-center justify-between p-2 border-t gap-3 bg-gray-50">
-                        <div className="text-[11px] text-gray-500 font-medium">Página {currentPage} de {totalPages} · {filteredItems.length} boletas encontradas</div>
+                    <div className="p-3 border-t bg-gray-50 flex items-center justify-between">
+                        <div className="text-[11px] text-gray-500 font-medium">Mostrando {pageItems.length} boletas de {totalNoFacturadas} encontradas</div>
                         <div className="flex items-center gap-2">
+                            <span className="text-xs text-gray-500 mr-2">Total: {totalNoFacturadas}</span>
                             <button
-                                className={`px-3 py-1 rounded text-sm border ${currentPage <= 1 ? 'bg-gray-200 text-gray-400 cursor-not-allowed' : 'bg-white hover:bg-gray-100'}`}
-                                onClick={() => setPage(p => Math.max(1, p - 1))}
-                                disabled={currentPage <= 1}
+                                className={`px-3 py-1 rounded text-sm border ${page <= 1 ? 'bg-gray-200 text-gray-400 cursor-not-allowed' : 'bg-white hover:bg-gray-100'}`}
+                                onClick={() => handlePageChange(Math.max(1, page - 1))}
+                                disabled={page <= 1}
                             >Anterior</button>
+                            <span className="text-xs font-medium">Página {page} de {totalPages}</span>
                             <button
-                                className={`px-3 py-1 rounded text-sm border ${currentPage >= totalPages ? 'bg-gray-200 text-gray-400 cursor-not-allowed' : 'bg-white hover:bg-gray-100'}`}
-                                onClick={() => setPage(p => Math.min(totalPages, p + 1))}
-                                disabled={currentPage >= totalPages}
+                                className={`px-3 py-1 rounded text-sm border ${page >= totalPages ? 'bg-gray-200 text-gray-400 cursor-not-allowed' : 'bg-white hover:bg-gray-100'}`}
+                                onClick={() => handlePageChange(Math.min(totalPages, page + 1))}
+                                disabled={page >= totalPages}
                             >Siguiente</button>
                         </div>
                     </div>

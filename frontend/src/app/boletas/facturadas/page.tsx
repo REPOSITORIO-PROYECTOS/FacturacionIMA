@@ -201,12 +201,13 @@ export default function BoletasFacturadasPage() {
             setProcessingId(null);
         }
     }
-    const { boletasFacturadas, loading, error: storeError, reload, filters: storeFilters } = useBoletas();
+    const { boletasFacturadas, totalFacturadas, loading, error: storeError, reload, filters: storeFilters } = useBoletas();
     const error = storeError ?? '';
     const [search, setSearch] = useState('');
     const [fechaDesde, setFechaDesde] = useState<string>('');
     const [fechaHasta, setFechaHasta] = useState<string>('');
     const [statusFilter, setStatusFilter] = useState<'all' | 'anuladas' | 'activas'>('all');
+    const [page, setPage] = useState(1);
 
     // Restaurar fechas desde localStorage al inicio
     useEffect(() => {
@@ -218,18 +219,53 @@ export default function BoletasFacturadasPage() {
         } catch { /* noop */ }
     }, []);
 
-    // Persistir fechas en localStorage y sincronizar con el store
+    // Persistir fechas y búsqueda en el store (con debounce para evitar loops)
     useEffect(() => {
-        try {
-            localStorage.setItem('boletas_facturadas_fecha_desde', fechaDesde);
-            localStorage.setItem('boletas_facturadas_fecha_hasta', fechaHasta);
-        } catch { /* noop */ }
+        const timer = setTimeout(() => {
+            try {
+                localStorage.setItem('boletas_facturadas_fecha_desde', fechaDesde);
+                localStorage.setItem('boletas_facturadas_fecha_hasta', fechaHasta);
+            } catch { /* noop */ }
 
-        // Solo sincronizar con el store si los valores son diferentes
-        if (fechaDesde !== (storeFilters.fechaDesde || '') || fechaHasta !== (storeFilters.fechaHasta || '')) {
-            reload({ fechaDesde, fechaHasta });
-        }
-    }, [fechaDesde, fechaHasta, reload, storeFilters.fechaDesde, storeFilters.fechaHasta]);
+            const newFilters: any = {};
+            let changed = false;
+
+            if (fechaDesde !== (storeFilters.fechaDesde || '')) {
+                newFilters.fechaDesde = fechaDesde;
+                changed = true;
+            }
+            if (fechaHasta !== (storeFilters.fechaHasta || '')) {
+                newFilters.fechaHasta = fechaHasta;
+                changed = true;
+            }
+            if (search !== (storeFilters.search || '')) {
+                newFilters.search = search;
+                newFilters.page = 1; // Reset a página 1 al buscar
+                setPage(1);
+                changed = true;
+            }
+            if (statusFilter !== (storeFilters.status || 'all')) {
+                newFilters.status = statusFilter;
+                newFilters.page = 1;
+                setPage(1);
+                changed = true;
+            }
+
+            if (changed) {
+                console.log('🔄 Sincronizando filtros con el Store:', newFilters);
+                reload(newFilters);
+            }
+        }, 500);
+
+        return () => clearTimeout(timer);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [fechaDesde, fechaHasta, search, statusFilter]);
+
+    // Manejo de cambio de página
+    const handlePageChange = (newPage: number) => {
+        setPage(newPage);
+        reload({ page: newPage });
+    };
 
     const normalizaFecha = (texto: string): string | null => {
         if (!texto) return null;
@@ -248,38 +284,16 @@ export default function BoletasFacturadasPage() {
     };
 
     const filteredItems = useMemo(() => {
-        const searchText = search.toLowerCase();
+        // El filtrado por búsqueda y fecha ya se hizo en el servidor
         return boletasFacturadas.filter((b) => {
-            // Filtro por búsqueda
-            const razonSocial = (b.cliente || b.nombre || b['Razon Social'] || '').toString().toLowerCase();
-            const repartidor = (b.Repartidor ?? (b as Record<string, unknown>)['repartidor'] ?? '').toString().toLowerCase();
-            const match = razonSocial.includes(searchText) || repartidor.includes(searchText);
-            if (!match) return false;
-
-            // Filtro por estado
+            // Filtro por estado (este sigue siendo local por ahora)
             const anulada = isAnulada(b);
             if (statusFilter === 'anuladas' && !anulada) return false;
             if (statusFilter === 'activas' && anulada) return false;
 
-            // Filtro por fecha (opcional como salvaguarda local)
-            if (fechaDesde || fechaHasta) {
-                const fechaRaw = String(
-                    (b as Record<string, unknown>)['fecha_comprobante'] ||
-                    (b as Record<string, unknown>)['created_at'] ||
-                    (b as Record<string, unknown>)['Fecha'] ||
-                    (b as Record<string, unknown>)['fecha'] ||
-                    (b as Record<string, unknown>)['FECHA'] || ''
-                );
-                const f = normalizaFecha(fechaRaw);
-                if (f) {
-                    if (fechaDesde && f < fechaDesde) return false;
-                    if (fechaHasta && f > fechaHasta) return false;
-                }
-            }
-
             return true;
         });
-    }, [boletasFacturadas, search, statusFilter, fechaDesde, fechaHasta]);
+    }, [boletasFacturadas, statusFilter]);
 
     const [sortDesc, setSortDesc] = useState<boolean>(true);
 
@@ -305,14 +319,17 @@ export default function BoletasFacturadasPage() {
         });
     }, [filteredItems, sortDesc]);
 
-    const [page, setPage] = useState(1);
-    const PAGE_SIZE = 25;
-    const totalPages = Math.max(1, Math.ceil(sortedItems.length / PAGE_SIZE));
-    const currentPage = Math.min(page, totalPages);
-    const startIndex = (currentPage - 1) * PAGE_SIZE;
-    const endIndex = startIndex + PAGE_SIZE;
-    const pageItems = sortedItems.slice(startIndex, endIndex);
-    useEffect(() => { setPage(1); }, [search, fechaDesde, fechaHasta]);
+    const PAGE_SIZE = 50;
+    const totalPages = Math.max(1, Math.ceil(totalFacturadas / PAGE_SIZE));
+    const pageItems = sortedItems;
+
+    function clearFilters() {
+        setFechaDesde('');
+        setFechaHasta('');
+        setSearch('');
+        setPage(1);
+        reload({ fechaDesde: '', fechaHasta: '', search: '', page: 1 });
+    }
 
     return (
         <div className="p-4 md:p-6 space-y-4">
@@ -341,7 +358,7 @@ export default function BoletasFacturadasPage() {
                         >Ayer</button>
                         <button
                             className="px-3 py-2 border rounded text-sm hover:bg-gray-50"
-                            onClick={() => { setFechaDesde(''); setFechaHasta(''); }}
+                            onClick={clearFilters}
                         >Borrar</button>
                     </div>
                 </div>
@@ -518,26 +535,25 @@ export default function BoletasFacturadasPage() {
                         </table>
                     </div>
 
-                    <div className="flex items-center justify-between p-2 border-t gap-3">
-                        <div className="text-[11px] text-gray-500">Página {currentPage} de {totalPages} · Mostrando {pageItems.length} de {sortedItems.length}</div>
+                    <div className="flex items-center justify-between p-3 border-t bg-gray-50">
+                        <div className="text-[11px] text-gray-500 font-medium">Mostrando {pageItems.length} de {totalFacturadas} encontradas</div>
                         <div className="flex items-center gap-2">
                             <button
-                                aria-label="Página anterior"
-                                className={`px-3 py-2 rounded text-sm border ${currentPage <= 1 ? 'bg-gray-200 text-gray-500 cursor-not-allowed' : 'bg-white hover:bg-gray-50'}`}
-                                onClick={() => setPage(p => Math.max(1, p - 1))}
-                                disabled={currentPage <= 1}
+                                className={`px-3 py-1 rounded text-sm border ${page <= 1 ? 'bg-gray-200 text-gray-400 cursor-not-allowed' : 'bg-white hover:bg-gray-100'}`}
+                                onClick={() => handlePageChange(Math.max(1, page - 1))}
+                                disabled={page <= 1}
                             >Anterior</button>
+                            <span className="text-xs font-medium">Página {page} de {totalPages}</span>
                             <button
-                                aria-label="Página siguiente"
-                                className={`px-3 py-2 rounded text-sm border ${currentPage >= totalPages ? 'bg-gray-200 text-gray-500 cursor-not-allowed' : 'bg-white hover:bg-gray-50'}`}
-                                onClick={() => setPage(p => Math.min(totalPages, p + 1))}
-                                disabled={currentPage >= totalPages}
+                                className={`px-3 py-1 rounded text-sm border ${page >= totalPages ? 'bg-gray-200 text-gray-400 cursor-not-allowed' : 'bg-white hover:bg-gray-100'}`}
+                                onClick={() => handlePageChange(Math.min(totalPages, page + 1))}
+                                disabled={page >= totalPages}
                             >Siguiente</button>
                         </div>
                     </div>
 
-                    {filteredItems.length === 0 && (
-                        <div className="p-4 text-gray-500">No hay boletas facturadas</div>
+                    {totalFacturadas === 0 && (
+                        <div className="p-4 text-center text-gray-500 italic">No se encontraron boletas facturadas con los filtros aplicados</div>
                     )}
                 </div>
             )}

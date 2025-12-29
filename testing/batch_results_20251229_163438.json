@@ -1,0 +1,43 @@
+[
+  {
+    "id": "fb2effb9",
+    "original_data": {
+      "id": "fb2effb9",
+      "total": 5775.0,
+      "cliente_data": {
+        "cuit_o_dni": "0",
+        "nombre_razon_social": "",
+        "domicilio": "",
+        "condicion_iva": "CONSUMIDOR_FINAL"
+      }
+    },
+    "status": "SUCCESS",
+    "result": {
+      "estado": "EXITOSO",
+      "resultado": "A",
+      "cae": "75520769209603",
+      "vencimiento_cae": "20260108",
+      "numero_comprobante": 506,
+      "punto_venta": "3",
+      "tipo_comprobante": 6,
+      "fecha_comprobante": "2025-12-29T16:34:34.675449",
+      "importe_total": 5775.0,
+      "cuit_emisor": 30718331680,
+      "debug_cuit_usado": "30718331680",
+      "debug_fuente_credenciales": "boveda",
+      "tipo_doc_receptor": 99,
+      "nro_doc_receptor": 0,
+      "tipo_documento": 99,
+      "documento": "0",
+      "tipo_afip": 6,
+      "total": 5775.0,
+      "neto": 4772.73,
+      "iva": 1002.27,
+      "id_condicion_iva": 5,
+      "qr_code": "data:image/png;base64,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"
+    },
+    "db_save_status": "SUCCESS",
+    "factura_id": 517,
+    "sheets_update_status": "SUCCESS"
+  }
+]

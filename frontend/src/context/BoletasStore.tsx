@@ -6,6 +6,10 @@ type Boleta = Record<string, any>;
 export type BoletasFilters = {
     fechaDesde?: string;
     fechaHasta?: string;
+    search?: string;
+    page?: number;
+    limit?: number;
+    status?: string;
 };
 
 type BoletasContext = {
@@ -17,6 +21,8 @@ type BoletasContext = {
     reload: (filters?: BoletasFilters) => Promise<void>;
     filters: BoletasFilters;
     setFilters: (f: BoletasFilters) => void;
+    totalFacturadas: number;
+    totalNoFacturadas: number;
 };
 
 const defaultValue: BoletasContext = {
@@ -26,8 +32,10 @@ const defaultValue: BoletasContext = {
     error: null,
     lastUpdated: null,
     reload: () => Promise.resolve(),
-    filters: {},
+    filters: { page: 1, limit: 50 },
     setFilters: () => { },
+    totalFacturadas: 0,
+    totalNoFacturadas: 0,
 };
 
 const BoletasContext = createContext<BoletasContext>(defaultValue);
@@ -39,15 +47,18 @@ export function useBoletas() {
 export function BoletasProvider({ children }: { children: ReactNode }) {
     const [boletasFacturadas, setBoletasFacturadas] = useState<Boleta[]>([]);
     const [boletasNoFacturadas, setBoletasNoFacturadas] = useState<Boleta[]>([]);
+    const [totalFacturadas, setTotalFacturadas] = useState(0);
+    const [totalNoFacturadas, setTotalNoFacturadas] = useState(0);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [lastUpdated, setLastUpdated] = useState<string | null>(null);
-    const [filters, setFilters] = useState<BoletasFilters>({});
+    const [filters, setFilters] = useState<BoletasFilters>({ page: 1, limit: 50 });
 
     const tokenRef = useRef<string | null>(null);
     const intervalRef = useRef<number | null>(null);
     const filtersRef = useRef<BoletasFilters>(filters);
     const fetchHistoryRef = useRef<{ timestamp: number }[]>([]);
+    const abortControllerRef = useRef<AbortController | null>(null);
 
     // Sincronizar ref con el estado para acceso en callbacks estables
     useEffect(() => {
@@ -66,6 +77,37 @@ export function BoletasProvider({ children }: { children: ReactNode }) {
             return;
         }
         // -------------------------
+
+        // --- ABORT PREVIOUS REQUEST ---
+        if (abortControllerRef.current) {
+            abortControllerRef.current.abort();
+        }
+        const controller = new AbortController();
+        abortControllerRef.current = controller;
+        // -------------------------------
+
+        // --- HELPER PARA REINTENTOS CON BACKOFF ---
+        const fetchWithRetry = async (url: string, options: RequestInit, retries = 3, backoff = 1000): Promise<Response> => {
+            try {
+                const res = await fetch(url, { ...options, signal: controller.signal });
+                // Reintentar solo en errores de servidor (5xx) o timeouts
+                if (!res.ok && retries > 0 && (res.status >= 500 || res.status === 408)) {
+                    console.warn(`[BoletasStore] Fallo en API (${res.status}). Reintentando en ${backoff}ms...`);
+                    await new Promise(resolve => setTimeout(resolve, backoff));
+                    return fetchWithRetry(url, options, retries - 1, backoff * 2);
+                }
+                return res;
+            } catch (e: any) {
+                if (e.name === 'AbortError') throw e;
+                if (retries > 0) {
+                    console.warn(`[BoletasStore] Error de red. Reintentando en ${backoff}ms...`, e);
+                    await new Promise(resolve => setTimeout(resolve, backoff));
+                    return fetchWithRetry(url, options, retries - 1, backoff * 2);
+                }
+                throw e;
+            }
+        };
+        // ------------------------------------------
 
         const token = localStorage.getItem("token");
         tokenRef.current = token;
@@ -86,41 +128,76 @@ export function BoletasProvider({ children }: { children: ReactNode }) {
 
             // Construir query string con filtros
             const params = new URLSearchParams();
-            params.append('limit', '1000'); // Límite reducido para evitar N+1 masivos en el backend
+            const limit = currentFilters.limit || 50;
+            const page = currentFilters.page || 1;
+            const offset = (page - 1) * limit;
+
+            params.append('limit', String(limit));
+            params.append('offset', String(offset));
+
+            if (currentFilters.search) params.append('search', currentFilters.search);
             if (currentFilters.fechaDesde) params.append('fecha_desde', currentFilters.fechaDesde);
             if (currentFilters.fechaHasta) params.append('fecha_hasta', currentFilters.fechaHasta);
 
-            // Fetch paralelo optimizado
-            const [nfRes, fRes] = await Promise.all([
-                fetch(`/api/sheets/boletas?tipo=no-facturadas&${params.toString()}`, { headers }),
-                fetch(`/api/sheets/boletas?tipo=facturadas&${params.toString()}`, { headers }),
-            ]);
+            // 1. Cargar No Facturadas (Secuencial para liberar memoria)
+            const nfRes = await fetchWithRetry(`/api/sheets/boletas?tipo=no-facturadas&${params.toString()}`, { headers });
 
             // Manejo de errores de autenticación
-            if (nfRes.status === 401 || fRes.status === 401) {
+            if (nfRes.status === 401) {
                 localStorage.removeItem("token");
                 localStorage.removeItem("user_info");
                 window.location.href = "/login?expired=true";
                 return;
             }
 
-            const [nfData, fData] = await Promise.all([
-                nfRes.ok ? nfRes.json().catch(() => []) : [],
-                fRes.ok ? fRes.json().catch(() => []) : []
-            ]);
+            if (nfRes.ok) {
+                const nfData = await nfRes.json();
+                // Nuevo formato: { data: [], total: 0, ... }
+                if (nfData && typeof nfData === 'object' && 'data' in nfData) {
+                    setBoletasNoFacturadas(nfData.data || []);
+                    setTotalNoFacturadas(nfData.total || 0);
+                } else {
+                    const arrNF = Array.isArray(nfData) ? nfData : [];
+                    setBoletasNoFacturadas(arrNF as Boleta[]);
+                    setTotalNoFacturadas(arrNF.length);
+                }
+            }
 
-            // Normalizar respuestas (pueden venir directas o wrappeadas)
-            const arrNF = Array.isArray(nfData) ? nfData : (Array.isArray(nfData?.items) ? nfData.items : []);
-            const arrF = Array.isArray(fData) ? fData : (Array.isArray(fData?.items) ? fData.items : []);
+            // 2. Cargar Facturadas (solo después de terminar la anterior)
+            const fRes = await fetchWithRetry(`/api/sheets/boletas?tipo=facturadas&${params.toString()}`, { headers });
 
-            setBoletasNoFacturadas(arrNF as Boleta[]);
-            setBoletasFacturadas(arrF as Boleta[]);
+            if (fRes.status === 401) {
+                localStorage.removeItem("token");
+                localStorage.removeItem("user_info");
+                window.location.href = "/login?expired=true";
+                return;
+            }
+
+            if (fRes.ok) {
+                const fData = await fRes.json();
+                if (fData && typeof fData === 'object' && 'data' in fData) {
+                    setBoletasFacturadas(fData.data || []);
+                    setTotalFacturadas(fData.total || 0);
+                } else {
+                    const arrF = Array.isArray(fData) ? fData : [];
+                    setBoletasFacturadas(arrF as Boleta[]);
+                    setTotalFacturadas(arrF.length);
+                }
+            }
+
             setLastUpdated(new Date().toISOString());
-        } catch (e: unknown) {
+        } catch (e: any) {
+            if (e.name === 'AbortError') {
+                console.log('[BoletasStore] Petición cancelada por el usuario o nueva solicitud');
+                return;
+            }
             console.error("Error fetching boletas:", e);
-            setError(String((e as Error)?.message || e));
+            setError(String(e?.message || e));
         } finally {
-            setLoading(false);
+            // Solo quitar loading si este controlador es el actual (evita parpadeo si hay una nueva carga)
+            if (abortControllerRef.current === controller) {
+                setLoading(false);
+            }
         }
     }, []);
 
@@ -158,6 +235,7 @@ export function BoletasProvider({ children }: { children: ReactNode }) {
         document.addEventListener('visibilitychange', onVis);
 
         return () => {
+            if (abortControllerRef.current) abortControllerRef.current.abort();
             window.clearInterval(intervalId);
             window.removeEventListener("storage", onStorage);
             document.removeEventListener('visibilitychange', onVis);
@@ -165,21 +243,30 @@ export function BoletasProvider({ children }: { children: ReactNode }) {
     }, [fetchAll]); // filters removido de dependencias para evitar reinicios del loop
 
     // Único punto de entrada para la carga inicial y cambios de filtros
+    const lastFiltersRef = useRef<string>("");
+
     useEffect(() => {
         // Solo disparar si los filtros realmente han cambiado o es la carga inicial
-        // Evitamos disparar si fetchAll ya está en curso para el mismo set de filtros
+        const currentFiltersKey = JSON.stringify(filters);
+        if (currentFiltersKey === lastFiltersRef.current) {
+            return;
+        }
+        lastFiltersRef.current = currentFiltersKey;
+
         const hasData = boletasFacturadas.length > 0 || boletasNoFacturadas.length > 0;
 
         // Log para depuración de loops
-        console.log(`[BoletasStore] useEffect filters: desde=${filters.fechaDesde}, hasta=${filters.fechaHasta}, hasData=${hasData}`);
+        console.log(`[BoletasStore] useEffect filters (CAMBIO DETECTADO): desde=${filters.fechaDesde}, hasta=${filters.fechaHasta}`);
 
         fetchAll(filters, hasData);
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [filters.fechaDesde, filters.fechaHasta, fetchAll]);
+    }, [filters, fetchAll]);
 
     const contextValue = React.useMemo(() => ({
         boletasFacturadas,
         boletasNoFacturadas,
+        totalFacturadas,
+        totalNoFacturadas,
         loading,
         error,
         lastUpdated,
@@ -189,12 +276,13 @@ export function BoletasProvider({ children }: { children: ReactNode }) {
     }), [
         boletasFacturadas,
         boletasNoFacturadas,
+        totalFacturadas,
+        totalNoFacturadas,
         loading,
         error,
         lastUpdated,
         reload,
-        filters.fechaDesde,
-        filters.fechaHasta,
+        filters,
         setFilters
     ]);
 
