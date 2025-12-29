@@ -235,10 +235,11 @@ export default function BoletasNoFacturadasPage() {
     const [search, setSearch] = useState('');
     const [fechaDesde, setFechaDesde] = useState<string>('');
     const [fechaHasta, setFechaHasta] = useState<string>('');
-    const [page, setPage] = useState(1);
 
     // items provienen del store
     const items = boletasNoFacturadas ?? [];
+    const totalPages = Math.max(1, Math.ceil(totalNoFacturadas / 50));
+    const currentPage = storeFilters.page || 1;
 
     const facturadasSet = useMemo(() => {
         const arr = boletasFacturadas ?? [];
@@ -260,32 +261,6 @@ export default function BoletasNoFacturadasPage() {
         return `temp-${cliente}-${repartidor}-${total}-${fecha}`.replace(/\s+/g, '_').toLowerCase();
     };
 
-    function parseFechaToKey(raw: string | null | undefined): number | null {
-        if (!raw) return null;
-        const t = String(raw).trim();
-        const base = t.split(' ')[0].split('T')[0];
-        let yyyy: number | null = null, mm: number | null = null, dd: number | null = null;
-        if (/^\d{4}-\d{2}-\d{2}$/.test(base) || /^\d{4}-\d{1,2}-\d{1,2}$/.test(base)) {
-            const [y, m, d] = base.split('-');
-            yyyy = parseInt(y, 10); mm = parseInt(m, 10); dd = parseInt(d, 10);
-        } else if (/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(base)) {
-            const [d, m, y] = base.split('/');
-            dd = parseInt(d, 10); mm = parseInt(m, 10); yyyy = parseInt(y, 10);
-        } else if (/^\d{1,2}-\d{1,2}-\d{4}$/.test(base)) {
-            const [d, m, y] = base.split('-');
-            dd = parseInt(d, 10); mm = parseInt(m, 10); yyyy = parseInt(y, 10);
-        } else if (/^\d{4}\/\d{1,2}\/\d{1,2}$/.test(base)) {
-            const [y, m, d] = base.split('/');
-            yyyy = parseInt(y, 10); mm = parseInt(m, 10); dd = parseInt(d, 10);
-        } else if (/^\d{2}\/\d{2}\/\d{2}$/.test(base)) {
-            const [d, m, y] = base.split('/');
-            dd = parseInt(d, 10); mm = parseInt(m, 10); yyyy = 2000 + parseInt(y, 10);
-        } else {
-            return null;
-        }
-        if (!yyyy || !mm || !dd || mm < 1 || mm > 12 || dd < 1 || dd > 31) return null;
-        return (yyyy * 10000) + (mm * 100) + dd;
-    }
 
     // Persistir fechas y búsqueda en el store (con debounce para evitar loops)
     useEffect(() => {
@@ -304,7 +279,6 @@ export default function BoletasNoFacturadasPage() {
             if (search !== (storeFilters.search || '')) {
                 newFilters.search = search;
                 newFilters.page = 1; // Reset a página 1 al buscar
-                setPage(1);
                 changed = true;
             }
 
@@ -312,7 +286,7 @@ export default function BoletasNoFacturadasPage() {
                 console.log('🔄 Sincronizando filtros con el Store:', newFilters);
                 reload(newFilters);
             }
-        }, 500);
+        }, 600);
 
         return () => clearTimeout(timer);
         // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -320,7 +294,6 @@ export default function BoletasNoFacturadasPage() {
 
     // Manejo de cambio de página
     const handlePageChange = (newPage: number) => {
-        setPage(newPage);
         reload({ page: newPage });
     };
 
@@ -347,30 +320,12 @@ export default function BoletasNoFacturadasPage() {
         });
     }, [filteredItems]); // Removido selectedIds para evitar loops infinitos
 
-    const [sortDesc, setSortDesc] = useState<boolean>(true);
-
-    const sortedItems = useMemo(() => {
-        function getFechaKeyFromBoleta(b: Record<string, unknown>): number {
-            const fechaRaw = String(b['Fecha'] || b['fecha'] || b['FECHA'] || '');
-            const key = parseFechaToKey(fechaRaw);
-            return key == null ? 0 : key;
-        }
-        return [...filteredItems].sort((a, b) => {
-            const ak = getFechaKeyFromBoleta(a as Record<string, unknown>);
-            const bk = getFechaKeyFromBoleta(b as Record<string, unknown>);
-            return sortDesc ? (bk - ak) : (ak - bk);
-        });
-    }, [filteredItems, sortDesc]);
-
-    const pageItems = sortedItems;
-    const PAGE_SIZE = 50;
-    const totalPages = Math.max(1, Math.ceil(totalNoFacturadas / PAGE_SIZE));
+    const pageItems = items;
 
     function clearFilters() {
         setFechaDesde('');
         setFechaHasta('');
         setSearch('');
-        setPage(1);
         reload({ fechaDesde: '', fechaHasta: '', search: '', page: 1 });
     }
 
@@ -471,24 +426,11 @@ export default function BoletasNoFacturadasPage() {
                             <span>Seleccionadas: {selectedCount} / 5</span>
                             {selectedCount >= 5 && <span className="animate-pulse">⚠️ Límite alcanzado</span>}
                         </div>
-
                         {selectedCount > 0 && (
                             <button className="px-3 py-2 bg-red-100 text-red-700 border border-red-200 rounded text-xs hover:bg-red-200 transition-colors" onClick={clearSelection}>
                                 Limpiar selección
                             </button>
                         )}
-                        <div className="flex items-center gap-2 ml-auto">
-                            <label htmlFor="orden-lista" className="text-[12px] text-gray-600">Orden</label>
-                            <select
-                                id="orden-lista"
-                                className="border rounded px-2 py-1 text-xs"
-                                value={sortDesc ? 'desc' : 'asc'}
-                                onChange={(e) => setSortDesc(e.target.value === 'desc')}
-                            >
-                                <option value="desc">Recientes primero</option>
-                                <option value="asc">Antiguas primero</option>
-                            </select>
-                        </div>
                     </div>
 
                     <div className="md:hidden divide-y">
@@ -646,15 +588,15 @@ export default function BoletasNoFacturadasPage() {
                         <div className="flex items-center gap-2">
                             <span className="text-xs text-gray-500 mr-2">Total: {totalNoFacturadas}</span>
                             <button
-                                className={`px-3 py-1 rounded text-sm border ${page <= 1 ? 'bg-gray-200 text-gray-400 cursor-not-allowed' : 'bg-white hover:bg-gray-100'}`}
-                                onClick={() => handlePageChange(Math.max(1, page - 1))}
-                                disabled={page <= 1}
+                                className={`px-3 py-1 rounded text-sm border ${currentPage <= 1 ? 'bg-gray-200 text-gray-400 cursor-not-allowed' : 'bg-white hover:bg-gray-100'}`}
+                                onClick={() => handlePageChange(Math.max(1, currentPage - 1))}
+                                disabled={currentPage <= 1}
                             >Anterior</button>
-                            <span className="text-xs font-medium">Página {page} de {totalPages}</span>
+                            <span className="text-xs font-medium">Página {currentPage} de {totalPages}</span>
                             <button
-                                className={`px-3 py-1 rounded text-sm border ${page >= totalPages ? 'bg-gray-200 text-gray-400 cursor-not-allowed' : 'bg-white hover:bg-gray-100'}`}
-                                onClick={() => handlePageChange(Math.min(totalPages, page + 1))}
-                                disabled={page >= totalPages}
+                                className={`px-3 py-1 rounded text-sm border ${currentPage >= totalPages ? 'bg-gray-200 text-gray-400 cursor-not-allowed' : 'bg-white hover:bg-gray-100'}`}
+                                onClick={() => handlePageChange(Math.min(totalPages, currentPage + 1))}
+                                disabled={currentPage >= totalPages}
                             >Siguiente</button>
                         </div>
                     </div>

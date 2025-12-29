@@ -330,41 +330,45 @@ async def obtener_stats_mensuales(
     usuario: Usuario = Depends(obtener_usuario_actual)
 ) -> List[Dict[str, Any]]:
     """
-    Obtiene totales de registros agrupados por mes y año.
+    Obtiene totales de registros agrupados por mes y año (Versión segura para formatos de moneda).
     """
-    # Consulta para agrupar por mes y año
-    # Usamos func.strftime para SQLite o func.extract para Postgres/MySQL
-    # Asumimos SQLite por el contexto previo del proyecto
-    
-    query = select(
-        func.strftime('%Y-%m', IngresoSheets.fecha).label('periodo'),
-        func.count(IngresoSheets.id).label('cantidad'),
-        func.sum(
-            func.cast(
-                func.json_extract(IngresoSheets.data_json, '$.INGRESOS'),
-                Float
-            )
-        ).label('total_ingresos')
-    ).where(
-        IngresoSheets.fecha != None
-    ).group_by(
-        'periodo'
-    ).order_by(
-        desc('periodo')
-    )
-    
+    # Traemos fecha y el JSON crudo para procesar en Python (más seguro con formatos de moneda)
+    query = select(IngresoSheets.fecha, IngresoSheets.data_json).where(IngresoSheets.fecha != None)
     results = db.exec(query).all()
     
-    stats = []
-    for periodo, cantidad, total_ingresos in results:
-        # periodo viene como 'YYYY-MM'
-        year, month = periodo.split('-')
-        stats.append({
-            "periodo": periodo,
-            "year": int(year),
-            "month": int(month),
-            "cantidad": cantidad,
-            "total_ingresos": float(total_ingresos or 0)
-        })
-        
-    return stats
+    stats_dict = {}
+    
+    for row in results:
+        if not row.fecha:
+            continue
+            
+        # Clave Mes: "2024-05"
+        mes_key = row.fecha.strftime("%Y-%m")
+        if mes_key not in stats_dict:
+            year, month = mes_key.split('-')
+            stats_dict[mes_key] = {
+                "periodo": mes_key,
+                "year": int(year),
+                "month": int(month),
+                "cantidad": 0,
+                "total_ingresos": 0.0
+            }
+            
+        # Parseo seguro del dinero desde el JSON
+        try:
+            data = json.loads(row.data_json)
+            # Buscamos 'INGRESOS' o 'ingresos'
+            raw_ingreso = str(data.get('INGRESOS') or data.get('ingresos') or '0')
+            
+            # Limpiar símbolos de moneda y convertir formato latino (1.500,00) a SQL float (1500.00)
+            # Primero quitamos el símbolo $, luego los puntos de miles, y finalmente cambiamos la coma decimal por punto.
+            clean_ingreso = raw_ingreso.replace('$', '').replace('.', '').replace(',', '.').strip()
+            monto = float(clean_ingreso)
+        except Exception:
+            monto = 0.0
+            
+        stats_dict[mes_key]["cantidad"] += 1
+        stats_dict[mes_key]["total_ingresos"] += monto
+
+    # Ordenar por periodo descendente y devolver los últimos 12 meses
+    return sorted(stats_dict.values(), key=lambda x: x['periodo'], reverse=True)[:12]

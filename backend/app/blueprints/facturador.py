@@ -146,13 +146,28 @@ class AnularAfipPayload(BaseModel):
     force: Optional[bool] = False
 
 @router.post("/anular-afip/{factura_id}", status_code=status.HTTP_200_OK)
-async def anular_afip(factura_id: int, body: AnularAfipPayload | None = None) -> Dict[str, Any]:
+async def anular_afip(factura_id: str, body: AnularAfipPayload | None = None) -> Dict[str, Any]:
     db = SessionLocal()
     try:
         logger.info(f"Inicio anulación AFIP factura_id={factura_id} force={bool(body and body.force)}")
-        row = db.get(FacturaElectronica, factura_id)
+        
+        # Intentar buscar por ID (si es numérico) o por ingreso_id/cae (si es alfanumérico)
+        row = None
+        
+        # 1. Intentar buscar por ID numérico si factura_id parece un entero
+        if factura_id.isdigit():
+            row = db.get(FacturaElectronica, int(factura_id))
+        
+        # 2. Si no se encontró por ID, intentar buscar por ingreso_id (el código alfanumérico del frontend)
         if not row:
-            raise HTTPException(status_code=404, detail="Factura no encontrada")
+            row = db.query(FacturaElectronica).filter(FacturaElectronica.ingreso_id == factura_id).first()
+            
+        # 3. Como último recurso, intentar por CAE
+        if not row:
+            row = db.query(FacturaElectronica).filter(FacturaElectronica.cae == factura_id).first()
+            
+        if not row:
+            raise HTTPException(status_code=404, detail=f"Factura no encontrada (ID/Código: {factura_id})")
         if getattr(row, "anulada", False) and not (body and body.force):
             return {"status": "ALREADY", "factura_id": factura_id, "codigo_nota_credito": row.codigo_nota_credito}
 
@@ -285,7 +300,7 @@ async def anular_afip(factura_id: int, body: AnularAfipPayload | None = None) ->
         db.close()
 
 class AnularLotePayload(BaseModel):
-    ids: List[int]
+    ids: List[str]
     motivo: Optional[str] = None
 
 @router.post("/anular-lote", status_code=status.HTTP_200_OK)

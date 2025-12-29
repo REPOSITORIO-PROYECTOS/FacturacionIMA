@@ -628,7 +628,7 @@ def generar_pdf_comprobante(factura: FacturaElectronica, conceptos: list = None)
 
 @router.get("/{factura_id}/pdf")
 async def descargar_comprobante_pdf(
-    factura_id: int,
+    factura_id: str,
     usuario: Usuario = Depends(obtener_usuario_actual)
 ):
     """
@@ -636,11 +636,23 @@ async def descargar_comprobante_pdf(
     """
     db = SessionLocal()
     try:
-        # Obtener la factura
-        factura = db.query(FacturaElectronica).filter(FacturaElectronica.id == factura_id).first()
+        # Intentar buscar por ID (si es numérico) o por ingreso_id/cae (si es alfanumérico)
+        factura = None
+        
+        # 1. Intentar buscar por ID numérico si factura_id parece un entero
+        if factura_id.isdigit():
+            factura = db.query(FacturaElectronica).filter(FacturaElectronica.id == int(factura_id)).first()
+        
+        # 2. Si no se encontró por ID, intentar buscar por ingreso_id (el código alfanumérico del frontend)
+        if not factura:
+            factura = db.query(FacturaElectronica).filter(FacturaElectronica.ingreso_id == factura_id).first()
+            
+        # 3. Como último recurso, intentar por CAE
+        if not factura:
+            factura = db.query(FacturaElectronica).filter(FacturaElectronica.cae == factura_id).first()
         
         if not factura:
-            raise HTTPException(status_code=404, detail="Factura no encontrada")
+            raise HTTPException(status_code=404, detail=f"Factura no encontrada (ID/Código: {factura_id})")
         
         # Obtener conceptos si existen (desde raw_response o buscar en BD)
         conceptos = []
@@ -771,14 +783,28 @@ def generar_pdf_nota_credito_ticket(factura: FacturaElectronica) -> bytes:
 
 @router.get("/nota-credito/{factura_id}/pdf")
 async def descargar_nota_credito_pdf(
-    factura_id: int,
+    factura_id: str,
     usuario: Usuario = Depends(obtener_usuario_actual)
 ):
     db = SessionLocal()
     try:
-        factura = db.query(FacturaElectronica).filter(FacturaElectronica.id == factura_id).first()
+        # Intentar buscar por ID (si es numérico) o por ingreso_id/cae (si es alfanumérico)
+        factura = None
+        
+        # 1. Intentar buscar por ID numérico si factura_id parece un entero
+        if factura_id.isdigit():
+            factura = db.query(FacturaElectronica).filter(FacturaElectronica.id == int(factura_id)).first()
+        
+        # 2. Si no se encontró por ID, intentar buscar por ingreso_id (el código alfanumérico del frontend)
         if not factura:
-            raise HTTPException(status_code=404, detail="Factura no encontrada")
+            factura = db.query(FacturaElectronica).filter(FacturaElectronica.ingreso_id == factura_id).first()
+            
+        # 3. Como último recurso, intentar por CAE
+        if not factura:
+            factura = db.query(FacturaElectronica).filter(FacturaElectronica.cae == factura_id).first()
+
+        if not factura:
+            raise HTTPException(status_code=404, detail=f"Factura no encontrada (ID/Código: {factura_id})")
         if not getattr(factura, "anulada", False) or not factura.codigo_nota_credito:
             raise HTTPException(status_code=400, detail="La factura no está anulada o no tiene CAE de NC")
         pdf_bytes = generar_pdf_nota_credito_ticket(factura)
