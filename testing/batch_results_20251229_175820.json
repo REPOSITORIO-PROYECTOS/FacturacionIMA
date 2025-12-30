@@ -1,0 +1,155 @@
+[
+  {
+    "id": "c2e87e12",
+    "original_data": {
+      "id": "c2e87e12",
+      "total": 297000.0,
+      "cliente_data": {
+        "cuit_o_dni": "20281925467",
+        "nombre_razon_social": "MOLINA FERNANDO ANDRES",
+        "domicilio": "",
+        "condicion_iva": "CONSUMIDOR_FINAL"
+      }
+    },
+    "status": "SUCCESS",
+    "result": {
+      "estado": "EXITOSO",
+      "resultado": "A",
+      "cae": "75520784373731",
+      "vencimiento_cae": "20260108",
+      "numero_comprobante": 509,
+      "punto_venta": "3",
+      "tipo_comprobante": 6,
+      "fecha_comprobante": "2025-12-29T17:58:07.086421",
+      "importe_total": 297000.0,
+      "cuit_emisor": 30718331680,
+      "debug_cuit_usado": "30718331680",
+      "debug_fuente_credenciales": "boveda",
+      "tipo_doc_receptor": 80,
+      "nro_doc_receptor": 20281925467,
+      "tipo_documento": 80,
+      "documento": "20281925467",
+      "tipo_afip": 6,
+      "total": 297000.0,
+      "neto": 245454.55,
+      "iva": 51545.45,
+      "id_condicion_iva": 5,
+      "qr_code": "data:image/png;base64,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"
+    },
+    "db_save_status": "SUCCESS",
+    "factura_id": 522,
+    "sheets_update_status": "SUCCESS"
+  },
+  {
+    "id": "37ff2d88",
+    "original_data": {
+      "id": "37ff2d88",
+      "total": 37000.0,
+      "cliente_data": {
+        "cuit_o_dni": "0",
+        "nombre_razon_social": "Kiosco Pia",
+        "domicilio": "",
+        "condicion_iva": "CONSUMIDOR_FINAL"
+      }
+    },
+    "status": "SUCCESS",
+    "result": {
+      "estado": "EXITOSO",
+      "resultado": "A",
+      "cae": "75520784384201",
+      "vencimiento_cae": "20260108",
+      "numero_comprobante": 510,
+      "punto_venta": "3",
+      "tipo_comprobante": 6,
+      "fecha_comprobante": "2025-12-29T17:58:10.602251",
+      "importe_total": 37000.0,
+      "cuit_emisor": 30718331680,
+      "debug_cuit_usado": "30718331680",
+      "debug_fuente_credenciales": "boveda",
+      "tipo_doc_receptor": 99,
+      "nro_doc_receptor": 0,
+      "tipo_documento": 99,
+      "documento": "0",
+      "tipo_afip": 6,
+      "total": 37000.0,
+      "neto": 30578.51,
+      "iva": 6421.49,
+      "id_condicion_iva": 5,
+      "qr_code": "data:image/png;base64,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"
+    },
+    "db_save_status": "SUCCESS",
+    "factura_id": 523,
+    "sheets_update_status": "SUCCESS"
+  },
+  {
+    "id": "b19549fc",
+    "original_data": {
+      "id": "b19549fc",
+      "total": 34709.0,
+      "cliente_data": {
+        "cuit_o_dni": "0",
+        "nombre_razon_social": "",
+        "domicilio": "",
+        "condicion_iva": "CONSUMIDOR_FINAL"
+      }
+    },
+    "status": "SUCCESS",
+    "result": {
+      "estado": "EXITOSO",
+      "resultado": "A",
+      "cae": "75520784395153",
+      "vencimiento_cae": "20260108",
+      "numero_comprobante": 511,
+      "punto_venta": "3",
+      "tipo_comprobante": 6,
+      "fecha_comprobante": "2025-12-29T17:58:14.517845",
+      "importe_total": 34709.0,
+      "cuit_emisor": 30718331680,
+      "debug_cuit_usado": "30718331680",
+      "debug_fuente_credenciales": "boveda",
+      "tipo_doc_receptor": 99,
+      "nro_doc_receptor": 0,
+      "tipo_documento": 99,
+      "documento": "0",
+      "tipo_afip": 6,
+      "total": 34709.0,
+      "neto": 28685.12,
+      "iva": 6023.88,
+      "id_condicion_iva": 5,
+      "qr_code": "data:image/png;base64,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"
+    },
+    "db_save_status": "SUCCESS",
+    "factura_id": 524,
+    "sheets_update_status": "SUCCESS"
+  },
+  {
+    "id": "13db7bf6",
+    "original_data": {
+      "id": "13db7bf6",
+      "total": 55500.0,
+      "cliente_data": {
+        "cuit_o_dni": "0",
+        "nombre_razon_social": "",
+        "domicilio": "",
+        "condicion_iva": "CONSUMIDOR_FINAL"
+      }
+    },
+    "status": "FAILED",
+    "error": "Error en el servicio de facturación: Status: 500. Body: Error interno del servidor: AttributeError: 'NoneType' object has no attribute 'FECompUltimoAutorizado'"
+  },
+  {
+    "id": "08885f06",
+    "original_data": {
+      "id": "08885f06",
+      "total": 33000.0,
+      "cliente_data": {
+        "cuit_o_dni": "0",
+        "nombre_razon_social": "",
+        "domicilio": "",
+        "condicion_iva": "CONSUMIDOR_FINAL"
+      }
+    },
+    "status": "FAILED",
+    "error": "Error en el servicio de facturación: Status: 500. Body: Error interno del servidor: AttributeError: 'NoneType' object has no attribute 'FECompUltimoAutorizado'"
+  }
+]

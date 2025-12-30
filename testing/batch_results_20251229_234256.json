@@ -1,0 +1,32 @@
+[
+  {
+    "id": "6f902dc5",
+    "original_data": {
+      "id": "6f902dc5",
+      "total": 29000.0,
+      "cliente_data": {
+        "cuit_o_dni": "0",
+        "nombre_razon_social": "",
+        "domicilio": "",
+        "condicion_iva": "CONSUMIDOR_FINAL"
+      }
+    },
+    "status": "FAILED",
+    "error": "Error en el servicio de facturación: Status: 400. Body: Error de entrada: Clave privada en formato PEM inválida o no soportada"
+  },
+  {
+    "id": "050fbaa2",
+    "original_data": {
+      "id": "050fbaa2",
+      "total": 24450.0,
+      "cliente_data": {
+        "cuit_o_dni": "0",
+        "nombre_razon_social": "",
+        "domicilio": "",
+        "condicion_iva": "CONSUMIDOR_FINAL"
+      }
+    },
+    "status": "FAILED",
+    "error": "Error en el servicio de facturación: Status: 400. Body: Error de entrada: Clave privada en formato PEM inválida o no soportada"
+  }
+]

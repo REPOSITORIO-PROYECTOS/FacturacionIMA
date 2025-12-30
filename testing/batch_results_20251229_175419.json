@@ -1,0 +1,122 @@
+[
+  {
+    "id": "ef9d4ff2",
+    "original_data": {
+      "id": "ef9d4ff2",
+      "total": 369800.0,
+      "cliente_data": {
+        "cuit_o_dni": "20423567253",
+        "nombre_razon_social": "GALLARDO SANTIAGO EMILIANO",
+        "domicilio": "",
+        "condicion_iva": "RESPONSABLE_INSCRIPTO"
+      }
+    },
+    "status": "SUCCESS",
+    "result": {
+      "estado": "EXITOSO",
+      "resultado": "A",
+      "cae": "75520783614255",
+      "vencimiento_cae": "20260108",
+      "numero_comprobante": 14,
+      "punto_venta": "3",
+      "tipo_comprobante": 1,
+      "fecha_comprobante": "2025-12-29T17:54:09.429045",
+      "importe_total": 369800.0,
+      "cuit_emisor": 30718331680,
+      "debug_cuit_usado": "30718331680",
+      "debug_fuente_credenciales": "boveda",
+      "tipo_doc_receptor": 80,
+      "nro_doc_receptor": 20423567253,
+      "tipo_documento": 80,
+      "documento": "20423567253",
+      "tipo_afip": 1,
+      "total": 369800.0,
+      "neto": 305619.83,
+      "iva": 64180.17,
+      "id_condicion_iva": 1,
+      "qr_code": "data:image/png;base64,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"
+    },
+    "db_save_status": "SUCCESS",
+    "factura_id": 520,
+    "sheets_update_status": "SUCCESS"
+  },
+  {
+    "id": "2006af4b",
+    "status": "FAILED",
+    "error": "Ya facturada",
+    "existing_factura_id": 518,
+    "numero_comprobante": 507
+  },
+  {
+    "id": "967a1d11",
+    "original_data": {
+      "id": "967a1d11",
+      "total": 37000.0,
+      "cliente_data": {
+        "cuit_o_dni": "23440192769",
+        "nombre_razon_social": "IRAMAIN MARATTA TOBIAS EZEQUIEL",
+        "domicilio": "",
+        "condicion_iva": "RESPONSABLE_INSCRIPTO"
+      },
+      "conceptos": [
+        {
+          "descripcion": "producto de prueba",
+          "cantidad": 1.0,
+          "precio_unitario": 1.05,
+          "subtotal": 1.0499999523162842,
+          "tasa_iva": null
+        }
+      ]
+    },
+    "status": "SUCCESS",
+    "result": {
+      "estado": "EXITOSO",
+      "resultado": "A",
+      "cae": "75520783623003",
+      "vencimiento_cae": "20260108",
+      "numero_comprobante": 15,
+      "punto_venta": "3",
+      "tipo_comprobante": 1,
+      "fecha_comprobante": "2025-12-29T17:54:12.309272",
+      "importe_total": 37000.0,
+      "cuit_emisor": 30718331680,
+      "debug_cuit_usado": "30718331680",
+      "debug_fuente_credenciales": "boveda",
+      "tipo_doc_receptor": 80,
+      "nro_doc_receptor": 23440192769,
+      "tipo_documento": 80,
+      "documento": "23440192769",
+      "tipo_afip": 1,
+      "total": 37000.0,
+      "neto": 30578.51,
+      "iva": 6421.49,
+      "id_condicion_iva": 1,
+      "qr_code": "data:image/png;base64,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"
+    },
+    "db_save_status": "SUCCESS",
+    "factura_id": 521,
+    "sheets_update_status": "SUCCESS"
+  },
+  {
+    "id": "542d22aa",
+    "status": "FAILED",
+    "error": "Ya facturada",
+    "existing_factura_id": 519,
+    "numero_comprobante": 508
+  },
+  {
+    "id": "c2e87e12",
+    "original_data": {
+      "id": "c2e87e12",
+      "total": 297000.0,
+      "cliente_data": {
+        "cuit_o_dni": "20281925467",
+        "nombre_razon_social": "MOLINA FERNANDO ANDRES",
+        "domicilio": "",
+        "condicion_iva": "CONSUMIDOR_FINAL"
+      }
+    },
+    "status": "FAILED",
+    "error": "Error en el servicio de facturación: Status: 500. Body: Error interno del servidor: AttributeError: 'NoneType' object has no attribute 'FECompUltimoAutorizado'"
+  }
+]

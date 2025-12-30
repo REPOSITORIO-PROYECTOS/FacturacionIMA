@@ -1327,6 +1327,10 @@ def afip_contract_test(emisor_cuit: str, tipo_forzado: int = 11, total: float = 
     try:
         receptor = ReceptorData(cuit_o_dni=str(documento), condicion_iva=condicion_receptor, nombre_razon_social='TEST CONTRATO', domicilio='S/D')
         resultado = generar_factura_para_venta(total=total, cliente_data=receptor, emisor_cuit=emisor_cuit, tipo_forzado=tipo_forzado)
+        
+        if not isinstance(resultado, dict):
+             raise ValueError(f"El servicio de facturación devolvió una respuesta inesperada: {type(resultado)}")
+
         esperado_tipo = tipo_forzado
         obtenido_tipo = resultado.get('tipo_comprobante') or resultado.get('tipo_afip')
         mismatch = (int(esperado_tipo) != int(obtenido_tipo)) if (esperado_tipo is not None and obtenido_tipo is not None) else None

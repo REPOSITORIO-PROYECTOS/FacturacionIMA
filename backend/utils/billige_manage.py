@@ -253,6 +253,16 @@ def _process_single_invoice_full_cycle(
         # Synchronous call to AFIP
         afip_data = _attempt_generate_invoice(total, cliente_data, invoice_id, emisor_cuit, tipo_forzado, conceptos)
         
+        if not afip_data or afip_data.get("status") == "FAILED":
+            error_msg = afip_data.get("error") if afip_data else "Respuesta vacía de AFIP"
+            logger.error(f"[{invoice_id}] Error en _attempt_generate_invoice: {error_msg}")
+            return {
+                "id": invoice_id,
+                "status": "FAILED",
+                "error": error_msg,
+                "original_data": original_invoice_data
+            }
+
         single_invoice_result.update({
             "status": "SUCCESS",
             "result": afip_data

@@ -422,8 +422,14 @@ async def prueba_factura_un_peso(emisor_cuit: str | None = None, tipo_forzado: i
     else:
         try:
             res = generar_factura_para_venta(total=1.0, cliente_data=receptor, emisor_cuit=emisor_cuit, tipo_forzado=tipo_forzado)
+            if res is None:
+                raise ValueError("El servicio de facturación devolvió None")
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Error emitiendo comprobante de prueba: {e}")
+    
+    if not isinstance(res, dict):
+        raise HTTPException(status_code=500, detail=f"Respuesta inesperada del servicio de facturación: {type(res)}")
+
     mismatch = None
     if tipo_forzado is not None:
         obtenido_tipo = res.get('tipo_comprobante') or res.get('tipo_afip')

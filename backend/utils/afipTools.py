@@ -3,8 +3,9 @@ from datetime import datetime
 import os
 import requests
 import json
-# Nota: no dependemos de un serializador personalizado aquí; usamos `str` como
-# fallback seguro al serializar objetos desconocidos para logging/debug.
+import re
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.backends import default_backend
 from dotenv import load_dotenv
 from typing import Dict, Any, Optional
 from enum import Enum
@@ -222,6 +223,35 @@ def _sanitize_pem(pem: str | None, kind: str) -> str | None:
         norm += '\n'
     return norm
 
+def _asegurar_pkcs8_y_validar(key_pem: str | None) -> str:
+    """Valida la clave privada y asegura que esté en formato PKCS#8 sin passphrase."""
+    if not key_pem:
+        raise ValueError("Clave privada PEM vacía.")
+    
+    try:
+        # Intentar cargar la clave (soporta PKCS#1, PKCS#8, EC, etc.)
+        key = serialization.load_pem_private_key(
+            key_pem.encode(),
+            password=None,
+            backend=default_backend()
+        )
+        
+        # Re-exportar siempre como PKCS#8 (formato estándar esperado por el microservicio)
+        # Esto soluciona problemas de claves PKCS#1 (-----BEGIN RSA PRIVATE KEY-----)
+        # que a veces dan problemas en ciertos entornos o librerías.
+        pkcs8_pem = key.private_bytes(
+            encoding=serialization.Encoding.PEM,
+            format=serialization.PrivateFormat.PKCS8,
+            encryption_algorithm=serialization.NoEncryption()
+        ).decode('utf-8')
+        
+        return pkcs8_pem
+    except Exception as e:
+        msg = str(e).lower()
+        if "passphrase" in msg or "password" in msg:
+            raise ValueError("La clave privada tiene contraseña (passphrase). El servicio requiere claves sin contraseña.")
+        raise ValueError(f"Clave privada inválida o formato no soportado: {str(e)}")
+
 def _fingerprint_material(material: str | None) -> str | None:
     import hashlib
     if not material:
@@ -318,7 +348,18 @@ def generar_factura_para_venta(
 
     # Sanear PEM antes de enviarlo (evita errores de longitud / CRLF)
     cert_res_sane = _sanitize_pem(cert_res, 'cert')
-    key_res_sane = _sanitize_pem(key_res, 'key')
+    # Clave privada: sanitizar y asegurar formato PKCS#8 compatible
+    try:
+        key_res_sane = _asegurar_pkcs8_y_validar(key_res)
+    except ValueError as ve:
+        raise RuntimeError(f"Error de credenciales (clave privada): {str(ve)}")
+
+    # Validaciones previas de sanidad de credenciales
+    if not cert_res_sane or "-----BEGIN CERTIFICATE-----" not in cert_res_sane:
+        raise ValueError(f"El certificado para el CUIT {cuit_res} no parece ser un PEM válido.")
+    if not key_res_sane or "-----BEGIN PRIVATE KEY-----" not in key_res_sane:
+        raise ValueError(f"La clave privada para el CUIT {cuit_res} no parece ser un PEM PKCS#8 válido.")
+
     credenciales = {
         "cuit": cuit_res,
         "certificado": cert_res_sane,
@@ -465,9 +506,24 @@ def generar_factura_para_venta(
             timeout=20,
         )
 
+        if response.status_code == 500:
+            error_msg_detected = None
+            try:
+                error_body = response.json()
+                if isinstance(error_body, dict) and "AttributeError" in str(error_body.get("message", "")) and "FECompUltimoAutorizado" in str(error_body.get("message", "")):
+                    error_msg_detected = "Error crítico en el microservicio de facturación: El cliente AFIP no se inicializó correctamente (NoneType error). Verifique las credenciales enviadas."
+            except Exception:
+                pass
+            
+            if error_msg_detected:
+                raise RuntimeError(error_msg_detected)
+
         response.raise_for_status()
 
         resultado_afip = response.json()
+        if resultado_afip is None:
+            raise RuntimeError("El microservicio de facturación devolvió una respuesta vacía (None).")
+        
         print(f"Respuesta del microservicio de facturación: {resultado_afip}")
 
         # Si el microservicio devuelve un cuerpo JSON con mensajes que parecen
@@ -544,24 +600,22 @@ def generar_factura_para_venta(
                 status_code = getattr(e.response, 'status_code', None)
                 try:
                     body = e.response.json()
-                    # Si body es dict y tiene 'message', úsalo; si no, usa la serialización
-                    if isinstance(body, dict) and 'message' in body:
-                        body_text = body.get('message')
-                    else:
-                        try:
-                            body_text = json.dumps(body, ensure_ascii=False, default=str)
-                        except Exception:
-                            try:
-                                body_text = str(body)
-                            except Exception:
-                                body_text = '<unserializable body>'
-                except ValueError:
-                    body_text = e.response.text
+                    # Si body es dict y tiene 'message' o 'error', úsalo
+                    if isinstance(body, dict):
+                        body_text = body.get('message') or body.get('error') or body.get('errores')
+                    if not body_text:
+                        body_text = e.response.text
+                except Exception:
+                    body_text = e.response.text[:200]
         except Exception:
-            body_text = str(e)
+            pass
 
-        safe_msg = f"Status: {status_code}. Body: {body_text}"
-        print(f"ERROR: El microservicio de facturación rechazó la petición. {safe_msg}")
+        safe_msg = f"Status: {status_code}. Body: {body_text}" if status_code else str(e)
+        
+        # Si detectamos el error de NoneType específicamente aquí también por si acaso
+        if body_text and "FECompUltimoAutorizado" in str(body_text) and "NoneType" in str(body_text):
+            raise RuntimeError(f"Error crítico en microservicio (Cliente AFIP no inicializado): {body_text}")
+            
         # Si el body contiene indicios de SSL/EOF/ConnectionReset, tratar como error de conexión
         try:
             joined = (body_text or "").lower()
@@ -572,7 +626,7 @@ def generar_factura_para_venta(
             raise
         except Exception:
             pass
-
+            
         raise RuntimeError(f"Error en el servicio de facturación: {safe_msg}")
 
     except requests.exceptions.RequestException as e:
