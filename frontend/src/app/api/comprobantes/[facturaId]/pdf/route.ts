@@ -35,6 +35,11 @@ export async function GET(
                     }
                 });
             }
+            // Propagar errores de autenticación para que el frontend pueda redirigir
+            if (res.status === 401 || res.status === 403) {
+                const errTxt = await res.text().catch(() => 'No autorizado');
+                return NextResponse.json({ error: errTxt }, { status: res.status });
+            }
         } catch (e) {
             continue;
         }

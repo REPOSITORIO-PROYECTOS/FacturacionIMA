@@ -44,6 +44,37 @@ export default function BoletasFacturadasPage() {
         };
     }, []);
 
+    const getLocalDateStr = (d = new Date()) => {
+        const yyyy = d.getFullYear();
+        const mm = String(d.getMonth() + 1).padStart(2, '0');
+        const dd = String(d.getDate()).padStart(2, '0');
+        return `${yyyy}-${mm}-${dd}`;
+    };
+
+    const formatDate = (raw: any) => {
+        if (!raw) return '-';
+        const t = String(raw).trim();
+        if (!t || t.toLowerCase() === 'none' || t.toLowerCase() === 'null') return '-';
+
+        try {
+            // Caso 1: DD/MM/YYYY
+            if (/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(t)) return t;
+
+            // Caso 2: YYYY-MM-DD (ISO date)
+            if (/^\d{4}-\d{2}-\d{2}/.test(t)) {
+                const [yyyy, mm, dd] = t.split('T')[0].split('-');
+                return `${dd}/${mm}/${yyyy}`;
+            }
+
+            // Caso 3: Date object o string parseable
+            const d = new Date(t);
+            if (!isNaN(d.getTime())) {
+                return d.toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' });
+            }
+        } catch { }
+        return t;
+    };
+
     const getFacturaId = (b: BoletaRecord): string | number | null => {
         // Priorizar IDs específicos de facturación AFIP si existen
         return (b as Record<string, unknown>).factura_id as string | number | null || b.id || b.ingreso_id || b['ID Ingresos'] || null;
@@ -203,30 +234,27 @@ export default function BoletasFacturadasPage() {
     }
     const { boletasFacturadas, totalFacturadas, loading, error: storeError, reload, filters: storeFilters } = useBoletas();
     const error = storeError ?? '';
-    const [search, setSearch] = useState('');
-    const [fechaDesde, setFechaDesde] = useState<string>('');
-    const [fechaHasta, setFechaHasta] = useState<string>('');
-    const [statusFilter, setStatusFilter] = useState<'all' | 'anuladas' | 'activas'>('all');
-    const [page, setPage] = useState(1);
 
-    // Restaurar fechas desde localStorage al inicio
+    // Sincronizar estado local con el store al montar y cuando el store cambie externamente
+    const [search, setSearch] = useState(storeFilters.search || '');
+    const [fechaDesde, setFechaDesde] = useState<string>(storeFilters.fechaDesde || '');
+    const [fechaHasta, setFechaHasta] = useState<string>(storeFilters.fechaHasta || '');
+    const [statusFilter, setStatusFilter] = useState<'all' | 'anuladas' | 'activas'>((storeFilters.status as any) || 'all');
+    const [page, setPage] = useState(storeFilters.page || 1);
+
+    // Actualizar estado local si los filtros del store cambian (ej. al borrar filtros)
     useEffect(() => {
-        try {
-            const fd = localStorage.getItem('boletas_facturadas_fecha_desde') || '';
-            const fh = localStorage.getItem('boletas_facturadas_fecha_hasta') || '';
-            if (fd) setFechaDesde(fd);
-            if (fh) setFechaHasta(fh);
-        } catch { /* noop */ }
-    }, []);
+        if (storeFilters.search !== undefined && storeFilters.search !== search) setSearch(storeFilters.search);
+        if (storeFilters.fechaDesde !== undefined && storeFilters.fechaDesde !== fechaDesde) setFechaDesde(storeFilters.fechaDesde);
+        if (storeFilters.fechaHasta !== undefined && storeFilters.fechaHasta !== fechaHasta) setFechaHasta(storeFilters.fechaHasta);
+        if (storeFilters.status !== undefined && storeFilters.status !== statusFilter) setStatusFilter((storeFilters.status as any) || 'all');
+        if (storeFilters.page !== undefined && storeFilters.page !== page) setPage(storeFilters.page);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [storeFilters.search, storeFilters.fechaDesde, storeFilters.fechaHasta, storeFilters.status, storeFilters.page]);
 
     // Persistir fechas y búsqueda en el store (con debounce para evitar loops)
     useEffect(() => {
         const timer = setTimeout(() => {
-            try {
-                localStorage.setItem('boletas_facturadas_fecha_desde', fechaDesde);
-                localStorage.setItem('boletas_facturadas_fecha_hasta', fechaHasta);
-            } catch { /* noop */ }
-
             const newFilters: any = {};
             let changed = false;
 
@@ -255,7 +283,7 @@ export default function BoletasFacturadasPage() {
                 console.log('🔄 Sincronizando filtros con el Store:', newFilters);
                 reload(newFilters);
             }
-        }, 500);
+        }, 600);
 
         return () => clearTimeout(timer);
         // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -347,19 +375,38 @@ export default function BoletasFacturadasPage() {
                         <label className="block text-sm text-gray-600 mb-1">Fecha hasta</label>
                         <input aria-label="Fecha hasta" type="date" className="border rounded px-3 py-2 w-full" value={fechaHasta} onChange={(e) => setFechaHasta(e.target.value)} />
                     </div>
-                    <div className="flex items-end gap-2">
+                    <div className="flex flex-wrap items-end gap-2">
                         <button
-                            className="px-3 py-2 border rounded text-sm hover:bg-gray-50"
-                            onClick={() => { const t = new Date().toISOString().split('T')[0]; setFechaDesde(t); setFechaHasta(t); }}
+                            className="px-3 py-2 border rounded text-sm hover:bg-gray-50 bg-white"
+                            onClick={() => {
+                                const t = getLocalDateStr();
+                                setFechaDesde(t);
+                                setFechaHasta(t);
+                            }}
                         >Hoy</button>
                         <button
-                            className="px-3 py-2 border rounded text-sm hover:bg-gray-50"
-                            onClick={() => { const d = new Date(); d.setDate(d.getDate() - 1); const y = d.toISOString().split('T')[0]; setFechaDesde(y); setFechaHasta(y); }}
+                            className="px-3 py-2 border rounded text-sm hover:bg-gray-50 bg-white"
+                            onClick={() => {
+                                const d = new Date();
+                                d.setDate(d.getDate() - 1);
+                                const y = getLocalDateStr(d);
+                                setFechaDesde(y);
+                                setFechaHasta(y);
+                            }}
                         >Ayer</button>
                         <button
-                            className="px-3 py-2 border rounded text-sm hover:bg-gray-50"
+                            className="px-3 py-2 border rounded text-sm hover:bg-gray-50 bg-white"
+                            onClick={() => {
+                                const d = new Date();
+                                d.setDate(d.getDate() - 7);
+                                setFechaDesde(getLocalDateStr(d));
+                                setFechaHasta(getLocalDateStr());
+                            }}
+                        >Últimos 7 días</button>
+                        <button
+                            className="px-3 py-2 border rounded text-sm hover:bg-gray-50 bg-white"
                             onClick={clearFilters}
-                        >Borrar</button>
+                        >Borrar filtros</button>
                     </div>
                 </div>
                 <input

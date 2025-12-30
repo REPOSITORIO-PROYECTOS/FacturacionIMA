@@ -52,7 +52,24 @@ export function BoletasProvider({ children }: { children: ReactNode }) {
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [lastUpdated, setLastUpdated] = useState<string | null>(null);
-    const [filters, setFilters] = useState<BoletasFilters>({ page: 1, limit: 50 });
+    const [filters, setFiltersState] = useState<BoletasFilters>({ page: 1, limit: 50 });
+
+    const isEqualFilters = useCallback((f1: BoletasFilters, f2: BoletasFilters) => {
+        return (f1.fechaDesde || '') === (f2.fechaDesde || '') &&
+            (f1.fechaHasta || '') === (f2.fechaHasta || '') &&
+            (f1.search || '') === (f2.search || '') &&
+            (f1.page || 1) === (f2.page || 1) &&
+            (f1.limit || 50) === (f2.limit || 50) &&
+            (f1.status || '') === (f2.status || '');
+    }, []);
+
+    const setFilters = useCallback((newFilters: BoletasFilters | ((prev: BoletasFilters) => BoletasFilters)) => {
+        setFiltersState(prev => {
+            const next = typeof newFilters === 'function' ? newFilters(prev) : { ...prev, ...newFilters };
+            if (isEqualFilters(prev, next)) return prev;
+            return next;
+        });
+    }, [isEqualFilters]);
 
     const tokenRef = useRef<string | null>(null);
     const intervalRef = useRef<number | null>(null);
@@ -71,9 +88,9 @@ export function BoletasProvider({ children }: { children: ReactNode }) {
         const now = Date.now();
         fetchHistoryRef.current = [...fetchHistoryRef.current.filter(t => now - t.timestamp < 10000), { timestamp: now }];
 
-        if (fetchHistoryRef.current.length > 10) {
-            console.error("🚨 [BoletasStore] LOOP DETECTADO: Se han realizado más de 10 peticiones en 10 segundos. Abortando peticiones para proteger el servidor.");
-            setError("Error: Sistema de protección contra bucles activado. Por favor recarga la página.");
+        if (fetchHistoryRef.current.length > 15) {
+            console.error("🚨 [BoletasStore] LOOP DETECTADO: Se han realizado más de 15 peticiones en 10 segundos. Abortando peticiones para proteger el servidor.");
+            setError("Error: El sistema detectó demasiadas peticiones seguidas. Se ha pausado la carga automática para proteger el servidor.");
             return;
         }
         // -------------------------
@@ -243,15 +260,14 @@ export function BoletasProvider({ children }: { children: ReactNode }) {
     }, [fetchAll]); // filters removido de dependencias para evitar reinicios del loop
 
     // Único punto de entrada para la carga inicial y cambios de filtros
-    const lastFiltersRef = useRef<string>("");
+    const lastFiltersRef = useRef<BoletasFilters | null>(null);
 
     useEffect(() => {
         // Solo disparar si los filtros realmente han cambiado o es la carga inicial
-        const currentFiltersKey = JSON.stringify(filters);
-        if (currentFiltersKey === lastFiltersRef.current) {
+        if (lastFiltersRef.current && isEqualFilters(filters, lastFiltersRef.current)) {
             return;
         }
-        lastFiltersRef.current = currentFiltersKey;
+        lastFiltersRef.current = { ...filters };
 
         const hasData = boletasFacturadas.length > 0 || boletasNoFacturadas.length > 0;
 
@@ -260,7 +276,7 @@ export function BoletasProvider({ children }: { children: ReactNode }) {
 
         fetchAll(filters, hasData);
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [filters, fetchAll]);
+    }, [filters, fetchAll, isEqualFilters]);
 
     const contextValue = React.useMemo(() => ({
         boletasFacturadas,

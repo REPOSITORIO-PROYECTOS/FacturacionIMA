@@ -21,18 +21,53 @@ router = APIRouter(prefix="/sheets", tags=["sheets"])
 # Aumentado a 5 minutos para evitar error 429 (Quota Exceeded) de Google API
 SYNC_COOLDOWN_SEC = 300
 
-def _parse_fecha_key(raw: str) -> date | None:
-    t = str(raw or '').strip()
-    if not t: return None
+def _parse_fecha_key(raw: Any) -> date | None:
+    if not raw: return None
+    if isinstance(raw, datetime): return raw.date()
+    if isinstance(raw, date): return raw
+    
+    t = str(raw).strip()
+    if not t or t.lower() in ('none', 'null', ''): return None
+    
+    # Intentar varios formatos comunes
+    formatos = [
+        '%Y-%m-%d',        # 2023-12-31
+        '%d/%m/%Y',        # 31/12/2023
+        '%Y/%m/%d',        # 2023/12/31
+        '%d-%m-%Y',        # 31-12-2023
+        '%d/%m/%y',        # 31/12/23
+        '%Y-%m-%dT%H:%M:%S', # ISO con tiempo
+        '%Y-%m-%dT%H:%M:%S.%f'
+    ]
+    
+    # Limpieza previa: si tiene tiempo (espacio o T), tomar solo la parte fecha
+    t_date_part = t.split(' ')[0].split('T')[0]
+    
+    for fmt in formatos:
+        try:
+            return datetime.strptime(t_date_part if '%' in fmt and not 'T' in fmt else t, fmt).date()
+        except:
+            continue
+            
+    # Fallback: intentar parsing manual simple para DD/MM/YYYY o YYYY-MM-DD
     try:
-        # ISO YYYY-MM-DD
-        if '-' in t:
-            return datetime.strptime(t.split('T')[0], '%Y-%m-%d').date()
-        # DD/MM/YYYY
-        if '/' in t:
-            return datetime.strptime(t.split(' ')[0], '%d/%m/%Y').date()
-    except Exception:
+        if '/' in t_date_part:
+            parts = t_date_part.split('/')
+            if len(parts) == 3:
+                if len(parts[0]) == 4: # YYYY/MM/DD
+                    return date(int(parts[0]), int(parts[1]), int(parts[2]))
+                else: # DD/MM/YYYY
+                    return date(int(parts[2]), int(parts[1]), int(parts[0]))
+        if '-' in t_date_part:
+            parts = t_date_part.split('-')
+            if len(parts) == 3:
+                if len(parts[0]) == 4: # YYYY-MM-DD
+                    return date(int(parts[0]), int(parts[1]), int(parts[2]))
+                else: # DD-MM-YYYY
+                    return date(int(parts[2]), int(parts[1]), int(parts[0]))
+    except:
         pass
+        
     return None
 
 # Flag global para evitar múltiples sincronizaciones simultáneas
@@ -222,6 +257,8 @@ async def obtener_boletas_desde_db(
     elif tipo == "facturadas":
         query = query.where(IngresoSheets.facturacion.in_(['Facturado', 'Facturada', 'Anulada', 'Anulado']))
     
+    logger.info(f"Filtros recibidos: tipo={tipo}, limit={limit}, offset={offset}, search={search}, fecha_desde={fecha_desde}, fecha_hasta={fecha_hasta}, status={status}")
+    
     # --- NUEVO: Filtro de Búsqueda SQL (Case Insensitive) ---
     if search:
         search_term = f"%{search}%"
@@ -231,17 +268,24 @@ async def obtener_boletas_desde_db(
         ))
 
     # Filtro Fechas
-    if fecha_desde:
-        try:
-            d_desde = datetime.strptime(fecha_desde, '%Y-%m-%d').date()
-            query = query.where(IngresoSheets.fecha >= d_desde)
-        except: pass
-        
-    if fecha_hasta:
-        try:
-            d_hasta = datetime.strptime(fecha_hasta, '%Y-%m-%d').date()
-            query = query.where(IngresoSheets.fecha <= d_hasta)
-        except: pass
+    d_desde = _parse_fecha_key(fecha_desde) if fecha_desde else None
+    d_hasta = _parse_fecha_key(fecha_hasta) if fecha_hasta else None
+    
+    if fecha_desde and not d_desde:
+        logger.warning(f"Filtro fecha_desde inválido: {fecha_desde}")
+    if fecha_hasta and not d_hasta:
+        logger.warning(f"Filtro fecha_hasta inválido: {fecha_hasta}")
+    
+    if d_desde and d_hasta and d_desde > d_hasta:
+        logger.warning(f"Rango de fechas invertido, corrigiendo: desde={d_desde} hasta={d_hasta}")
+        d_desde, d_hasta = d_hasta, d_desde
+    
+    if d_desde:
+        query = query.where(IngresoSheets.fecha >= d_desde)
+    if d_hasta:
+        query = query.where(IngresoSheets.fecha <= d_hasta)
+    
+    logger.info(f"Aplicando filtros de fecha: desde={d_desde} hasta={d_hasta}")
         
     # 3. Contar total (para saber cuántas páginas hay)
     # Clonamos la query para contar sin límite

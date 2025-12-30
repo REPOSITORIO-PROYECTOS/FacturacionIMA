@@ -7,7 +7,7 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
 
     const tipo = searchParams.get('tipo');
-    const limit = searchParams.get('limit') || '300';
+    const limit = searchParams.get('limit') || '50';
 
     if (!token) {
         return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
@@ -20,8 +20,15 @@ export async function GET(request: NextRequest) {
     const bases = Array.from(new Set(basesRaw.map(b => b.replace(/\/$/, ''))));
     const host = (() => { try { return new URL(request.url).host } catch { return null } })();
     const params = new URLSearchParams();
-    if (tipo) params.append('tipo', tipo);
-    params.append('limit', limit);
+    // Copiar todos los parámetros de la petición original para no perder filtros
+    for (const [key, value] of searchParams.entries()) {
+        if (value !== null && value !== undefined) {
+            params.set(key, value);
+        }
+    }
+    // Asegurar 'tipo' y 'limit' si faltan
+    if (tipo && !params.has('tipo')) params.set('tipo', tipo);
+    if (!params.has('limit')) params.set('limit', limit);
     const queryStr = params.toString();
 
     for (const base of bases) {
@@ -42,6 +49,12 @@ export async function GET(request: NextRequest) {
                 return NextResponse.json(data);
             }
 
+            // Propagar errores de autenticación inmediatamente
+            if (res.status === 401 || res.status === 403) {
+                const errTxt = await res.text().catch(() => 'No autorizado');
+                return NextResponse.json({ error: errTxt }, { status: res.status });
+            }
+
             if (res.status === 404) {
                 const apiUrl = `${base}/api/sheets/boletas?${queryStr}`;
                 console.log(`[Sheets Boletas] 404 en ruta base, intentando: ${apiUrl}`);
@@ -53,6 +66,10 @@ export async function GET(request: NextRequest) {
                     const data = await res2.json();
                     console.log(`[Sheets Boletas] ✓ Datos obtenidos (API_PREFIX)`);
                     return NextResponse.json(data);
+                }
+                if (res2.status === 401 || res2.status === 403) {
+                    const errTxt = await res2.text().catch(() => 'No autorizado');
+                    return NextResponse.json({ error: errTxt }, { status: res2.status });
                 }
             }
         } catch (e) {

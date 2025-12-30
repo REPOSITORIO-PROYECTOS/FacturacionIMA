@@ -58,6 +58,48 @@ export default function BoletasNoFacturadasPage() {
 
     // buildInvoiceItem ahora proviene de helper unificado (importado)
 
+    // --- HELPERS PARA DESCARGA ---
+    const downloadInvoicePDF = async (facturaId: string | number, token: string) => {
+        if (!facturaId) return false;
+        console.log(`📄 Descargando comprobante #${facturaId}...`);
+        try {
+            const pdfRes = await fetch(`/api/comprobantes/${facturaId}/pdf`, {
+                headers: { Authorization: `Bearer ${token}` }
+            });
+
+            if (pdfRes.ok) {
+                const blob = await pdfRes.blob();
+                if (blob.type !== 'application/pdf') {
+                    console.warn('⚠️ El blob no es un PDF válido:', blob.type);
+                    return false;
+                }
+
+                const url = window.URL.createObjectURL(blob);
+                objectUrlsRef.current.add(url);
+
+                const a = document.createElement('a');
+                a.style.display = 'none';
+                a.href = url;
+                a.download = `comprobante_${facturaId}.pdf`;
+                document.body.appendChild(a);
+                a.click();
+
+                setTimeout(() => {
+                    window.URL.revokeObjectURL(url);
+                    objectUrlsRef.current.delete(url);
+                    if (document.body.contains(a)) document.body.removeChild(a);
+                }, 5000);
+                return true;
+            } else {
+                console.error('❌ Error descargando PDF:', pdfRes.status);
+                return false;
+            }
+        } catch (error) {
+            console.error('❌ Excepción descargando PDF:', error);
+            return false;
+        }
+    };
+
     async function facturarBoleta(boleta: BoletaRecord) {
         const token = localStorage.getItem('token');
         if (!token) { showError('No autenticado'); return; }
@@ -81,19 +123,16 @@ export default function BoletasNoFacturadasPage() {
             }
 
             // Obtener conceptos de la venta
-            // Usamos el ID real de la venta para los conceptos, no el stableId generado
             const realVentaId = String((boleta as Record<string, unknown>)['ID Ingresos'] || boleta.id || '');
             if (realVentaId) {
                 const conceptos = await getVentaConceptos(realVentaId, token);
                 if (conceptos.length > 0) {
                     built.conceptos = conceptos;
-                    console.log(`✓ Boleta ${realVentaId}: ${conceptos.length} conceptos cargados`);
                 }
             }
 
             const result = await facturarItems([built], token);
             if (!result.ok) {
-                // ... rest of error handling remains same
                 if (result.error && result.error.toLowerCase().includes('no existen credenciales afip')) {
                     showError('No existen credenciales de AFIP para esta empresa. Solicite a un administrador que cargue las credenciales antes de facturar.');
                 } else if (result.error && result.error.toLowerCase().includes('emisor_cuit no especificado')) {
@@ -103,97 +142,17 @@ export default function BoletasNoFacturadasPage() {
                 }
                 return;
             }
+
             const data = result.data;
             let successMsgStr = 'Facturación exitosa';
 
-            console.log('📦 Respuesta completa de facturación:', JSON.stringify(data, null, 2));
-
-            // ⭐ NUEVO: Descargar PDF automáticamente
             if (Array.isArray(data) && data.length > 0) {
                 const firstResult = data[0];
-                console.log('📋 Primer resultado:', JSON.stringify(firstResult, null, 2));
-
-                const okCount = data.filter((r: unknown) => {
-                    const res = r as Record<string, unknown>;
-                    return res && typeof res === 'object' && res.ok !== false && res.status === 'SUCCESS';
-                }).length;
-                successMsgStr = `Facturación procesada: ${okCount} / ${data.length}`;
-
-                // Buscar factura_id en diferentes ubicaciones posibles
                 const facturaId = firstResult?.factura_id || firstResult?.result?.factura_id;
 
-                console.log('🔍 factura_id encontrado:', facturaId);
-
                 if (facturaId && firstResult.status === 'SUCCESS') {
-                    console.log(`📄 Descargando comprobante #${facturaId}...`);
-
-                    try {
-                        const pdfRes = await fetch(`/api/comprobantes/${facturaId}/pdf`, {
-                            headers: { Authorization: `Bearer ${token}` }
-                        });
-
-                        console.log('📡 Respuesta PDF:', pdfRes.status, pdfRes.statusText);
-
-                        if (pdfRes.ok) {
-                            const blob = await pdfRes.blob();
-                            console.log('📦 Blob recibido, tamaño:', blob.size, 'bytes', 'tipo:', blob.type);
-
-                            // Verificar que sea realmente un PDF
-                            if (blob.type !== 'application/pdf') {
-                                console.warn('⚠️ El blob no es un PDF válido:', blob.type);
-                                const text = await blob.text();
-                                console.error('Contenido recibido:', text.substring(0, 200));
-                                throw new Error('Respuesta no es un PDF válido');
-                            }
-
-                            // Método mejorado de descarga compatible con todos los navegadores
-                            const url = window.URL.createObjectURL(blob);
-                            objectUrlsRef.current.add(url); // Registrar para limpieza
-
-                            const a = document.createElement('a');
-                            a.style.display = 'none';
-                            a.href = url;
-                            a.download = `comprobante_${facturaId}.pdf`;
-                            a.target = '_blank'; // Intentar abrir en nueva pestaña si falla la descarga
-
-                            // Agregar al DOM, hacer clic, y remover
-                            document.body.appendChild(a);
-
-                            // Pequeña pausa para asegurar que el elemento está en el DOM
-                            await new Promise(resolve => setTimeout(resolve, 100));
-
-                            a.click();
-
-                            console.log('✅ Click en enlace de descarga ejecutado');
-
-                            // También intentar abrir en ventana nueva como fallback
-                            try {
-                                window.open(url, '_blank');
-                            } catch {
-                                console.log('ℹ️ No se pudo abrir en ventana nueva (normal si se descargó)');
-                            }
-
-                            // Limpiar después de un momento (tiempo suficiente para que el navegador inicie la descarga)
-                            setTimeout(() => {
-                                window.URL.revokeObjectURL(url);
-                                objectUrlsRef.current.delete(url);
-                                if (document.body.contains(a)) {
-                                    document.body.removeChild(a);
-                                }
-                                console.log('✅ Recursos de descarga liberados');
-                            }, 5000);
-
-                            console.log('✅ Comprobante descargado exitosamente');
-                            successMsgStr += ' ✅ PDF descargado';
-                        } else {
-                            const errorText = await pdfRes.text();
-                            console.error('❌ Error descargando PDF:', pdfRes.status, errorText);
-                        }
-                    } catch (pdfError) {
-                        console.error('❌ Excepción descargando PDF:', pdfError);
-                    }
-                } else {
-                    console.warn('⚠️ No se encontró factura_id o el status no es SUCCESS');
+                    const downloaded = await downloadInvoicePDF(facturaId, token);
+                    if (downloaded) successMsgStr += ' ✅ PDF descargado';
                 }
             }
 
@@ -204,19 +163,15 @@ export default function BoletasNoFacturadasPage() {
                 return next;
             });
             await reload();
-
             showSuccess(successMsgStr);
         } catch (error) {
             console.error('❌ Error en facturación:', error);
+            showError('Error inesperado durante la facturación');
         } finally {
-            // Asegurar que si hubo algún error en el flujo, se intente limpiar recursos
-            // (aunque en este punto el blob/url solo se crea si el fetch pdf tiene éxito)
-
-            // Remover de procesamiento
             setProcessingIds(prev => {
-                const newSet = new Set(prev);
-                newSet.delete(ventaId);
-                return newSet;
+                const next = new Set(prev);
+                next.delete(ventaId);
+                return next;
             });
             setIsProcessing(false);
         }
@@ -232,13 +187,24 @@ export default function BoletasNoFacturadasPage() {
         filters: storeFilters
     } = useBoletas();
     const error = storeError ?? '';
-    const [search, setSearch] = useState('');
-    const [fechaDesde, setFechaDesde] = useState<string>('');
-    const [fechaHasta, setFechaHasta] = useState<string>('');
 
-    // items provienen del store
+    // Sincronizar estado local con el store al montar y cuando el store cambie externamente
+    const [search, setSearch] = useState(storeFilters.search || '');
+    const [fechaDesde, setFechaDesde] = useState<string>(storeFilters.fechaDesde || '');
+    const [fechaHasta, setFechaHasta] = useState<string>(storeFilters.fechaHasta || '');
+
+    // Actualizar estado local si los filtros del store cambian (ej. al borrar filtros)
+    useEffect(() => {
+        if (storeFilters.search !== undefined && storeFilters.search !== search) setSearch(storeFilters.search);
+        if (storeFilters.fechaDesde !== undefined && storeFilters.fechaDesde !== fechaDesde) setFechaDesde(storeFilters.fechaDesde);
+        if (storeFilters.fechaHasta !== undefined && storeFilters.fechaHasta !== fechaHasta) setFechaHasta(storeFilters.fechaHasta);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [storeFilters.search, storeFilters.fechaDesde, storeFilters.fechaHasta]);
+
+    // AHORA ES ASÍ DE SIMPLE: 
     const items = boletasNoFacturadas ?? [];
-    const totalPages = Math.max(1, Math.ceil(totalNoFacturadas / 50));
+    const pageItems = items; // Ya vienen paginados del servidor 
+    const totalPages = Math.max(1, Math.ceil(totalNoFacturadas / 50)); // Usamos el total real del server 
     const currentPage = storeFilters.page || 1;
 
     const facturadasSet = useMemo(() => {
@@ -251,6 +217,37 @@ export default function BoletasNoFacturadasPage() {
         return s;
     }, [boletasFacturadas]);
 
+    const getLocalDateStr = (d = new Date()) => {
+        const yyyy = d.getFullYear();
+        const mm = String(d.getMonth() + 1).padStart(2, '0');
+        const dd = String(d.getDate()).padStart(2, '0');
+        return `${yyyy}-${mm}-${dd}`;
+    };
+
+    const formatDate = (raw: any) => {
+        if (!raw) return '-';
+        const t = String(raw).trim();
+        if (!t || t.toLowerCase() === 'none' || t.toLowerCase() === 'null') return '-';
+
+        try {
+            // Caso 1: DD/MM/YYYY
+            if (/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(t)) return t;
+
+            // Caso 2: YYYY-MM-DD (ISO date)
+            if (/^\d{4}-\d{2}-\d{2}/.test(t)) {
+                const [yyyy, mm, dd] = t.split('T')[0].split('-');
+                return `${dd}/${mm}/${yyyy}`;
+            }
+
+            // Caso 3: Date object o string parseable
+            const d = new Date(t);
+            if (!isNaN(d.getTime())) {
+                return d.toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' });
+            }
+        } catch { }
+        return t;
+    };
+
     const getStableId = (b: BoletaRecord) => {
         const id = b['ID Ingresos'] || b.id || b.ingreso_id;
         if (id) return String(id);
@@ -262,7 +259,7 @@ export default function BoletasNoFacturadasPage() {
     };
 
 
-    // Persistir fechas y búsqueda en el store (con debounce para evitar loops)
+    // Persistir fechas y búsqueda en el store (CON DEBOUNCE PARA EVITAR LOOPS) 
     useEffect(() => {
         const timer = setTimeout(() => {
             const newFilters: any = {};
@@ -278,34 +275,26 @@ export default function BoletasNoFacturadasPage() {
             }
             if (search !== (storeFilters.search || '')) {
                 newFilters.search = search;
-                newFilters.page = 1; // Reset a página 1 al buscar
+                newFilters.page = 1; // Reset a página 1 al buscar 
                 changed = true;
             }
 
             if (changed) {
-                console.log('🔄 Sincronizando filtros con el Store:', newFilters);
+                console.log('🔄 Filtros cambiaron, pidiendo al servidor...');
                 reload(newFilters);
             }
-        }, 600);
+        }, 600); // Espera 600ms a que termines de escribir 
 
         return () => clearTimeout(timer);
-        // eslint-disable-next-line react-hooks/exhaustive-deps
+        // eslint-disable-next-line react-hooks/exhaustive-deps 
     }, [fechaDesde, fechaHasta, search]);
-
-    // Manejo de cambio de página
-    const handlePageChange = (newPage: number) => {
-        reload({ page: newPage });
-    };
-
-    // Eliminamos filtrado local ya que el backend lo hace ahora
-    const filteredItems = items;
 
     // Limpieza automática de selecciones obsoletas
     useEffect(() => {
         if (Object.keys(selectedIds).length === 0) return;
 
         // Obtener IDs de los items actualmente visibles/filtrados
-        const currentVisibleIds = new Set(filteredItems.map((b) => getStableId(b)));
+        const currentVisibleIds = new Set(pageItems.map((b) => getStableId(b)));
 
         setSelectedIds(prev => {
             const next = { ...prev };
@@ -318,9 +307,7 @@ export default function BoletasNoFacturadasPage() {
             }
             return changed ? next : prev;
         });
-    }, [filteredItems]); // Removido selectedIds para evitar loops infinitos
-
-    const pageItems = items;
+    }, [pageItems]); // Removido selectedIds para evitar loops infinitos
 
     function clearFilters() {
         setFechaDesde('');
@@ -356,10 +343,23 @@ export default function BoletasNoFacturadasPage() {
             const result = await facturarItems(itemsConConceptos, token);
             if (!result.ok) { showError(result.error || 'Error al facturar'); return; }
 
-            // 1. Limpieza de IDs: Resetear el estado inmediatamente después de una operación exitosa
+            // Descargar todos los comprobantes exitosos
+            let downloadCount = 0;
+            if (Array.isArray(result.data)) {
+                for (const res of result.data) {
+                    const fid = res?.factura_id || res?.result?.factura_id;
+                    if (fid && res.status === 'SUCCESS') {
+                        const ok = await downloadInvoicePDF(fid, token);
+                        if (ok) downloadCount++;
+                    }
+                }
+            }
+
+            // 1. Limpieza de IDs
             setSelectedIds({});
 
-            const successMsgStrMulti = `Facturación procesada: ${result.data?.length || 0}`;
+            let successMsgStrMulti = `Facturación procesada: ${result.data?.length || 0}`;
+            if (downloadCount > 0) successMsgStrMulti += ` (PDFs: ${downloadCount})`;
             showSuccess(successMsgStrMulti);
 
             // 2. Sincronización de UI: Implementar la llamada a reload() después de la limpieza
@@ -388,10 +388,38 @@ export default function BoletasNoFacturadasPage() {
                         <label className="block text-sm text-gray-600 mb-1">Fecha hasta</label>
                         <input aria-label="Fecha hasta" type="date" className="border rounded px-3 py-2 w-full" value={fechaHasta} onChange={(e) => setFechaHasta(e.target.value)} />
                     </div>
-                    <div className="flex items-end gap-2">
-                        <button className="px-3 py-2 border rounded text-sm hover:bg-gray-50" onClick={() => { const t = new Date().toISOString().split('T')[0]; setFechaDesde(t); setFechaHasta(t); }}>Hoy</button>
-                        <button className="px-3 py-2 border rounded text-sm hover:bg-gray-50" onClick={() => { const d = new Date(); d.setDate(d.getDate() - 1); const y = d.toISOString().split('T')[0]; setFechaDesde(y); setFechaHasta(y); }}>Ayer</button>
-                        <button className="px-3 py-2 border rounded text-sm hover:bg-gray-50" onClick={clearFilters}>Borrar</button>
+                    <div className="flex flex-wrap items-end gap-2">
+                        <button
+                            className="px-3 py-2 border rounded text-sm hover:bg-gray-50 bg-white"
+                            onClick={() => {
+                                const t = getLocalDateStr();
+                                setFechaDesde(t);
+                                setFechaHasta(t);
+                            }}
+                        >Hoy</button>
+                        <button
+                            className="px-3 py-2 border rounded text-sm hover:bg-gray-50 bg-white"
+                            onClick={() => {
+                                const d = new Date();
+                                d.setDate(d.getDate() - 1);
+                                const y = getLocalDateStr(d);
+                                setFechaDesde(y);
+                                setFechaHasta(y);
+                            }}
+                        >Ayer</button>
+                        <button
+                            className="px-3 py-2 border rounded text-sm hover:bg-gray-50 bg-white"
+                            onClick={() => {
+                                const d = new Date();
+                                d.setDate(d.getDate() - 7);
+                                setFechaDesde(getLocalDateStr(d));
+                                setFechaHasta(getLocalDateStr());
+                            }}
+                        >Últimos 7 días</button>
+                        <button
+                            className="px-3 py-2 border rounded text-sm hover:bg-gray-50 bg-white"
+                            onClick={clearFilters}
+                        >Borrar filtros</button>
                     </div>
                 </div>
                 <input
@@ -459,7 +487,7 @@ export default function BoletasNoFacturadasPage() {
                                     />
                                     <div className="min-w-0 flex-1">
                                         <div className="font-medium truncate">{String(b.cliente || b.nombre || b['Razon Social'] || '— Sin razón social —')}</div>
-                                        <div className="text-[11px] text-gray-600">Repartidor: {String(b.Repartidor || '-')}</div>
+                                        <div className="text-[11px] text-gray-600">Repartidor: {String(b.Repartidor || '-')} | Fecha: {formatDate(b.Fecha || b.fecha)}</div>
                                         {ya && <div className="text-[11px] text-red-600 font-bold">Ya facturada</div>}
                                     </div>
                                     <div className="text-right">
@@ -561,7 +589,7 @@ export default function BoletasNoFacturadasPage() {
                                             </td>
                                             <td className="p-2">{String(b.Repartidor || '-')}</td>
                                             <td className="p-2">{String(b.cliente || b.nombre || b['Razon Social'] || '—')}</td>
-                                            <td className="p-2">{String(b.Fecha || b.fecha || '-')}</td>
+                                            <td className="p-2">{formatDate(b.Fecha || b.fecha)}</td>
                                             <td className="p-2 text-right font-mono font-bold">${String(Math.round(parseFloat(String(b.total || b.INGRESOS || '0').replace(/,/g, ''))))}</td>
                                             <td className="p-2 text-center">
                                                 {ya ? (
@@ -589,19 +617,19 @@ export default function BoletasNoFacturadasPage() {
                             <span className="text-xs text-gray-500 mr-2">Total: {totalNoFacturadas}</span>
                             <button
                                 className={`px-3 py-1 rounded text-sm border ${currentPage <= 1 ? 'bg-gray-200 text-gray-400 cursor-not-allowed' : 'bg-white hover:bg-gray-100'}`}
-                                onClick={() => handlePageChange(Math.max(1, currentPage - 1))}
+                                onClick={() => reload({ page: currentPage - 1 })}
                                 disabled={currentPage <= 1}
                             >Anterior</button>
                             <span className="text-xs font-medium">Página {currentPage} de {totalPages}</span>
                             <button
                                 className={`px-3 py-1 rounded text-sm border ${currentPage >= totalPages ? 'bg-gray-200 text-gray-400 cursor-not-allowed' : 'bg-white hover:bg-gray-100'}`}
-                                onClick={() => handlePageChange(Math.min(totalPages, currentPage + 1))}
+                                onClick={() => reload({ page: currentPage + 1 })}
                                 disabled={currentPage >= totalPages}
                             >Siguiente</button>
                         </div>
                     </div>
 
-                    {filteredItems.length === 0 && (
+                    {pageItems.length === 0 && (
                         <div className="p-12 text-center text-gray-500 italic">No se encontraron boletas con los filtros actuales</div>
                     )}
                 </div>
