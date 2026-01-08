@@ -466,7 +466,7 @@ def _process_single_invoice_full_cycle(
 
     return single_invoice_result
 
-def process_invoice_batch_for_endpoint(
+async def process_invoice_batch_for_endpoint(
     invoices_payload: List[Dict[str, Any]],
     max_workers: int = 5
 ) -> List[Dict[str, Any]]:

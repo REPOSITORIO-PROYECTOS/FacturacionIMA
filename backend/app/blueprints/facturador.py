@@ -1,11 +1,13 @@
-from fastapi import APIRouter, FastAPI, HTTPException, Request, status
+from fastapi import APIRouter, FastAPI, HTTPException, Request, status, Depends
 from pydantic import BaseModel, Field
 from typing import List, Optional, Dict, Any
 import logging
 
 from backend.utils.billige_manage import process_invoice_batch_for_endpoint
-from backend.database import SessionLocal
-from backend.modelos import FacturaElectronica
+from backend.database import SessionLocal, get_db
+from backend.modelos import FacturaElectronica, Usuario, Empresa
+from backend.security import obtener_usuario_actual
+from sqlmodel import select
 from datetime import date
 import secrets
 
@@ -47,7 +49,9 @@ class InvoiceItemPayload(BaseModel):
           description="Recibe una lista de facturas y las procesa concurrentemente, devolviendo el resultado de cada una.")
 async def create_batch_invoices(
     invoices: List[InvoiceItemPayload],
-    max_parallel_workers: int = 5 # Permite al cliente especificar el número de workers, con un default
+    max_parallel_workers: int = 5, # Permite al cliente especificar el número de workers, con un default
+    usuario_actual: Usuario = Depends(obtener_usuario_actual),
+    db = Depends(get_db)
 ) -> List[Dict[str, Any]]:
     """
     endpoint para procesar facturas en lote.
@@ -59,84 +63,56 @@ async def create_batch_invoices(
             detail="Se permite facturar máximo 5 boletas por operación."
         )
 
-    logger.info(f"Recibida solicitud POST /bill/batch con {len(invoices)} facturas.")
+    logger.info(f"Recibida solicitud POST /bill/batch con {len(invoices)} facturas. Usuario: {usuario_actual.nombre_usuario}")
+
+    # Obtener CUIT de la empresa del usuario
+    empresa = db.exec(select(Empresa).where(Empresa.id == usuario_actual.id_empresa)).first()
+    if not empresa:
+        raise HTTPException(status_code=500, detail="Empresa del usuario no encontrada.")
+    
+    empresa_cuit = str(empresa.cuit)
 
     # Convertir los modelos Pydantic a la lista de diccionarios que espera
     # process_invoice_batch_for_endpoint. Aquí también validamos la entrada.
     invoices_for_processing = []
-    # Validar que el CUIT emisor corresponda a la empresa del usuario actual
-    from fastapi import Request, Depends
-    from backend.modelos import Empresa
-    from backend.database import get_db
-    db = next(get_db())
-    usuario_actual = None
-    try:
-        # Intentar obtener usuario_actual desde contexto FastAPI (si está disponible)
-        import contextvars
-        usuario_actual = contextvars.ContextVar('usuario_actual').get(None)
-    except Exception:
-        pass
-    # Si no se pudo, intentar obtenerlo de la sesión (para compatibilidad)
-    if not usuario_actual:
-        try:
-            from backend.security import obtener_usuario_actual
-            usuario_actual = obtener_usuario_actual()
-        except Exception:
-            usuario_actual = None
-    empresa_cuit = None
-    if usuario_actual:
-        empresa = db.exec(select(Empresa).where(Empresa.id == usuario_actual.id_empresa)).first()
-        if empresa:
-            empresa_cuit = str(empresa.cuit)
+    
     for invoice_item in invoices:
+        # VALIDACIÓN DE SEGURIDAD:
+        # Si intenta usar un CUIT emisor diferente al de su empresa, bloquear.
+        if invoice_item.emisor_cuit and str(invoice_item.emisor_cuit).strip() != empresa_cuit:
+             logger.warning(f"Usuario {usuario_actual.nombre_usuario} intentó facturar con CUIT ajeno: {invoice_item.emisor_cuit} (Esperado: {empresa_cuit})")
+             raise HTTPException(
+                 status_code=status.HTTP_403_FORBIDDEN,
+                 detail=f"El CUIT emisor {invoice_item.emisor_cuit} no corresponde a su empresa."
+             )
+             
+        # Forzar el CUIT de la empresa si no viene (o si viene correcto)
+        # Esto asegura que process_invoice_batch_for_endpoint use la boveda correcta.
+        
         item_dict = {
             "id": invoice_item.id,
             "total": invoice_item.total,
-            "cliente_data": invoice_item.cliente_data.dict()
+            "cliente_data": invoice_item.cliente_data.model_dump(),
+            "emisor_cuit": empresa_cuit  # Sobreescribimos con el CUIT validado
         }
         if invoice_item.conceptos:
-            item_dict["conceptos"] = [c.dict() for c in invoice_item.conceptos]
+            item_dict["conceptos"] = [c.model_dump() for c in invoice_item.conceptos]
         if invoice_item.detalle_empresa:
             item_dict["detalle_empresa"] = invoice_item.detalle_empresa
+        
+        # Pasar flags nuevos
+        if invoice_item.tipo_forzado:
+             item_dict["tipo_forzado"] = invoice_item.tipo_forzado
+             
         if invoice_item.aplicar_desglose_77:
-            item_dict["aplicar_desglose_77"] = True
-        # Validación de CUIT emisor
-        if invoice_item.emisor_cuit:
-            if empresa_cuit and str(invoice_item.emisor_cuit) != empresa_cuit:
-                raise HTTPException(status_code=403, detail=f"El CUIT emisor {invoice_item.emisor_cuit} no corresponde a su empresa ({empresa_cuit})")
-            item_dict["emisor_cuit"] = invoice_item.emisor_cuit
-        if invoice_item.tipo_forzado is not None:
-            item_dict["tipo_forzado"] = invoice_item.tipo_forzado
+             item_dict["aplicar_desglose_77"] = invoice_item.aplicar_desglose_77
+
         invoices_for_processing.append(item_dict)
 
-    try:
-        # Log seguro del payload resumido (sin datos sensibles extra)
-        preview = [
-            {
-                'id': x.get('id'),
-                'total': x.get('total'),
-                'emisor_cuit': x.get('emisor_cuit'),
-                'tipo_forzado': x.get('tipo_forzado'),
-                'cliente_cond_iva': x.get('cliente_data',{}).get('condicion_iva'),
-                'cliente_doc': x.get('cliente_data',{}).get('cuit_o_dni')
-            } for x in invoices_for_processing
-        ]
-        logger.info(f"Batch detalle (resumen): {preview}")
-    except Exception:
-        pass
-
-    try:
-        results = process_invoice_batch_for_endpoint(
-            invoices_payload=invoices_for_processing,
-            max_workers=max_parallel_workers
-        )
-        return results
-    except Exception as e:
-        logger.error(f"Error general al procesar el lote de facturas: {e}", exc_info=True)
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error interno del servidor al procesar el lote: {e}"
-        )
+    # Procesar
+    results = await process_invoice_batch_for_endpoint(invoices_for_processing, max_parallel_workers)
+    
+    return results
 
 
 

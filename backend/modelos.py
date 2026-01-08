@@ -1,6 +1,6 @@
 #/facturadorIMA/backend/modelos.py
 
-from datetime import datetime, date
+from datetime import datetime, date, timezone
 from decimal import Decimal
 from typing import Any, Dict, List, Optional
 from sqlmodel import Field, Relationship, SQLModel, JSON, Column
@@ -23,7 +23,7 @@ class Usuario(SQLModel, table=True):
     nombre_usuario: str = Field(index=True, unique=True)
     password_hash: str
     activo: bool = Field(default=True)
-    creado_en: datetime = Field(default_factory=datetime.utcnow)
+    creado_en: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     id_rol: int = Field(foreign_key="roles.id")
     rol: Rol = Relationship(back_populates="usuarios")
     sesiones_abiertas: List["CajaSesion"] = Relationship(back_populates="usuario_apertura", sa_relationship_kwargs={'foreign_keys': '[CajaSesion.id_usuario_apertura]'})
@@ -55,7 +55,7 @@ class Tercero(SQLModel, table=True):
     email: Optional[str]
     limite_credito: float = Field(default=0.0)
     activo: bool = Field(default=True)
-    fecha_alta: datetime = Field(default_factory=datetime.utcnow)
+    fecha_alta: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     notas: Optional[str]
     compras_realizadas: List["Compra"] = Relationship(back_populates="proveedor")
     ventas_recibidas: List["Venta"] = Relationship(back_populates="cliente")
@@ -130,8 +130,6 @@ class Articulo(SQLModel, table=True):
     
     componentes_combo: List["ArticuloCombo"] = Relationship(back_populates="combo_padre", sa_relationship_kwargs={'primaryjoin': 'Articulo.id == ArticuloCombo.id_articulo_padre'})
     parte_de_combos: List["ArticuloCombo"] = Relationship(back_populates="componente_hijo", sa_relationship_kwargs={'primaryjoin': 'Articulo.id == ArticuloCombo.id_articulo_hijo'})
-    # Relación con códigos de barras
-    codigos_barras: List["ArticuloCodigo"] = Relationship(back_populates="articulo")
 
     # --- CAMPO Y RELACIÓN AÑADIDOS PARA MULTI-EMPRESA ---
     # Asumo que Empresa ya existe en este archivo.
@@ -185,7 +183,7 @@ class ArticuloCodigo(SQLModel, table=True):
 class CajaSesion(SQLModel, table=True):
     __tablename__ = "caja_sesiones"
     id: Optional[int] = Field(default=None, primary_key=True)
-    fecha_apertura: datetime = Field(default_factory=datetime.utcnow)
+    fecha_apertura: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     saldo_inicial: float
     fecha_cierre: Optional[datetime] = None
     saldo_final_declarado: Optional[float]
@@ -206,7 +204,7 @@ class CajaSesion(SQLModel, table=True):
 class CajaMovimiento(SQLModel, table=True):
     __tablename__ = "caja_movimientos"
     id: Optional[int] = Field(default=None, primary_key=True)
-    timestamp: datetime = Field(default_factory=datetime.utcnow)
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     tipo: str
     concepto: str
     monto: float
@@ -222,7 +220,7 @@ class CajaMovimiento(SQLModel, table=True):
 class StockMovimiento(SQLModel, table=True):
     __tablename__ = "stock_movimientos"
     id: Optional[int] = Field(default=None, primary_key=True)
-    timestamp: datetime = Field(default_factory=datetime.utcnow)
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     tipo: str
     cantidad: float
     stock_anterior: float
@@ -273,7 +271,7 @@ class CompraDetalle(SQLModel, table=True):
 class Venta(SQLModel, table=True):
     __tablename__ = "ventas"
     id: Optional[int] = Field(default=None, primary_key=True)
-    timestamp: datetime = Field(default_factory=datetime.utcnow)
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     total: float
     facturada: bool = Field(default=False, index=True)
     datos_factura: Optional[Dict[str, str]] = Field(default=None, sa_column=Column(JSON))
@@ -316,8 +314,16 @@ class LlaveMaestra(SQLModel, table=True):
     __tablename__ = "llave_maestra"
     id: Optional[int] = Field(default=None, primary_key=True)
     llave: str = Field(index=True, unique=True)
-    fecha_creacion: datetime = Field(default_factory=datetime.utcnow)
+    fecha_creacion: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     fecha_expiracion: datetime
+
+class SesionUsuario(SQLModel, table=True):
+    __tablename__ = "sesiones_usuario"
+    id: Optional[int] = Field(default=None, primary_key=True)
+    id_usuario: int = Field(foreign_key="usuarios.id")
+    token_acceso: str = Field(index=True)
+    creada_en: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    expira_en: datetime
     
 # ===================================================================
 # === MODELOS DE CONFIGURACIÓN Y MULTI-EMPRESA
@@ -330,7 +336,7 @@ class Empresa(SQLModel, table=True):
     nombre_fantasia: Optional[str]
     cuit: str = Field(unique=True, index=True)
     activa: bool = Field(default=True)
-    creada_en: datetime = Field(default_factory=datetime.utcnow)
+    creada_en: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
     # --- RELACIONES ---
     
@@ -444,8 +450,8 @@ class AfipCredencial(SQLModel, table=True):
     fingerprint_cert: Optional[str] = Field(default=None, max_length=64, description="SHA1/SHA256 fingerprint para verificación rápida")
     fingerprint_key: Optional[str] = Field(default=None, max_length=64, description="Fingerprint de la clave privada")
     activo: bool = Field(default=True, description="Permite desactivar credenciales sin borrarlas")
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     notas: Optional[str] = Field(default=None, description="Campo libre para observaciones / fuente / proveedor")
 
 class AfipEmisorEmpresa(SQLModel, table=True):
@@ -463,11 +469,11 @@ class AfipEmisorEmpresa(SQLModel, table=True):
     habilitado: bool = Field(default=True)
     # Índice compuesto sugerido (nombre+empresa) si se requiere unicidad lógica adicional en migraciones futuras.
     created_at: Optional[datetime] = Field(
-        default_factory=datetime.utcnow,
+        default_factory=lambda: datetime.now(timezone.utc),
         sa_column=Column(TIMESTAMP, server_default=func.now())
     )
     updated_at: Optional[datetime] = Field(
-        default_factory=datetime.utcnow,
+        default_factory=lambda: datetime.now(timezone.utc),
         sa_column=Column(TIMESTAMP, server_default=func.now(), onupdate=func.now())
     )
 
@@ -490,6 +496,9 @@ class IngresoSheets(SQLModel, table=True):
     data_json: str = Field(sa_column=Column(Text), description="JSON completo de la fila de Sheets")
     
     # Metadatos de sincronización
-    last_synced_at: datetime = Field(default_factory=datetime.utcnow)
+    last_synced_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    
+    # --- MULTI-EMPRESA ---
+    id_empresa: int = Field(default=1, index=True) # Default 1 para compatibilidad temporal
 
 

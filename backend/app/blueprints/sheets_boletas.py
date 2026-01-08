@@ -1,16 +1,18 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, BackgroundTasks
-from datetime import datetime, date
+from datetime import datetime, date, timezone
 import time
 import os
 import json
 import logging
 import asyncio
+import re
 from typing import Dict, Any, List, Optional
 
 from sqlmodel import select, desc, or_, func, Float
+from sqlalchemy import text
 from backend.database import get_db, SessionLocal
 from backend.security import obtener_usuario_actual
-from backend.modelos import Usuario, IngresoSheets, FacturaElectronica
+from backend.modelos import Usuario, IngresoSheets, FacturaElectronica, Empresa, ConfiguracionEmpresa
 from backend.utils.tablasHandler import TablasHandler
 
 logger = logging.getLogger(__name__)
@@ -73,10 +75,45 @@ def _parse_fecha_key(raw: Any) -> date | None:
 # Flag global para evitar múltiples sincronizaciones simultáneas
 _sync_in_progress = False
 
-def _sync_sheets_to_db(full_sync: bool = False):
+def _extract_sheet_id(url: str) -> Optional[str]:
+    if not url: return None
+    # Match patterns like /d/1BxiMVs0XRA5nFMdKvBdBZjGMUUqptlbs74OgvE2upms/
+    match = re.search(r"/d/([a-zA-Z0-9-_]+)", url)
+    if match:
+        return match.group(1)
+    # Si no parece URL, asumir que es el ID directo
+    if len(url) > 20 and "/" not in url:
+        return url
+    return None
+
+def _ensure_ingresos_sheets_id_empresa(db) -> bool:
+    try:
+        res = db.exec(text("SHOW COLUMNS FROM ingresos_sheets LIKE 'id_empresa'")).first()
+        if res:
+            return True
+    except Exception:
+        pass
+
+    try:
+        db.exec(text("ALTER TABLE ingresos_sheets ADD COLUMN id_empresa INTEGER DEFAULT 1"))
+        db.commit()
+        return True
+    except Exception as e:
+        try:
+            db.rollback()
+        except Exception:
+            pass
+        msg = str(e).lower()
+        if "duplicate column" in msg or "already exists" in msg:
+            return True
+        return False
+
+def _sync_sheets_to_db(full_sync: bool = False, id_empresa: int = 1, google_sheet_id: Optional[str] = None):
     """
     Función síncrona que descarga de Sheets y actualiza la tabla SQL 'ingresos_sheets'.
     full_sync: Si es True, trae todo el histórico. Si es False, solo últimos 30 días.
+    id_empresa: ID de la empresa para la que se sincroniza.
+    google_sheet_id: ID del Google Sheet específico de la empresa.
     """
     global _sync_in_progress
     if _sync_in_progress:
@@ -85,13 +122,13 @@ def _sync_sheets_to_db(full_sync: bool = False):
 
     _sync_in_progress = True
     sync_type = "COMPLETA" if full_sync else "INCREMENTAL (30 días)"
-    logger.info(f"🔄 DB-Sync ({sync_type}): Iniciando descarga desde Sheets...")
+    logger.info(f"🔄 DB-Sync ({sync_type}) Empresa {id_empresa}: Iniciando descarga desde Sheets...")
 
     # Variable para rastrear si actualizamos algo
     any_update_performed = False
 
     try:
-        sheets_handler = TablasHandler()
+        sheets_handler = TablasHandler(google_sheet_id=google_sheet_id)
         try:
             # En sync incremental, podríamos intentar traer menos datos si la librería lo permite,
             # pero por ahora filtramos en Python para mantener la DB limpia de duplicados 
@@ -109,6 +146,7 @@ def _sync_sheets_to_db(full_sync: bool = False):
 
         db = SessionLocal()
         try:
+            multi_empresa_enabled = _ensure_ingresos_sheets_id_empresa(db)
             count_new = 0
             count_updated = 0
             
@@ -126,16 +164,21 @@ def _sync_sheets_to_db(full_sync: bool = False):
                 ]
                 logger.info(f"📉 Sync Incremental: Procesando {len(boletas)} de {boletas_original_count} boletas (últimos 30 días).")
 
-            # Optimización: Solo traer los IDs que vamos a procesar si es incremental
             if not full_sync and boletas:
                 ids_a_procesar = [str(b.get('ID Ingresos') or b.get('id_ingreso') or b.get('id', '')).strip() for b in boletas]
                 ids_a_procesar = [id for id in ids_a_procesar if id]
-                existing_objs = {obj.id_ingreso: obj for obj in db.exec(select(IngresoSheets).where(IngresoSheets.id_ingreso.in_(ids_a_procesar))).all()}
+                q = select(IngresoSheets).where(IngresoSheets.id_ingreso.in_(ids_a_procesar))
+                if multi_empresa_enabled:
+                    q = q.where(IngresoSheets.id_empresa == id_empresa)
+                existing_objs = {obj.id_ingreso: obj for obj in db.exec(q).all()}
             else:
-                existing_objs = {obj.id_ingreso: obj for obj in db.exec(select(IngresoSheets)).all()}
+                q = select(IngresoSheets)
+                if multi_empresa_enabled:
+                    q = q.where(IngresoSheets.id_empresa == id_empresa)
+                existing_objs = {obj.id_ingreso: obj for obj in db.exec(q).all()}
 
             # Fecha de sincronización de este lote
-            sync_time = datetime.utcnow()
+            sync_time = datetime.now(timezone.utc)
 
             last_obj_processed = None # Guardamos el último objeto procesado
 
@@ -167,13 +210,16 @@ def _sync_sheets_to_db(full_sync: bool = False):
                         count_updated += 1
                         any_update_performed = True
                 else:
-                    new_obj = IngresoSheets(
+                    new_obj_kwargs = dict(
                         id_ingreso=id_ingreso,
                         fecha=fecha_val,
                         facturacion=facturacion_val,
                         data_json=data_json_val,
-                        last_synced_at=sync_time # Nueva fecha
+                        last_synced_at=sync_time,
                     )
+                    if multi_empresa_enabled:
+                        new_obj_kwargs["id_empresa"] = id_empresa
+                    new_obj = IngresoSheets(**new_obj_kwargs)
                     db.add(new_obj)
                     existing_objs[id_ingreso] = new_obj
                     last_obj_processed = new_obj
@@ -202,10 +248,10 @@ def _sync_sheets_to_db(full_sync: bool = False):
     finally:
         _sync_in_progress = False
 
-async def refresh_sheets_data_background():
+async def refresh_sheets_data_background(id_empresa: int, google_sheet_id: Optional[str]):
     """Wrapper async para correr en background task"""
     loop = asyncio.get_event_loop()
-    await loop.run_in_executor(None, _sync_sheets_to_db)
+    await loop.run_in_executor(None, _sync_sheets_to_db, False, id_empresa, google_sheet_id)
 
 @router.get("/boletas")
 async def obtener_boletas_desde_db(
@@ -225,30 +271,53 @@ async def obtener_boletas_desde_db(
     Obtiene boletas directamente desde la Base de Datos (espejo de Sheets).
     Dispara sincronización en background si es necesario.
     """
+
+    multi_empresa_enabled = _ensure_ingresos_sheets_id_empresa(db)
+    google_sheet_id = None
+    try:
+        configuracion = db.exec(
+            select(ConfiguracionEmpresa).where(ConfiguracionEmpresa.id_empresa == usuario.id_empresa)
+        ).first()
+        if configuracion and configuracion.link_google_sheets:
+            google_sheet_id = _extract_sheet_id(configuracion.link_google_sheets)
+    except Exception as e:
+        logger.error(f"Error obteniendo config empresa para usuario {usuario.nombre_usuario}: {e}")
+
+    if multi_empresa_enabled:
+        last_sync = db.exec(
+            select(IngresoSheets.last_synced_at)
+            .where(IngresoSheets.id_empresa == usuario.id_empresa)
+            .order_by(desc(IngresoSheets.last_synced_at))
+            .limit(1)
+        ).first()
+    else:
+        last_sync = db.exec(
+            select(IngresoSheets.last_synced_at).order_by(desc(IngresoSheets.last_synced_at)).limit(1)
+        ).first()
     
-    # 1. Verificar frescura de los datos
-    last_sync = db.exec(select(IngresoSheets.last_synced_at).order_by(desc(IngresoSheets.last_synced_at)).limit(1)).first()
     should_refresh = False
     
     if not last_sync:
         should_refresh = True # Nunca se sincronizó
     else:
-        delta = datetime.utcnow() - last_sync
+        # Asegurar que last_sync tenga timezone, si no lo tiene, asumir UTC
+        last_sync_aware = last_sync.replace(tzinfo=timezone.utc) if last_sync.tzinfo is None else last_sync
+        delta = datetime.now(timezone.utc) - last_sync_aware
         if delta.total_seconds() > SYNC_COOLDOWN_SEC:
             should_refresh = True
             
     if nocache == 1:
-        # Forzar sincronización bloqueante ahora
-        logger.info("⏳ Forzando sincronización síncrona (nocache=1)")
-        _sync_sheets_to_db()
+        logger.info(f"⏳ Forzando sincronización síncrona (nocache=1) para Empresa {usuario.id_empresa}")
+        _sync_sheets_to_db(full_sync=False, id_empresa=usuario.id_empresa, google_sheet_id=google_sheet_id)
     elif should_refresh:
-        # Disparar background task
-        logger.info("🕒 Datos antiguos, disparando sync en background")
-        background_tasks.add_task(refresh_sheets_data_background)
+        logger.info(f"🕒 Datos antiguos (Empresa {usuario.id_empresa}), disparando sync en background")
+        background_tasks.add_task(refresh_sheets_data_background, usuario.id_empresa, google_sheet_id)
         
-    # 2. Construir Query SQL
     query = select(IngresoSheets)
     
+    if multi_empresa_enabled:
+        query = query.where(IngresoSheets.id_empresa == usuario.id_empresa)
+
     # Filtros base
     query = query.where(IngresoSheets.facturacion != "")
     

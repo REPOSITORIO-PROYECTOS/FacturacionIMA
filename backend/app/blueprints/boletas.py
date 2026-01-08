@@ -10,11 +10,12 @@ import json
 import html as _html
 from backend.utils.billige_manage import process_invoice_batch_for_endpoint
 import os
+import logging
 from io import BytesIO
 from backend.utils import afip_tools_manager  # nuevo para debug credenciales
 from backend.utils.afipTools import _resolve_afip_credentials, preflight_afip_credentials  # type: ignore
 from backend.utils.afipTools import generar_factura_para_venta, ReceptorData  # para test de contrato
-from backend.modelos import ConfiguracionEmpresa
+from backend.modelos import ConfiguracionEmpresa, Empresa, Usuario
 try:
     from weasyprint import HTML  # type: ignore
     from PIL import Image  # type: ignore
@@ -23,6 +24,8 @@ except Exception:
     Image = None  # type: ignore
 
 import locale
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/boletas")
 
@@ -115,17 +118,33 @@ async def obtener_boletas_tipo(request: Request, tipo: Optional[str] = None, ski
             conn = None
             cursor = None
             try:
+                # Obtener CUIT de la empresa del usuario
+                from backend.database import SessionLocal
+                from backend.modelos import Empresa
+                
+                db = SessionLocal()
+                cuit_empresa = None
+                try:
+                    empresa = db.get(Empresa, usuario_actual.id_empresa)
+                    if empresa:
+                        cuit_empresa = empresa.cuit
+                finally:
+                    db.close()
+
                 conn = get_db_connection()
                 if not conn:
                     raise HTTPException(status_code=503, detail="No se pudo establecer conexión con la base de datos.")
                 cursor = conn.cursor(dictionary=True)
+                
+                # Filtrar por CUIT de la empresa
                 query = """
                     SELECT * 
                     FROM facturas_electronicas 
+                    WHERE cuit_emisor = %s
                     ORDER BY id DESC 
                     LIMIT %s OFFSET %s
                 """
-                cursor.execute(query, (limit, skip))
+                cursor.execute(query, (cuit_empresa, limit, skip))
                 facturas_guardadas = cursor.fetchall()
                 return facturas_guardadas
             except Exception as e:
@@ -252,26 +271,42 @@ def traer_boletas_no_facturadas(
 
 
 @router.get("/obtener-facturadas", response_model=List[Dict[str, Any]])
-def traer_boletas_facturadas_desde_db(skip: int = 0, limit: int = 20):
+def traer_boletas_facturadas_desde_db(
+    skip: int = 0, 
+    limit: int = 20,
+    usuario_actual: Usuario = Depends(obtener_usuario_actual)
+):
 
     conn = None
     cursor = None
     try:
- 
+        cuit_empresa = None
+        from backend.database import SessionLocal
+        with SessionLocal() as db_session:
+            empresa = db_session.get(Empresa, usuario_actual.id_empresa)
+            if empresa:
+                cuit_empresa = empresa.cuit
+
+        if not cuit_empresa:
+            logger.warning(
+                f"Usuario {usuario_actual.nombre_usuario} (Empresa {usuario_actual.id_empresa}) no tiene CUIT configurado."
+            )
+            return []
+
         conn = get_db_connection()
         if not conn:
-
             raise HTTPException(status_code=503, detail="No se pudo establecer conexión con la base de datos.")
         cursor = conn.cursor(dictionary=True)
 
         query = """
             SELECT * 
             FROM facturas_electronicas 
+            WHERE cuit_emisor = %s
             ORDER BY id DESC 
             LIMIT %s OFFSET %s
         """
 
-        cursor.execute(query, (limit, skip))
+        cursor.execute(query, (cuit_empresa, limit, skip))
         facturas_guardadas = cursor.fetchall()
         return facturas_guardadas
 
