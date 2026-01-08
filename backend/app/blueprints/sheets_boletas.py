@@ -280,6 +280,14 @@ async def obtener_boletas_desde_db(
         ).first()
         if configuracion and configuracion.link_google_sheets:
             google_sheet_id = _extract_sheet_id(configuracion.link_google_sheets)
+        
+        # Hotfix Swing Jugos: Si no hay config, verificar CUIT empresa
+        if not google_sheet_id:
+            empresa_obj = db.exec(select(Empresa).where(Empresa.id == usuario.id_empresa)).first()
+            if empresa_obj and str(empresa_obj.cuit) == "20364237740":
+                 google_sheet_id = "1yNrBzxXga0TpFOpMcAQw6xvQ2dSa0TC9P7F88eOLveM"
+                 logger.info(f"Aplicando Hotfix Sheet ID Swing Jugos para usuario {usuario.nombre_usuario}")
+
     except Exception as e:
         logger.error(f"Error obteniendo config empresa para usuario {usuario.nombre_usuario}: {e}")
 

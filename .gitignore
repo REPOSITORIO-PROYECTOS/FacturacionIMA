@@ -458,3 +458,19 @@ local_config.*
 
 # Local demo virtualenv
 .venv_demo/
+# Archivos temporales y logs locales
+backend_logs.txt
+*.txt
+*.sh
+pm2_path.txt
+
+# Carpetas de testing y resultados
+testing/
+
+# Entornos virtuales
+backend/venv/
+venv/
+
+# Datos sensibles temporales
+boveda_afip_temporal/
+

@@ -21,7 +21,8 @@ try:
     from .tablasHandler import TablasHandler
     # --- NUEVO: Importaciones para la Base de Datos ---
     from backend.database import SessionLocal  # Asume que tienes un `database.py` que crea la sesión
-    from backend.modelos import FacturaElectronica, IngresoSheets  # Asume que tienes un `models.py` con tu tabla de facturas
+    from backend.modelos import FacturaElectronica, IngresoSheets, ConfiguracionEmpresa
+    from sqlmodel import select
 except ImportError as e:
     # Algunos módulos son opcionales en entornos de demo; registrar y seguir adelante
     logging.critical(f"No se pudieron importar algunos módulos opcionales: {e} — continuando en modo degradado.")
@@ -475,9 +476,47 @@ async def process_invoice_batch_for_endpoint(
     
     logger.info(f"Endpoint: Recibido lote de {len(invoices_payload)} facturas. Iniciando procesamiento robusto con auto-healing.")
 
+    # Detección de Sheet ID específico por empresa
+    target_sheet_id = None
+    cuit_emisor_detected = None
+    
     try:
-        sheets_handler = TablasHandler()
-        logger.info("Handler de Google Sheets inicializado.")
+        if invoices_payload:
+            first_inv = invoices_payload[0]
+            # Intentar obtener CUIT (puede venir como cuit_emisor, cuit_empresa, etc)
+            cuit_emisor = first_inv.get('cuit_emisor') or first_inv.get('cuit_empresa') or first_inv.get('emisor_cuit')
+            cuit_emisor_detected = cuit_emisor
+            
+            if cuit_emisor:
+                logger.info(f"Buscando configuración de Sheets para emisor: {cuit_emisor}")
+                # Usar una sesión efímera para esta consulta
+                with SessionLocal() as db_session:
+                    stmt = select(ConfiguracionEmpresa).where(ConfiguracionEmpresa.cuit == str(cuit_emisor))
+                    config_empresa = db_session.exec(stmt).first()
+                    if config_empresa and config_empresa.link_google_sheets:
+                        target_sheet_id = config_empresa.link_google_sheets
+                        logger.info(f"Configuración encontrada. Usando Sheet ID personalizado.")
+                    else:
+                        # FALLBACK ESPECÍFICO (HOTFIX) para Swing Jugos
+                        if str(cuit_emisor) == "20364237740":
+                            target_sheet_id = "1yNrBzxXga0TpFOpMcAQw6xvQ2dSa0TC9P7F88eOLveM"
+                            logger.info("Aplicando Hotfix Sheet ID para Swing Jugos.")
+                        else:
+                            logger.warning(f"No se encontró configuración específica para {cuit_emisor}.")
+    except Exception as ex_config:
+        logger.warning(f"Error al intentar resolver configuración de empresa: {ex_config}")
+
+    # VALIDACIÓN ESTRICTA: Si se detectó un emisor pero no hay Sheet ID, ABORTAR.
+    if cuit_emisor_detected and not target_sheet_id:
+        err_msg = f"ABORTANDO: No hay Google Sheet ID configurado para la empresa {cuit_emisor_detected}. No se puede procesar para evitar escribir en hoja incorrecta."
+        logger.critical(err_msg)
+        # Devolvemos un error estructurado para todo el lote si es posible, o lanzamos excepción.
+        # Al lanzar ValueError, el endpoint (FastAPI) retornará 500 Internal Server Error, lo cual es correcto aquí.
+        raise ValueError(err_msg)
+
+    try:
+        sheets_handler = TablasHandler(google_sheet_id=target_sheet_id)
+        logger.info(f"Handler de Google Sheets inicializado (ID: {'Global' if not target_sheet_id else 'Personalizado ' + target_sheet_id[:5]}).")
     except Exception as e:
         logger.error(f"Error init Sheets: {e}")
         sheets_handler = None
