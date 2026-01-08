@@ -37,6 +37,7 @@ class InvoiceItemPayload(BaseModel):
     cliente_data: ClienteDataPayload = Field(..., description="Datos del cliente receptor.")
     conceptos: Optional[List[ConceptoPayload]] = Field(None, description="Lista de conceptos/productos de la factura.")
     emisor_cuit: Optional[str] = Field(None, description="CUIT del emisor a usar (override/selección).")
+    punto_venta: Optional[int] = Field(None, description="Punto de venta a usar (override).")
     tipo_forzado: Optional[int] = Field(None, description="Override de tipo comprobante: 1=A, 6=B, 11=C")
     detalle_empresa: Optional[str] = Field(None, description="Detalle específico a incluir para la empresa (leyendas/observaciones).")
     aplicar_desglose_77: Optional[bool] = Field(False, description="Aplica desglose especial 77% + IVA 21% en el DETALLE del PDF.")
@@ -104,6 +105,9 @@ async def create_batch_invoices(
         if invoice_item.tipo_forzado:
              item_dict["tipo_forzado"] = invoice_item.tipo_forzado
              
+        if invoice_item.punto_venta:
+             item_dict["punto_venta"] = invoice_item.punto_venta
+
         if invoice_item.aplicar_desglose_77:
              item_dict["aplicar_desglose_77"] = invoice_item.aplicar_desglose_77
 

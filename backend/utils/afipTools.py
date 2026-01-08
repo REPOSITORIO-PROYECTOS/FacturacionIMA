@@ -334,9 +334,49 @@ def generar_factura_para_venta(
     emisor_cuit: str | None = None,
     tipo_forzado: int | None = None,
     conceptos: list[Dict[str, Any]] | None = None,
+    punto_venta: int | None = None,
 ) -> Dict[str, Any]:
     
     print(f"Iniciando proceso de facturación (emisor solicitado: {emisor_cuit}) | AFIP_ENABLE_ENV_CREDS={AFIP_ENABLE_ENV_CREDS}")
+
+    # Resolver punto_venta si no se especificó y hay un CUIT emisor
+    if punto_venta is None and emisor_cuit:
+        try:
+            from sqlmodel import select as _select
+            from backend.database import SessionLocal as _SessionLocal
+            from backend.modelos import ConfiguracionEmpresa
+            
+            # Limpiar CUIT
+            clean_cuit = ''.join(filter(str.isdigit, str(emisor_cuit)))
+            
+            with _SessionLocal() as _db:
+                cfg = _db.exec(_select(ConfiguracionEmpresa).where(ConfiguracionEmpresa.cuit == clean_cuit)).first()
+                if cfg and cfg.afip_punto_venta_predeterminado:
+                    punto_venta = cfg.afip_punto_venta_predeterminado
+                    print(f"[AFIP] Usando punto_venta {punto_venta} de DB para CUIT {clean_cuit}")
+        except Exception as e:
+            print(f"[AFIP] Advertencia: No se pudo resolver punto_venta desde DB: {e}")
+
+        # 2. Si no estaba en DB, intentar leer desde el JSON de la Bóveda (afip_tools_manager)
+        if punto_venta is None and afip_tools_manager:
+            try:
+                clean_cuit = ''.join(filter(str.isdigit, str(emisor_cuit)))
+                cfg_boveda = afip_tools_manager.obtener_configuracion_emisor(clean_cuit)
+                # El JSON puede tener 'punto_venta' como int o str
+                if cfg_boveda and cfg_boveda.get('punto_venta'):
+                    punto_venta = int(cfg_boveda['punto_venta'])
+                    print(f"[AFIP] Usando punto_venta {punto_venta} de Bóveda JSON para CUIT {clean_cuit}")
+            except Exception as e:
+                print(f"[AFIP] Advertencia: No se pudo resolver punto_venta desde Bóveda JSON: {e}")
+
+    # Fallback al global si sigue siendo None
+    final_punto_venta = punto_venta if punto_venta is not None else AFIP_PUNTO_VENTA
+    
+    # Validar que tengamos un punto de venta
+    if final_punto_venta is None:
+         # Intento final: si es entero 0 o None, lanzar error o usar default 1?
+         # Mejor lanzar error si no está configurado
+         pass # Se validará más abajo o se enviará None (que fallará en AFIP)
 
     # Resolver credenciales dando preferencia al emisor solicitado (si se proporcionó)
     cuit_res, cert_res, key_res, fuente = _resolve_afip_credentials(emisor_cuit)
@@ -459,7 +499,7 @@ def generar_factura_para_venta(
 
     datos_factura = {
         "tipo_afip": logica_factura["tipo_afip"],
-        "punto_venta": AFIP_PUNTO_VENTA,
+        "punto_venta": final_punto_venta,
         "tipo_documento": tipo_documento_receptor.value,
         "documento": documento,
         "total": total,

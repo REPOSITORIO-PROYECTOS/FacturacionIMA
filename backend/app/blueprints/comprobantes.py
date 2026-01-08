@@ -290,7 +290,8 @@ def generar_pdf_comprobante(factura: FacturaElectronica, conceptos: list = None)
     
     # ===== CLIENTE =====
     # Determinar si es consumidor final o cliente con datos
-    es_consumidor_final = (factura.tipo_doc_receptor == 99 and factura.nro_doc_receptor == 0)
+    doc_str = str(factura.nro_doc_receptor).strip()
+    es_consumidor_final = (factura.tipo_doc_receptor == 99 and (doc_str == '0' or doc_str == ''))
     
     if es_consumidor_final:
         # Consumidor final
