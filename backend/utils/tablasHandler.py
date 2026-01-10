@@ -44,6 +44,17 @@ class TablasHandler:
                 gspread_client = None
         return gspread_client
 
+    def check_connection(self) -> Tuple[bool, str]:
+        """Verifica si se puede acceder al Sheet y a la pestaña INGRESOS."""
+        if not self.client:
+             return False, "Cliente GSpread no inicializado."
+        try:
+            sheet = self.client.open_by_key(self.google_sheet_id)
+            # Intentar acceder a INGRESOS para confirmar estructura básica
+            worksheet = sheet.worksheet("INGRESOS")
+            return True, f"Conectado a '{sheet.title}' > INGRESOS"
+        except Exception as e:
+            return False, f"Fallo conexión: {e}"
 
     def cargar_ingresos(self):
         print("Intentando cargar/recargar datos de INGRESOS...")
@@ -229,13 +240,22 @@ class TablasHandler:
             id_col_index = None
             fact_col_index = None
             total_col_index = None
+            
+            print(f"DEBUG Headers: {headers}")
+
             for i, h in enumerate(headers):
                 h_lower = h.lower().replace(' ', '').replace('_', '')
-                if h_lower == "idingresos":
+                
+                # Usar FIRST MATCH para evitar solapamientos si hay columnas repetidas
+                if h_lower == "idingresos" and id_col_index is None:
                     id_col_index = i
-                if h_lower == "facturacion":
+                    print(f"DEBUG: ID Column found at {i} ({h})")
+                
+                if h_lower == "facturacion" and fact_col_index is None:
                     fact_col_index = i
-                if h_lower in ('ingresos', 'total', 'importe', 'importetotal', 'totalapagar'):
+                    print(f"DEBUG: Facturacion Column found at {i} ({h})")
+                
+                if h_lower in ('ingresos', 'total', 'importe', 'importetotal', 'totalapagar') and total_col_index is None:
                     total_col_index = i
             
             if id_col_index is None or fact_col_index is None:

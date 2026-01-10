@@ -143,17 +143,20 @@ def procesar_archivo_certificado_completo(cuit: str, archivo_contenido: str) -> 
     except Exception as e:
         raise ValueError(f"Error procesando archivo: {str(e)}")
 
-def guardar_configuracion_emisor(cuit_empresa: str, razon_social: str, nombre_fantasia: str = None, 
-                                condicion_iva: str = "RESPONSABLE_INSCRIPTO", punto_venta: int = 1,
-                                direccion: str = None, telefono: str = None, email: str = None, google_sheet_id: str = None) -> dict:
+def guardar_configuracion_emisor(cuit_empresa: str, razon_social: str = None, nombre_fantasia: str = None, 
+                                condicion_iva: str = None, punto_venta: int = None,
+                                direccion: str = None, telefono: str = None, email: str = None, google_sheet_id: str = None,
+                                ingresos_brutos: str = None, fecha_inicio_actividades: str = None) -> dict:
     """
     Guarda o actualiza la configuración del emisor en un archivo JSON.
+    Si el archivo ya existe, actualiza los campos provistos y mantiene los existentes.
     """
     try:
-        # Validar condición IVA
-        condiciones_validas = ["RESPONSABLE_INSCRIPTO", "EXENTO", "CONSUMIDOR_FINAL", "MONOTRIBUTO", "NO_CATEGORIZADO"]
-        if condicion_iva not in condiciones_validas:
-            raise ValueError(f"Condición IVA '{condicion_iva}' no es válida. Debe ser una de: {', '.join(condiciones_validas)}")
+        # Validar condición IVA si se provee
+        if condicion_iva:
+            condiciones_validas = ["RESPONSABLE_INSCRIPTO", "EXENTO", "CONSUMIDOR_FINAL", "MONOTRIBUTO", "NO_CATEGORIZADO"]
+            if condicion_iva not in condiciones_validas:
+                raise ValueError(f"Condición IVA '{condicion_iva}' no es válida. Debe ser una de: {', '.join(condiciones_validas)}")
         
         # Crear directorio si no existe
         os.makedirs(BOVEDA_TEMPORAL_PATH, exist_ok=True)
@@ -161,25 +164,47 @@ def guardar_configuracion_emisor(cuit_empresa: str, razon_social: str, nombre_fa
         # Ruta del archivo de configuración
         config_path = os.path.join(BOVEDA_TEMPORAL_PATH, f"emisor_{cuit_empresa}.json")
         
-        # Configuración a guardar
-        configuracion = {
-            "cuit_empresa": cuit_empresa,
-            "razon_social": razon_social,
-            "nombre_fantasia": nombre_fantasia,
-            "condicion_iva": condicion_iva,
-            "punto_venta": punto_venta,
-            "direccion": direccion,
-            "telefono": telefono,
-            "email": email,
-            "google_sheet_id": google_sheet_id,
-            "fecha_actualizacion": os.path.getctime(config_path) if os.path.exists(config_path) else None
-        }
+        # Cargar configuración existente si existe
+        configuracion = {}
+        if os.path.exists(config_path):
+            try:
+                import json
+                with open(config_path, "r", encoding="utf-8") as f:
+                    configuracion = json.load(f)
+            except Exception:
+                configuracion = {}
+
+        # Actualizar campos
+        configuracion["cuit_empresa"] = cuit_empresa
+        if razon_social is not None: configuracion["razon_social"] = razon_social
+        if nombre_fantasia is not None: configuracion["nombre_fantasia"] = nombre_fantasia
+        if condicion_iva is not None: configuracion["condicion_iva"] = condicion_iva
+        if punto_venta is not None: configuracion["punto_venta"] = punto_venta
+        if direccion is not None: configuracion["direccion"] = direccion
+        if telefono is not None: configuracion["telefono"] = telefono
+        if email is not None: configuracion["email"] = email
+        if google_sheet_id is not None: configuracion["google_sheet_id"] = google_sheet_id
+        
+        # Asegurar que existan los campos nuevos
+        if "Nro Ingresos Brutos" not in configuracion: configuracion["Nro Ingresos Brutos"] = ""
+        if "Fecha Inicio" not in configuracion: configuracion["Fecha Inicio"] = ""
+
+        if ingresos_brutos is not None: configuracion["Nro Ingresos Brutos"] = ingresos_brutos
+        if fecha_inicio_actividades is not None: configuracion["Fecha Inicio"] = fecha_inicio_actividades
+        
+        configuracion["fecha_actualizacion"] = os.path.getctime(config_path) if os.path.exists(config_path) else None
         
         # Guardar en archivo JSON
         import json
         with open(config_path, "w", encoding="utf-8") as f:
             json.dump(configuracion, f, indent=2, ensure_ascii=False)
         
+        # Normalizar claves para el retorno
+        if "Nro Ingresos Brutos" in configuracion:
+            configuracion["ingresos_brutos"] = configuracion["Nro Ingresos Brutos"]
+        if "Fecha Inicio" in configuracion:
+            configuracion["fecha_inicio_actividades"] = configuracion["Fecha Inicio"]
+
         return {
             "message": "Configuración del emisor guardada exitosamente",
             "cuit": cuit_empresa,
@@ -227,6 +252,13 @@ def obtener_configuracion_emisor(cuit: str) -> dict:
         configuracion["existe"] = True
         # Normalizar CUIT dentro del contenido
         configuracion["cuit_empresa"] = _normalize_cuit(configuracion.get("cuit_empresa")) or configuracion.get("cuit_empresa")
+        
+        # Normalizar campos extras para la API
+        if "Nro Ingresos Brutos" in configuracion:
+            configuracion["ingresos_brutos"] = configuracion["Nro Ingresos Brutos"]
+        if "Fecha Inicio" in configuracion:
+            configuracion["fecha_inicio_actividades"] = configuracion["Fecha Inicio"]
+            
         return configuracion
         
     except Exception as e:

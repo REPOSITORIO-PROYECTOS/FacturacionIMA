@@ -28,14 +28,16 @@ class SubirArchivoCompletoRequest(BaseModel):
 
 class ConfiguracionEmisorRequest(BaseModel):
     cuit_empresa: str
-    razon_social: str
+    razon_social: Optional[str] = None
     nombre_fantasia: Optional[str] = None
-    condicion_iva: str  # RESPONSABLE_INSCRIPTO, MONOTRIBUTO, etc.
-    punto_venta: int = 1
+    condicion_iva: Optional[str] = None
+    punto_venta: Optional[int] = None
     direccion: Optional[str] = None
     telefono: Optional[str] = None
     email: Optional[str] = None
     google_sheet_id: Optional[str] = None
+    ingresos_brutos: Optional[str] = None
+    fecha_inicio_actividades: Optional[str] = None
 
 @router.post("/generar-csr")
 async def generar_csr_endpoint(request: GenerarCSRRequest):
@@ -150,38 +152,66 @@ async def configurar_emisor_endpoint(request: ConfiguracionEmisorRequest, db: Se
             direccion=request.direccion,
             telefono=request.telefono,
             email=request.email,
-            google_sheet_id=request.google_sheet_id
+            google_sheet_id=request.google_sheet_id,
+            ingresos_brutos=request.ingresos_brutos,
+            fecha_inicio_actividades=request.fecha_inicio_actividades
         )
+        
+        # Obtener configuración mergeada (completa) para persistir en BD
+        config_full = resultado.get('configuracion', {})
+        
         # Persistir / actualizar AfipEmisorEmpresa si existe Empresa con ese CUIT
         try:
             empresa = db.exec(select(Empresa).where(Empresa.cuit == request.cuit_empresa)).first()
             if empresa:
                 emisor = db.exec(select(AfipEmisorEmpresa).where(AfipEmisorEmpresa.cuit == request.cuit_empresa, AfipEmisorEmpresa.id_empresa == empresa.id)).first()
+                
+                # Valores a usar (prioridad: request > config mergeada > default)
+                # Pero como config_full ya tiene el merge, usamos config_full
+                razon_social_val = config_full.get('razon_social')
+                if not razon_social_val: 
+                     # Si no está en config, y es requerido para crear, fallará. 
+                     # Pero si es update, mantenemos el que tiene.
+                     pass 
+
                 if not emisor:
-                    emisor = AfipEmisorEmpresa(
-                        id_empresa=empresa.id,
-                        cuit=request.cuit_empresa,
-                        razon_social=request.razon_social,
-                        nombre_fantasia=request.nombre_fantasia,
-                        condicion_iva=request.condicion_iva,
-                        punto_venta=request.punto_venta,
-                        direccion=request.direccion,
-                        telefono=request.telefono,
-                        email=request.email,
-                        habilitado=True
-                    )
-                    db.add(emisor)
+                    if not razon_social_val:
+                        # No podemos crear sin razon social
+                        resultado['persistido_bd'] = False
+                        resultado['motivo_no_bd'] = 'Falta Razon Social para crear registro en BD'
+                    else:
+                        emisor = AfipEmisorEmpresa(
+                            id_empresa=empresa.id,
+                            cuit=request.cuit_empresa,
+                            razon_social=razon_social_val,
+                            nombre_fantasia=config_full.get('nombre_fantasia'),
+                            condicion_iva=config_full.get('condicion_iva'),
+                            punto_venta=config_full.get('punto_venta'),
+                            direccion=config_full.get('direccion'),
+                            telefono=config_full.get('telefono'),
+                            email=config_full.get('email'),
+                            ingresos_brutos=config_full.get('ingresos_brutos'),
+                            fecha_inicio_actividades=config_full.get('fecha_inicio_actividades'),
+                            habilitado=True
+                        )
+                        db.add(emisor)
+                        db.commit(); db.refresh(emisor)
+                        resultado['persistido_bd'] = True
+                        resultado['emisor_empresa_id'] = emisor.id
                 else:
-                    emisor.razon_social = request.razon_social
-                    emisor.nombre_fantasia = request.nombre_fantasia
-                    emisor.condicion_iva = request.condicion_iva
-                    emisor.punto_venta = request.punto_venta
-                    emisor.direccion = request.direccion
-                    emisor.telefono = request.telefono
-                    emisor.email = request.email
-                db.commit(); db.refresh(emisor)
-                resultado['persistido_bd'] = True
-                resultado['emisor_empresa_id'] = emisor.id
+                    if razon_social_val: emisor.razon_social = razon_social_val
+                    if config_full.get('nombre_fantasia') is not None: emisor.nombre_fantasia = config_full.get('nombre_fantasia')
+                    if config_full.get('condicion_iva') is not None: emisor.condicion_iva = config_full.get('condicion_iva')
+                    if config_full.get('punto_venta') is not None: emisor.punto_venta = config_full.get('punto_venta')
+                    if config_full.get('direccion') is not None: emisor.direccion = config_full.get('direccion')
+                    if config_full.get('telefono') is not None: emisor.telefono = config_full.get('telefono')
+                    if config_full.get('email') is not None: emisor.email = config_full.get('email')
+                    if config_full.get('ingresos_brutos') is not None: emisor.ingresos_brutos = config_full.get('ingresos_brutos')
+                    if config_full.get('fecha_inicio_actividades') is not None: emisor.fecha_inicio_actividades = config_full.get('fecha_inicio_actividades')
+                    
+                    db.commit(); db.refresh(emisor)
+                    resultado['persistido_bd'] = True
+                    resultado['emisor_empresa_id'] = emisor.id
                 
                 # Actualizar ConfiguracionEmpresa con Google Sheets si se proporcionó
                 if request.google_sheet_id:

@@ -466,6 +466,8 @@ class AfipEmisorEmpresa(SQLModel, table=True):
     direccion: Optional[str] = Field(default=None)
     telefono: Optional[str] = Field(default=None)
     email: Optional[str] = Field(default=None)
+    ingresos_brutos: Optional[str] = Field(default=None)
+    fecha_inicio_actividades: Optional[str] = Field(default=None)
     habilitado: bool = Field(default=True)
     # Índice compuesto sugerido (nombre+empresa) si se requiere unicidad lógica adicional en migraciones futuras.
     created_at: Optional[datetime] = Field(

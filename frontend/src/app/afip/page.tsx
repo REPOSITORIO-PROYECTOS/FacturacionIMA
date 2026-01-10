@@ -49,7 +49,9 @@ export default function AFIPPage() {
         direccion: "",
         telefono: "",
         email: "",
-        google_sheet_id: ""
+        google_sheet_id: "",
+        ingresos_brutos: "",
+        fecha_inicio_actividades: ""
     });
     const [condicionesIVA, setCondicionesIVA] = useState<CondicionIVA[]>([]);
     const [userMe, setUserMe] = useState<UserMe | null>(null);

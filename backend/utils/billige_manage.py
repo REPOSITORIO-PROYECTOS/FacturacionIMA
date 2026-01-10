@@ -516,10 +516,20 @@ async def process_invoice_batch_for_endpoint(
 
     try:
         sheets_handler = TablasHandler(google_sheet_id=target_sheet_id)
-        logger.info(f"Handler de Google Sheets inicializado (ID: {'Global' if not target_sheet_id else 'Personalizado ' + target_sheet_id[:5]}).")
+        
+        # VALIDACIÓN DE CONEXIÓN (Pedido explícito del usuario)
+        is_conn_ok, conn_msg = sheets_handler.check_connection()
+        if not is_conn_ok:
+            err_msg = f"ABORTANDO: Fallo de conexión/validación con Google Sheet {target_sheet_id}. Detalle: {conn_msg}"
+            logger.critical(err_msg)
+            # Si no se puede conectar al Sheet, NO PROCESAR FACTURAS para evitar inconsistencias.
+            raise ValueError(err_msg)
+            
+        logger.info(f"Handler de Google Sheets inicializado y validado (ID: {'Global' if not target_sheet_id else 'Personalizado ' + target_sheet_id[:5]}). Msg: {conn_msg}")
     except Exception as e:
-        logger.error(f"Error init Sheets: {e}")
-        sheets_handler = None
+        logger.error(f"Error init/validación Sheets: {e}")
+        # Si la validación falla (ValueError), se propaga para detener el proceso.
+        raise e
 
     db = SessionLocal()
     results_for_response: List[Dict[str, Any]] = []
