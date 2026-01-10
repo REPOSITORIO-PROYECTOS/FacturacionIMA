@@ -487,7 +487,7 @@ class IngresoSheets(SQLModel, table=True):
     __tablename__ = "ingresos_sheets"
     
     id: Optional[int] = Field(default=None, primary_key=True)
-    id_ingreso: str = Field(index=True, unique=True, description="ID único en Google Sheets (ID Ingresos)")
+    id_ingreso: str = Field(index=True, description="ID en Google Sheets (ID Ingresos)")
     
     # Campos core para filtrado y ordenamiento
     fecha: Optional[date] = Field(sa_column=Column(Date, index=True))
@@ -502,5 +502,4 @@ class IngresoSheets(SQLModel, table=True):
     
     # --- MULTI-EMPRESA ---
     id_empresa: int = Field(default=1, index=True) # Default 1 para compatibilidad temporal
-
 

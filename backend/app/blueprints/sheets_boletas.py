@@ -108,6 +108,57 @@ def _ensure_ingresos_sheets_id_empresa(db) -> bool:
             return True
         return False
 
+def _ensure_ingresos_sheets_unique_index(db) -> bool:
+    ok_col = _ensure_ingresos_sheets_id_empresa(db)
+    if not ok_col:
+        return False
+
+    try:
+        rows = db.exec(text("SHOW INDEX FROM ingresos_sheets")).all()
+    except Exception:
+        return False
+
+    unique_indexes: dict[str, list[dict[str, Any]]] = {}
+    for r in rows:
+        try:
+            key_name = r.Key_name
+            non_unique = int(r.Non_unique)
+            col = r.Column_name
+            seq = int(r.Seq_in_index)
+        except Exception:
+            continue
+
+        if non_unique != 0:
+            continue
+        unique_indexes.setdefault(key_name, []).append({"col": col, "seq": seq})
+
+    for key_name, cols in unique_indexes.items():
+        cols_sorted = [c["col"] for c in sorted(cols, key=lambda x: x["seq"])]
+        if cols_sorted == ["id_ingreso"]:
+            try:
+                db.exec(text(f"ALTER TABLE ingresos_sheets DROP INDEX `{key_name}`"))
+                db.commit()
+            except Exception:
+                try:
+                    db.rollback()
+                except Exception:
+                    pass
+
+    try:
+        db.exec(text("ALTER TABLE ingresos_sheets ADD UNIQUE KEY ux_ingresos_sheets_empresa_ingreso (id_empresa, id_ingreso)"))
+        db.commit()
+    except Exception as e:
+        try:
+            db.rollback()
+        except Exception:
+            pass
+        msg = str(e).lower()
+        if "duplicate key name" in msg or "already exists" in msg:
+            return True
+        return False
+
+    return True
+
 def _sync_sheets_to_db(full_sync: bool = False, id_empresa: int = 1, google_sheet_id: Optional[str] = None):
     """
     Función síncrona que descarga de Sheets y actualiza la tabla SQL 'ingresos_sheets'.
@@ -147,6 +198,8 @@ def _sync_sheets_to_db(full_sync: bool = False, id_empresa: int = 1, google_shee
         db = SessionLocal()
         try:
             multi_empresa_enabled = _ensure_ingresos_sheets_id_empresa(db)
+            if multi_empresa_enabled:
+                _ensure_ingresos_sheets_unique_index(db)
             count_new = 0
             count_updated = 0
             
@@ -273,6 +326,8 @@ async def obtener_boletas_desde_db(
     """
 
     multi_empresa_enabled = _ensure_ingresos_sheets_id_empresa(db)
+    if multi_empresa_enabled:
+        _ensure_ingresos_sheets_unique_index(db)
     google_sheet_id = None
     try:
         configuracion = db.exec(
