@@ -8,7 +8,7 @@ import logging
 from datetime import datetime
 from io import BytesIO
 from backend.security import obtener_usuario_actual
-from backend.modelos import Usuario, FacturaElectronica
+from backend.modelos import Usuario, FacturaElectronica, ConfiguracionEmpresa
 from backend.database import SessionLocal
 
 # Reportlab para generar PDF
@@ -35,9 +35,25 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/comprobantes", tags=["comprobantes"])
 
+def _get_tablas_handler_for_user(usuario: Usuario, db) -> "TablasHandler":
+    from backend.utils.tablasHandler import TablasHandler
+    google_sheet_id = None
+    try:
+        config = db.query(ConfiguracionEmpresa).filter(ConfiguracionEmpresa.id_empresa == usuario.id_empresa).first()
+        link = (config.link_google_sheets or "").strip() if config else ""
+        if link:
+            if "/d/" in link and "/edit" in link:
+                google_sheet_id = link.split("/d/")[1].split("/")[0]
+            else:
+                google_sheet_id = link
+    except Exception:
+        google_sheet_id = None
+    return TablasHandler(google_sheet_id=google_sheet_id)
+
 @router.get("/test/sheets-cliente/{ingreso_id}")
 async def test_sheets_cliente(
-    ingreso_id: str
+    ingreso_id: str,
+    sheet_id: Optional[str] = None
 ):
     """
     Test para verificar si se pueden obtener datos del cliente desde Google Sheets
@@ -54,7 +70,7 @@ async def test_sheets_cliente(
     
     try:
         from backend.utils.tablasHandler import TablasHandler
-        sheets_handler = TablasHandler()
+        sheets_handler = TablasHandler(google_sheet_id=sheet_id) if sheet_id else TablasHandler()
         resultado["sheets_disponible"] = True
         
         # Obtener datos del ingreso desde Google Sheets
@@ -114,7 +130,7 @@ async def test_sheets_cliente(
     
     return resultado
 
-def generar_pdf_comprobante(factura: FacturaElectronica, conceptos: list = None) -> bytes:
+def generar_pdf_comprobante(factura: FacturaElectronica, conceptos: list = None, sheets_handler: Optional["TablasHandler"] = None) -> bytes:
     """
     Genera un PDF del comprobante fiscal estilo ticket térmico de 50mm
     """
@@ -322,11 +338,12 @@ def generar_pdf_comprobante(factura: FacturaElectronica, conceptos: list = None)
             # 2. Si no se encontró, buscar en Google Sheets usando ingreso_id
             if not nombre_cliente and factura.ingreso_id:
                 try:
-                    from backend.utils.tablasHandler import TablasHandler
-                    sheets_handler = TablasHandler()
+                    if not sheets_handler:
+                        from backend.utils.tablasHandler import TablasHandler
+                        sheets_handler = TablasHandler()
                     
                     # Obtener datos del ingreso desde Google Sheets
-                    ingresos_data = sheets_handler.cargar_ingresos()
+                    ingresos_data = sheets_handler.cargar_ingresos() if sheets_handler else []
                     if ingresos_data:
                         # Buscar el ingreso por ID
                         ingreso_encontrado = None
@@ -659,8 +676,8 @@ async def descargar_comprobante_pdf(
         conceptos = []
         # TODO: Obtener conceptos de la venta original si están disponibles
         
-        # Generar PDF
-        pdf_bytes = generar_pdf_comprobante(factura, conceptos)
+        sheets_handler = _get_tablas_handler_for_user(usuario, db)
+        pdf_bytes = generar_pdf_comprobante(factura, conceptos, sheets_handler=sheets_handler)
         
         # Nombre del archivo
         filename = f"comprobante_{factura.punto_venta}_{factura.numero_comprobante}.pdf"

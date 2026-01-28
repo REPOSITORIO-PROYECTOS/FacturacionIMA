@@ -13,6 +13,7 @@ import os
 import logging
 from io import BytesIO
 from backend.utils import afip_tools_manager  # nuevo para debug credenciales
+from backend.utils.receptor_fields import extraer_receptor_fields
 from backend.utils.afipTools import _resolve_afip_credentials, preflight_afip_credentials  # type: ignore
 from backend.utils.afipTools import generar_factura_para_venta, ReceptorData  # para test de contrato
 from backend.modelos import ConfiguracionEmpresa, Empresa, Usuario
@@ -761,10 +762,7 @@ def build_imprimible_html(boleta: Dict[str, Any], afip_result: Optional[Dict[str
     encabezado_linea2 = f"Pto Vta {pv_fmt} - Nº {nro_fmt}" if (pv_fmt and nro_fmt) else f"Nº {nro_fmt}" if nro_fmt else ''
     fecha_emision = fecha
 
-    # Receptor / cliente
-    receptor_nombre = boleta.get('cliente') or boleta.get('nombre') or boleta.get('razon_social') or ''
-    receptor_doc = boleta.get('cuit') or boleta.get('nro_doc_receptor') or boleta.get('documento') or ''
-    receptor_iva = boleta.get('condicion_iva') or ''
+    receptor_nombre, receptor_doc, receptor_iva = extraer_receptor_fields(boleta, afip_result)
 
     # Items: buscar una lista en boleta['items'] o boleta['detalle'] (si existe)
     items = boleta.get('items') or boleta.get('detalle') or []
