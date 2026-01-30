@@ -56,5 +56,5 @@ else
   echo "[FRONTEND] Build existente válido. (Usa FORCE_REBUILD_FRONTEND=1 para forzar)"
 fi
 
-echo "[FRONTEND] Iniciando Next en puerto $PORT"
-exec npm run start -- -p "$PORT"
+echo "[FRONTEND] Iniciando Next en puerto $PORT (Localhost)"
+exec npm run start -- -p "$PORT" -H 127.0.0.1

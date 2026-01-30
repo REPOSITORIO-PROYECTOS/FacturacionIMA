@@ -21,8 +21,8 @@ module.exports = {
             max_restarts: 10,
             restart_delay: 4000,
             env: {
-                BACKEND_URL: process.env.BACKEND_URL || 'http://127.0.0.1:8008',
-                NEXT_PUBLIC_BACKEND_URL: process.env.BACKEND_URL || 'http://127.0.0.1:8008',
+                BACKEND_URL: 'http://127.0.0.1:8008',
+                NEXT_PUBLIC_BACKEND_URL: '/api',
                 FRONTEND_PORT: process.env.FRONTEND_PORT || '3001'
             }
         }
