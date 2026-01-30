@@ -1,10 +1,15 @@
 import os
+import logging
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from backend import config # (y otros que necesites)
 from backend.utils.mysql_handler import get_db_connection
-from backend.app.blueprints import auth_router, boletas, facturador, tablas, afip, setup, usuarios, impresion, ventas_detalle, comprobantes, sheets_boletas, admin_empresa  # NUEVO: administración global de empresas
+from backend.app.blueprints import auth_router, boletas, facturador, tablas, afip, setup, usuarios, impresion, ventas_detalle, comprobantes, sheets_boletas, admin_empresa
+
+# Configurar logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger("backend.main")
 
 app = FastAPI(
     title="API Facturacion IMA",
@@ -25,29 +30,45 @@ origins = [
 # ...existing code...
 
 API_PREFIX = os.getenv('API_PREFIX', '').strip()
-print(f"DEBUG: API_PREFIX detected as '{API_PREFIX}'")
+logger.warning(f"DEBUG: API_PREFIX detected as '{API_PREFIX}'")
 
 def _mount(router):
     # Si se define un prefijo global (ej /api) y el router no lo tiene ya, recrear con prefix compuesto
     if API_PREFIX and not router.prefix.startswith(API_PREFIX):
-        # FastAPI no soporta cambiar prefix directamente; asumimos routers ya correctos excepto facturador
-        new_prefix = API_PREFIX + router.prefix
-        print(f"DEBUG: Mounting router '{router.tags}' at '{new_prefix}'")
-        app.include_router(router, prefix=new_prefix)
+        # FastAPI suma el prefix del include_router al prefix del router
+        # Por lo tanto, solo debemos pasar API_PREFIX
+        logger.warning(f"DEBUG: Mounting router '{router.tags}' with prefix '{API_PREFIX}' (Total: {API_PREFIX}{router.prefix})")
+        app.include_router(router, prefix=API_PREFIX)
     else:
-        print(f"DEBUG: Mounting router '{router.tags}' at '{router.prefix}' (No prefix change)")
+        logger.warning(f"DEBUG: Mounting router '{router.tags}' at '{router.prefix}' (No prefix change)")
         app.include_router(router)
 
 _mount(boletas.router)
 _mount(impresion.router)
+# FIX: auth_router already has prefix='/auth'. If API_PREFIX='/api', it becomes '/api/auth'.
+# But inside auth_router, endpoints are like '/token' -> '/api/auth/token'.
+# Wait, auth_router defines prefix='/auth'.
 _mount(auth_router.router)
+# FIX: Montar auth_router TAMBIÉN en la raíz '/auth' para compatibilidad con producción/proxy
+logger.warning(f"DEBUG: Mounting router '{auth_router.router.tags}' at '{auth_router.router.prefix}' (Fallback root)")
+app.include_router(auth_router.router)
+
 _mount(facturador.router)
+# FIX: Fallback root mount for facturador
+logger.warning(f"DEBUG: Mounting router '{facturador.router.tags}' at '{facturador.router.prefix}' (Fallback root)")
+app.include_router(facturador.router)
 if ventas_detalle:  # Condicional: solo montar si el módulo se importó
     _mount(ventas_detalle.router)
 if comprobantes:  # Condicional: solo montar si el módulo se importó
     _mount(comprobantes.router)
+    # FIX: Fallback root mount for comprobantes
+    logger.warning(f"DEBUG: Mounting router '{comprobantes.router.tags}' at '{comprobantes.router.prefix}' (Fallback root)")
+    app.include_router(comprobantes.router)
 if sheets_boletas:  # Nuevo: endpoint para Google Sheets
     _mount(sheets_boletas.router)
+    # FIX: Fallback root mount for sheets
+    logger.warning(f"DEBUG: Mounting router '{sheets_boletas.router.tags}' at '{sheets_boletas.router.prefix}' (Fallback root)")
+    app.include_router(sheets_boletas.router)
 # tablas.router no existe, se comenta para evitar error
 # app.include_router(tablas.router)
 # afip.router already uses prefix '/api' internally; include it directly

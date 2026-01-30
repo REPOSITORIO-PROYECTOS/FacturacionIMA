@@ -1,8 +1,9 @@
 from datetime import timedelta
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Request
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlmodel import Session, select
 from pydantic import BaseModel
+import logging
 
 from backend.database import get_db
 from backend.modelos import Usuario, Rol, Empresa
@@ -28,14 +29,46 @@ class UserMeResponse(BaseModel):
 
 
 
-@router.post("/token")
-async def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
-    """Autenticación unificada contra MySQL (tabla usuarios/roles).
+class LoginRequest(BaseModel):
+    username: str
+    password: str
 
-    Fallback opcional: credenciales estáticas (config.STATIC_ADMIN_USER / PASS) para entorno de instalación inicial.
+@router.post("/token")
+@router.post("/", include_in_schema=False)
+@router.post("", include_in_schema=False)
+async def login_for_access_token(
+    request: Request,
+    db: Session = Depends(get_db)
+):
+    """Autenticación unificada contra MySQL (tabla usuarios/roles).
+    Soporta tanto application/x-www-form-urlencoded (Swagger/Standard) como application/json (Frontend custom).
     """
-    username = form_data.username.strip()
-    password = form_data.password
+    username = None
+    password = None
+    
+    # 1. Intentar leer como JSON
+    try:
+        # Solo intentar si parece JSON para no consumir stream si es form
+        if "application/json" in request.headers.get("content-type", ""):
+            body = await request.json()
+            username = body.get("username")
+            password = body.get("password")
+    except Exception:
+        pass
+
+    # 2. Si no hay credenciales, intentar como Form Data
+    if not username:
+        try:
+            form = await request.form()
+            username = form.get("username")
+            password = form.get("password")
+        except Exception:
+            pass
+            
+    if not username or not password:
+         raise HTTPException(status_code=400, detail="Debe enviar username y password (JSON o Form)")
+    
+    username = username.strip()
 
     # Buscar usuario en MySQL
     stmt = select(Usuario).where(Usuario.nombre_usuario == username)
@@ -87,5 +120,10 @@ def obtener_usuario_me(user: Usuario = Depends(obtener_usuario_actual), db: Sess
         empresa_nombre=empresa.nombre_legal if empresa else None,
         activo=user.activo,
     )
+
+@router.post("/logout")
+def logout():
+    """Endpoint dummy para logout. El logout real es cliente-side (borrar token)."""
+    return {"message": "Sesión cerrada correctamente"}
 
 
