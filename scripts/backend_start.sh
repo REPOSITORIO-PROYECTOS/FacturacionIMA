@@ -41,4 +41,4 @@ HOST="${BACKEND_HOST:-127.0.0.1}"
 PORT="${BACKEND_PORT:-8008}"
 
 echo "[BACKEND] Iniciando uvicorn en $HOST:$PORT"
-exec "$VENV_DIR/bin/python" -m uvicorn backend.main:app --host "$HOST" --port "$PORT"
+exec "$VENV_DIR/bin/python" -u -m uvicorn backend.main:app --host "$HOST" --port "$PORT"

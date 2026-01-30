@@ -74,20 +74,39 @@ def _resolve_afip_credentials(emisor_cuit: str | None = None):
         from sqlmodel import select as _select
         from backend.database import SessionLocal as _SessionLocal
         from backend.modelos import AfipCredencial as _AfipCredencial
+        from backend.modelos import ConfiguracionEmpresa as _ConfiguracionEmpresa
+        
         with _SessionLocal() as _db:
             if emisor_cuit:
-                row = _db.exec(_select(_AfipCredencial).where(_AfipCredencial.cuit == str(emisor_cuit).strip(), _AfipCredencial.activo == True)).first()
+                cuit_limpio = str(emisor_cuit).strip()
+                # 1.a) Buscar en AfipCredencial (tabla dedicada)
+                row = _db.exec(_select(_AfipCredencial).where(_AfipCredencial.cuit == cuit_limpio, _AfipCredencial.activo == True)).first()
                 if row and row.certificado_pem and row.clave_privada_pem:
-                    return row.cuit, row.certificado_pem, row.clave_privada_pem, 'db'
-                # Si está en modo estricto y no hay credenciales para el CUIT solicitado, NO hacer ningún fallback (ni bóveda ni env, ni siquiera consultar bóveda)
+                    return row.cuit, row.certificado_pem, row.clave_privada_pem, 'db_afip_credencial'
+                
+                # 1.b) Buscar en ConfiguracionEmpresa (tabla de configuración por empresa)
+                # Nota: Los campos se llaman 'encrypted' pero en esta versión pueden contener el PEM directo si no se activó encriptación.
+                # Se asume que si empiezan con "-----BEGIN" son PEM planos.
+                conf = _db.exec(_select(_ConfiguracionEmpresa).where(_ConfiguracionEmpresa.cuit == cuit_limpio)).first()
+                if conf and conf.afip_certificado_encrypted and conf.afip_clave_privada_encrypted:
+                     return conf.cuit, conf.afip_certificado_encrypted, conf.afip_clave_privada_encrypted, 'db_config_empresa'
+
+                # Si está en modo estricto y no hay credenciales para el CUIT solicitado, NO hacer ningún fallback
                 if STRICT_AFIP_CREDENTIALS:
-                    print(f"[AFIP_CREDS][STRICT] CUIT solicitado {emisor_cuit} no tiene credenciales en DB y modo estricto activo -> NO fallback, NO bóveda, NO env")
+                    print(f"[AFIP_CREDS][STRICT] CUIT solicitado {emisor_cuit} no tiene credenciales en DB y modo estricto activo -> NO fallback")
                     return None, None, None, 'none'
+            
             # Si no se pidió CUIT o no está en modo estricto, tomar primera activa
             if not emisor_cuit or not STRICT_AFIP_CREDENTIALS:
+                # Intentar AfipCredencial primero
                 row_any = _db.exec(_select(_AfipCredencial).where(_AfipCredencial.activo == True)).first()
                 if row_any and row_any.certificado_pem and row_any.clave_privada_pem:
-                    return row_any.cuit, row_any.certificado_pem, row_any.clave_privada_pem, 'db'
+                    return row_any.cuit, row_any.certificado_pem, row_any.clave_privada_pem, 'db_afip_credencial_any'
+                
+                # Intentar ConfiguracionEmpresa
+                conf_any = _db.exec(_select(_ConfiguracionEmpresa)).first()
+                if conf_any and conf_any.afip_certificado_encrypted and conf_any.afip_clave_privada_encrypted:
+                    return conf_any.cuit, conf_any.afip_certificado_encrypted, conf_any.afip_clave_privada_encrypted, 'db_config_empresa_any'
 
         # Si está en modo estricto y emisor_cuit es None o vacío, abortar y no permitir ningún fallback
         if STRICT_AFIP_CREDENTIALS and (emisor_cuit is None or str(emisor_cuit).strip() == ""):

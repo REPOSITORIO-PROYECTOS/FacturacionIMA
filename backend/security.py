@@ -3,7 +3,7 @@
 
 from datetime import datetime, timedelta, timezone
 from typing import Optional, List
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, status, Header
 from fastapi.security import OAuth2PasswordBearer
 from jose import JWTError, jwt
 from passlib.context import CryptContext
@@ -20,11 +20,12 @@ from backend.modelos import Usuario, Rol
 SECRET_KEY = config.SECRET_KEY_SEC
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = getattr(config, 'ACCESS_TOKEN_EXPIRE_MINUTES', 210)
+INTERNAL_API_KEY = getattr(config, 'INTERNAL_API_KEY', None)
 
 # Usamos bcrypt_sha256 para evitar el acceso al atributo __about__ que dispara traceback
 # y añadimos robustez contra inputs extremadamente largos.
 pwd_context = CryptContext(schemes=["bcrypt", "bcrypt_sha256"], deprecated="auto")
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/token")
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/token", auto_error=False) # auto_error=False para permitir otros métodos
 
 # --- Funciones de Contraseñas y Tokens (Estándar) ---
 def verificar_password(plain_password: str, hashed_password: str) -> bool:
@@ -53,17 +54,48 @@ CREDENTIALS_EXCEPTION = HTTPException(
     headers={"WWW-Authenticate": "Bearer"},
 )
 
+def validar_api_key(x_api_key: Optional[str] = Header(None, alias="X-API-KEY")) -> bool:
+    """
+    Valida si la petición trae una API Key interna maestra válida.
+    """
+    if INTERNAL_API_KEY and x_api_key == INTERNAL_API_KEY:
+        return True
+    return False
+
 def obtener_usuario_actual(
-    token: str = Depends(oauth2_scheme), 
+    x_api_key: Optional[str] = Header(None, alias="X-API-KEY"),
+    token: Optional[str] = Depends(oauth2_scheme), 
     db: Session = Depends(get_db)
 ) -> Usuario:
     """
-    Función central de seguridad. Valida el token y devuelve el objeto Usuario
+    Función central de seguridad. Valida el token o API Key y devuelve el objeto Usuario
     completo desde la base de datos con su rol actualizado en tiempo real.
     """
     print("\n--- [RASTREO DE SEGURIDAD] ---")
     print(f"1. Iniciando 'obtener_usuario_actual'.")
     
+    # 0. Bypass por API Key Maestra
+    if INTERNAL_API_KEY and x_api_key == INTERNAL_API_KEY:
+         print(f"2a. API Key Maestra detectada y válida. Devolviendo usuario sistema.")
+         # PARA BYPASS COMPLETO EN facturador.py NECESITAMOS RETORNAR EL USUARIO DUMMY (ID 999)
+         # Si retornamos el usuario 'admin' de la DB, facturador.py aplicará validaciones de empresa estrictas.
+         
+         # Crear dummy user con rol admin
+         dummy_rol = Rol(id=999, nombre="SuperAdmin", alcance="global", permisos="*")
+         dummy_user = Usuario(
+             id=999, 
+             nombre_usuario="sistema_api_key", 
+             activo=True, 
+             id_empresa=1, # Asumimos empresa 1 por defecto, pero facturador ignorará esto para ID 999
+             id_rol=999,
+             rol=dummy_rol
+         )
+         return dummy_user
+
+    if not token:
+         print("   -> ERROR: No se proporcionó Token ni API Key válida.")
+         raise CREDENTIALS_EXCEPTION
+
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         username: str = payload.get("sub")

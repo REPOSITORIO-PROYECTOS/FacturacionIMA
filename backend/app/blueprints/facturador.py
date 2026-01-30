@@ -64,29 +64,47 @@ async def create_batch_invoices(
             detail="Se permite facturar máximo 5 boletas por operación."
         )
 
-    logger.info(f"Recibida solicitud POST /bill/batch con {len(invoices)} facturas. Usuario: {usuario_actual.nombre_usuario}")
-
-    # Obtener CUIT de la empresa del usuario
-    empresa = db.exec(select(Empresa).where(Empresa.id == usuario_actual.id_empresa)).first()
-    if not empresa:
-        raise HTTPException(status_code=500, detail="Empresa del usuario no encontrada.")
+    # --- VERIFICACIÓN DE BYPASS POR API KEY MAESTRA ---
+    # Si el usuario es un "dummy" creado por API Key (id=999), saltamos la validación estricta de empresa.
+    es_super_admin_api = (usuario_actual.id == 999 and usuario_actual.nombre_usuario == "sistema_api_key")
     
-    empresa_cuit = str(empresa.cuit)
+    logger.info(f"Recibida solicitud POST /bill/batch con {len(invoices)} facturas. Usuario: {usuario_actual.nombre_usuario} (SuperAdmin: {es_super_admin_api})")
 
+    empresa_cuit = None
+    if not es_super_admin_api:
+        # Obtener CUIT de la empresa del usuario normal
+        empresa = db.exec(select(Empresa).where(Empresa.id == usuario_actual.id_empresa)).first()
+        if not empresa:
+            raise HTTPException(status_code=500, detail="Empresa del usuario no encontrada.")
+        empresa_cuit = str(empresa.cuit)
+    
     # Convertir los modelos Pydantic a la lista de diccionarios que espera
     # process_invoice_batch_for_endpoint. Aquí también validamos la entrada.
     invoices_for_processing = []
     
     for invoice_item in invoices:
-        # VALIDACIÓN DE SEGURIDAD:
-        # Si intenta usar un CUIT emisor diferente al de su empresa, bloquear.
-        if invoice_item.emisor_cuit and str(invoice_item.emisor_cuit).strip() != empresa_cuit:
-             logger.warning(f"Usuario {usuario_actual.nombre_usuario} intentó facturar con CUIT ajeno: {invoice_item.emisor_cuit} (Esperado: {empresa_cuit})")
-             raise HTTPException(
-                 status_code=status.HTTP_403_FORBIDDEN,
-                 detail=f"El CUIT emisor {invoice_item.emisor_cuit} no corresponde a su empresa."
-             )
-             
+        cuit_a_usar = empresa_cuit
+        
+        # VALIDACIÓN DE SEGURIDAD (Solo si no es SuperAdmin API):
+        if not es_super_admin_api:
+            # Si intenta usar un CUIT emisor diferente al de su empresa, bloquear.
+            if invoice_item.emisor_cuit and str(invoice_item.emisor_cuit).strip() != empresa_cuit:
+                 logger.warning(f"Usuario {usuario_actual.nombre_usuario} intentó facturar con CUIT ajeno: {invoice_item.emisor_cuit} (Esperado: {empresa_cuit})")
+                 raise HTTPException(
+                     status_code=status.HTTP_403_FORBIDDEN,
+                     detail=f"El CUIT emisor {invoice_item.emisor_cuit} no corresponde a su empresa."
+                 )
+        else:
+            # Si es SuperAdmin, confiamos en el CUIT que envía en el payload
+            if invoice_item.emisor_cuit:
+                cuit_a_usar = str(invoice_item.emisor_cuit).strip()
+            else:
+                # Si no envía CUIT, fallamos porque no tenemos contexto de empresa por defecto
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Para uso con API Key Maestra, es obligatorio especificar 'emisor_cuit' en cada factura."
+                )
+
         # Forzar el CUIT de la empresa si no viene (o si viene correcto)
         # Esto asegura que process_invoice_batch_for_endpoint use la boveda correcta.
         
@@ -94,7 +112,7 @@ async def create_batch_invoices(
             "id": invoice_item.id,
             "total": invoice_item.total,
             "cliente_data": invoice_item.cliente_data.model_dump(),
-            "emisor_cuit": empresa_cuit  # Sobreescribimos con el CUIT validado
+            "emisor_cuit": cuit_a_usar  # Sobreescribimos con el CUIT validado o permitido
         }
         if invoice_item.conceptos:
             item_dict["conceptos"] = [c.model_dump() for c in invoice_item.conceptos]

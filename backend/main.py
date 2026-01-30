@@ -25,13 +25,17 @@ origins = [
 # ...existing code...
 
 API_PREFIX = os.getenv('API_PREFIX', '').strip()
+print(f"DEBUG: API_PREFIX detected as '{API_PREFIX}'")
 
 def _mount(router):
     # Si se define un prefijo global (ej /api) y el router no lo tiene ya, recrear con prefix compuesto
     if API_PREFIX and not router.prefix.startswith(API_PREFIX):
         # FastAPI no soporta cambiar prefix directamente; asumimos routers ya correctos excepto facturador
-        app.include_router(router, prefix=API_PREFIX + router.prefix)
+        new_prefix = API_PREFIX + router.prefix
+        print(f"DEBUG: Mounting router '{router.tags}' at '{new_prefix}'")
+        app.include_router(router, prefix=new_prefix)
     else:
+        print(f"DEBUG: Mounting router '{router.tags}' at '{router.prefix}' (No prefix change)")
         app.include_router(router)
 
 _mount(boletas.router)

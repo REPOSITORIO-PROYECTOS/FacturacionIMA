@@ -87,6 +87,10 @@ AFIP_ENABLE_ENV_CREDS = _parse_bool(os.getenv("AFIP_ENABLE_ENV_CREDS"), False)
 # Siempre podemos tener un CUIT "por defecto" para seleccionar en la bóveda, pero
 # NO cargamos directamente certificado ni clave a menos que la flag lo permita.
 AFIP_CUIT: str | None = os.getenv("AFIP_CUIT")
+
+# Key interna maestra para acceso de superadmin / sistema (backend-to-backend)
+INTERNAL_API_KEY = os.getenv("INTERNAL_API_KEY")
+
 if AFIP_ENABLE_ENV_CREDS:
     AFIP_CERT: str | None = os.getenv("AFIP_CERT")
     AFIP_KEY: str | None = os.getenv("AFIP_KEY")

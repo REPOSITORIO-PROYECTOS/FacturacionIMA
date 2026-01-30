@@ -10,7 +10,8 @@ module.exports = {
             env: {
                 PYTHONPATH: __dirname,
                 BACKEND_PORT: process.env.BACKEND_PORT || '8008',
-                STRICT_AFIP_CREDENTIALS: '0'  // Temporalmente deshabilitado para usar bóveda
+                STRICT_AFIP_CREDENTIALS: '0',  // Temporalmente deshabilitado para usar bóveda
+                INTERNAL_API_KEY: 'D5AW6D1W6A1D6W1D65A1W8D4A6D48WA8F4W86A'
             }
         },
         {
