@@ -148,8 +148,8 @@ def generar_qr_afip(afip_data: Dict[str, Any]) -> tuple[str | None, str | None]:
     ),
     reraise=True
 )
-def _attempt_generate_invoice(total: float, cliente_data: ReceptorData, invoice_id: str, emisor_cuit: str | None = None, tipo_forzado: int | None = None, conceptos: List[Dict[str, Any]] | None = None, punto_venta: int | None = None) -> Dict[str, Any]:
-    logger.debug(f"[{invoice_id}] Intentando facturar (Total: {total}, CUIT/DNI: {cliente_data.cuit_o_dni}, Conceptos: {len(conceptos) if conceptos else 0}, PV: {punto_venta})...")
+def _attempt_generate_invoice(total: float, cliente_data: ReceptorData, invoice_id: str, emisor_cuit: str | None = None, tipo_forzado: int | None = None, conceptos: List[Dict[str, Any]] | None = None, punto_venta: int | None = None, tributos: List[Dict[str, Any]] | None = None, aplicar_desglose_77: bool = False) -> Dict[str, Any]:
+    logger.debug(f"[{invoice_id}] Intentando facturar (Total: {total}, CUIT/DNI: {cliente_data.cuit_o_dni}, Conceptos: {len(conceptos) if conceptos else 0}, Tributos: {len(tributos) if tributos else 0}, Desglose77: {aplicar_desglose_77}, PV: {punto_venta})...")
     # Prechequeo: si no hay credenciales AFIP para el CUIT solicitado, abortar antes de intentar facturación
     from backend.utils.afipTools import _resolve_afip_credentials
     cuit_res, cert_res, key_res, fuente = _resolve_afip_credentials(emisor_cuit)
@@ -164,11 +164,12 @@ def _attempt_generate_invoice(total: float, cliente_data: ReceptorData, invoice_
                 "emisor_cuit": emisor_cuit,
                 "tipo_forzado": tipo_forzado,
                 "conceptos": conceptos,
+                "tributos": tributos,
                 "punto_venta": punto_venta
             }
         }
     try:
-        afip_result = generar_factura_para_venta(total=total, cliente_data=cliente_data, emisor_cuit=emisor_cuit, tipo_forzado=tipo_forzado, conceptos=conceptos, punto_venta=punto_venta)
+        afip_result = generar_factura_para_venta(total=total, cliente_data=cliente_data, emisor_cuit=emisor_cuit, tipo_forzado=tipo_forzado, conceptos=conceptos, punto_venta=punto_venta, tributos=tributos, aplicar_desglose_77=aplicar_desglose_77)
         logger.info(f"[{invoice_id}] Factura generada exitosamente. CAE: {afip_result.get('cae')}")
         return afip_result
     except Exception as e:
@@ -227,7 +228,9 @@ def _process_single_invoice_full_cycle(
     emisor_cuit = original_invoice_data.get('emisor_cuit') or original_invoice_data.get('cuit_empresa')
     tipo_forzado = original_invoice_data.get('tipo_forzado')
     conceptos = original_invoice_data.get('conceptos')
+    tributos = original_invoice_data.get('tributos')
     punto_venta = original_invoice_data.get('punto_venta')
+    aplicar_desglose_77 = original_invoice_data.get('aplicar_desglose_77', False)
     
     # Check existing (idempotency)
     try:
@@ -261,7 +264,9 @@ def _process_single_invoice_full_cycle(
             emisor_cuit=emisor_cuit,
             tipo_forzado=tipo_forzado,
             conceptos=conceptos,
-            punto_venta=punto_venta
+            punto_venta=punto_venta,
+            tributos=tributos,
+            aplicar_desglose_77=aplicar_desglose_77
         )
         
         if not afip_data or afip_data.get("status") == "FAILED":

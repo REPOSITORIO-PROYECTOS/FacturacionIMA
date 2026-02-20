@@ -326,6 +326,72 @@ class TipoDocumento(Enum):
     CONSUMIDOR_FINAL = 99
 
 
+def _validar_y_procesar_tributos(
+    tributos: list[Dict[str, Any]] | None,
+    neto: float,
+    iva: float,
+) -> tuple[list[Dict[str, Any]], float]:
+    """
+    Valida y procesa el array de tributos.
+    Retorna: (tributos_procesados, imp_trib_total)
+    
+    Validación:
+    - Cada tributo debe tener: id (int), base_imponible (float >= 0), alicuota (float), importe (float)
+    - Si id=99, descripcion es OBLIGATORIA
+    - Valida que importe = base_imponible * alicuota / 100
+    - Retorna la suma total de importes (imp_trib)
+    """
+    if not tributos:
+        return [], 0.0
+    
+    tributos_procesados = []
+    imp_trib_total = 0.0
+    
+    for i, tributo in enumerate(tributos):
+        if not isinstance(tributo, dict):
+            raise ValueError(f"Tributo {i} no es un diccionario válido")
+        
+        # Validar campos requeridos
+        try:
+            trib_id = int(tributo.get('id', 0))
+            base_imponible = float(tributo.get('base_imponible', 0))
+            alicuota = float(tributo.get('alicuota', 0))
+            importe = float(tributo.get('importe', 0))
+        except (ValueError, TypeError) as e:
+            raise ValueError(f"Tributo {i}: campos numéricos inválidos - {e}")
+        
+        # Validación: base_imponible >= 0
+        if base_imponible < 0:
+            raise ValueError(f"Tributo {i}: base_imponible debe ser >= 0")
+        
+        # Si id=99 (Otros Tributos), descripcion es OBLIGATORIA
+        if trib_id == 99:
+            descripcion = tributo.get('descripcion', '').strip()
+            if not descripcion:
+                raise ValueError(f"Tributo {i}: description es OBLIGATORIA para id=99 (Otros Tributos)")
+        
+        # Validar que importe ≈ base_imponible * alicuota / 100
+        # Error tolerable: 0.01
+        importe_calculado = round(base_imponible * alicuota / 100, 2)
+        diferencia = abs(importe - importe_calculado)
+        if diferencia > 0.01:
+            raise ValueError(
+                f"Tributo {i}: importe ({importe}) no coincide con "
+                f"base_imponible ({base_imponible}) * alicuota ({alicuota}) / 100 = {importe_calculado}. "
+                f"Diferencia: {diferencia} (máximo tolerable: 0.01)"
+            )
+        
+        # Usar el importe calculado para garantizar precisión
+        importe_normalizado = importe_calculado
+        tributo['importe'] = importe_normalizado
+        tributos_procesados.append(tributo)
+        imp_trib_total += importe_normalizado
+    
+    # Redondear total de tributos
+    imp_trib_total = round(imp_trib_total, 2)
+    return tributos_procesados, imp_trib_total
+
+
 def determinar_datos_factura_segun_iva(
     condicion_emisor: CondicionIVA,
     condicion_receptor: CondicionIVA,
@@ -354,6 +420,8 @@ def generar_factura_para_venta(
     tipo_forzado: int | None = None,
     conceptos: list[Dict[str, Any]] | None = None,
     punto_venta: int | None = None,
+    tributos: list[Dict[str, Any]] | None = None,
+    aplicar_desglose_77: bool = False,
 ) -> Dict[str, Any]:
     
     print(f"Iniciando proceso de facturación (emisor solicitado: {emisor_cuit}) | AFIP_ENABLE_ENV_CREDS={AFIP_ENABLE_ENV_CREDS}")
@@ -516,6 +584,67 @@ def generar_factura_para_venta(
         print(f"Override manual: usando tipo_afip={tipo_forzado_int} en lugar de lógica automática")
     print(f"Lógica determinada (final): {logica_factura}")
 
+    # ===== MANEJO DEL DESGLOSE ESPECIAL 77% =====
+    # Si se habilita desglose 77%, el total proporcionado INCLUYE el impuesto interno (77%)
+    # En ese caso, recalculamos neto e iva considerando solo el 23% restante
+    if aplicar_desglose_77:
+        # El total incluye: impuesto_77% + (neto + iva)
+        # Donde (neto + iva) = total * 0.23
+        impuesto_interno = round(total * 0.77, 2)  # El 77% (impuesto interno)
+        monto_facturable = round(total - impuesto_interno, 2)  # El 23% restante (neto + iva)
+        
+        # Calcular neto e iva del monto facturable
+        neto_ajustado = round(monto_facturable / (1 + TASA_IVA_21), 2)
+        iva_ajustada = round(monto_facturable - neto_ajustado, 2)  # Restar para evitar redondeos acumulativos
+        
+        # Sobrescribir los valores calculados
+        logica_factura["neto"] = neto_ajustado
+        logica_factura["iva"] = iva_ajustada
+        
+        # Crear tributo automático para el impuesto interno
+        if not tributos:
+            tributos = []
+        tributos.append({
+            "id": 99,
+            "descripcion": "Impuesto Interno",
+            "base_imponible": total,  # Base es el total (más simple)
+            "alicuota": 77.0,  # Alícuota es 77%
+            "importe": impuesto_interno
+        })
+        
+        print(f"[DESGLOSE 77%] Total: ${total} | Impuesto Interno 77%: ${impuesto_interno} | Neto+IVA: ${monto_facturable}")
+        print(f"[DESGLOSE 77%] Neto: ${neto_ajustado} | IVA: ${iva_ajustada} | Tributo: ${impuesto_interno}")
+
+    # ===== PROCESAMIENTO Y VALIDACIÓN DE TRIBUTOS =====
+    tributos_procesados = []
+    imp_trib = 0.0
+    
+    if tributos:
+        try:
+            tributos_procesados, imp_trib = _validar_y_procesar_tributos(
+                tributos,
+                logica_factura["neto"],
+                logica_factura["iva"]
+            )
+            print(f"[TRIBUTOS] Procesados {len(tributos_procesados)} tributo(s). Suma total: ${imp_trib}")
+        except ValueError as e:
+            raise ValueError(f"Error en validación de tributos: {e}")
+    
+    # ===== VALIDACIÓN DEL TOTAL CON TRIBUTOS =====
+    total_calculado = round(logica_factura["neto"] + logica_factura["iva"] + imp_trib, 2)
+    diferencia_total = abs(total - total_calculado)
+    # Error tolerable: 0.01 por tributo (si hay 0 tributos, tolerancia es 0.01)
+    tolerancia_maxima = max(0.01, 0.01 * len(tributos_procesados)) if tributos_procesados else 0.01
+    
+    if diferencia_total > tolerancia_maxima:
+        raise ValueError(
+            f"Total proporcionado (${total}) no coincide con el cálculo ("
+            f"neto: ${logica_factura['neto']} + iva: ${logica_factura['iva']} + tributos: ${imp_trib} = ${total_calculado}). "
+            f"Diferencia: ${diferencia_total} (máximo tolerable: ${tolerancia_maxima})"
+        )
+    
+    print(f"[VALIDACIÓN TOTAL] Total: ${total} coincide con cálculo: ${total_calculado} (diferencia: ${diferencia_total})")
+
     datos_factura = {
         "tipo_afip": logica_factura["tipo_afip"],
         "punto_venta": final_punto_venta,
@@ -526,6 +655,12 @@ def generar_factura_para_venta(
         "neto": logica_factura["neto"],
         "iva": logica_factura["iva"],
     }
+    
+    # Agregar tributos si existen
+    if tributos_procesados:
+        datos_factura["tributos"] = tributos_procesados
+        datos_factura["imp_trib"] = imp_trib
+        print(f"Agregando {len(tributos_procesados)} tributo(s) a la factura (total: ${imp_trib})")
     
     # Agregar conceptos si están disponibles
     if conceptos and isinstance(conceptos, list) and len(conceptos) > 0:
@@ -642,7 +777,10 @@ def generar_factura_para_venta(
                 "total": total,
                 "neto": datos_factura.get("neto"),
                 "iva": datos_factura.get("iva"),
-                "id_condicion_iva": datos_factura.get("id_condicion_iva")
+                "id_condicion_iva": datos_factura.get("id_condicion_iva"),
+                # NUEVO: Incluir tributos y flags para guardar/mostrar
+                "tributos": tributos_procesados if tributos_procesados else [],
+                "aplicar_desglose_77": aplicar_desglose_77
             }
             
             return datos_completos

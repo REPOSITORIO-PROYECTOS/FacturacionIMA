@@ -24,6 +24,13 @@ class ClienteDataPayload(BaseModel):
     domicilio: Optional[str] = Field(None, description="Domicilio del receptor.")
     condicion_iva: str = Field(..., description="Condición de IVA del receptor (ej. 'CONSUMIDOR_FINAL', 'RESPONSABLE_INSCRIPTO').")
 
+class TributoPayload(BaseModel):
+    id: int = Field(..., description="Código del tributo según AFIP (ej: 99 para 'Otros Tributos')")
+    descripcion: Optional[str] = Field(None, description="Descripción del tributo (OBLIGATORIA si id=99)")
+    base_imponible: float = Field(..., ge=0, description="Base sobre la cual se calcula el tributo")
+    alicuota: float = Field(..., description="Porcentaje del tributo (ej: 5.0 para 5%)")
+    importe: float = Field(..., ge=0, description="Monto total del tributo (base_imponible × alicuota / 100)")
+
 class ConceptoPayload(BaseModel):
     descripcion: str = Field(..., description="Descripción del producto/servicio.")
     cantidad: float = Field(..., gt=0, description="Cantidad de unidades.")
@@ -36,6 +43,7 @@ class InvoiceItemPayload(BaseModel):
     total: float = Field(..., gt=0, description="Monto total de la factura.")
     cliente_data: ClienteDataPayload = Field(..., description="Datos del cliente receptor.")
     conceptos: Optional[List[ConceptoPayload]] = Field(None, description="Lista de conceptos/productos de la factura.")
+    tributos: Optional[List[TributoPayload]] = Field(None, description="Lista de tributos adicionales (ej: Impuesto Interno, Percepciones, etc.)")
     emisor_cuit: Optional[str] = Field(None, description="CUIT del emisor a usar (override/selección).")
     punto_venta: Optional[int] = Field(None, description="Punto de venta a usar (override).")
     tipo_forzado: Optional[int] = Field(None, description="Override de tipo comprobante: 1=A, 6=B, 11=C")
@@ -116,6 +124,8 @@ async def create_batch_invoices(
         }
         if invoice_item.conceptos:
             item_dict["conceptos"] = [c.model_dump() for c in invoice_item.conceptos]
+        if invoice_item.tributos:
+            item_dict["tributos"] = [t.model_dump() for t in invoice_item.tributos]
         if invoice_item.detalle_empresa:
             item_dict["detalle_empresa"] = invoice_item.detalle_empresa
         
