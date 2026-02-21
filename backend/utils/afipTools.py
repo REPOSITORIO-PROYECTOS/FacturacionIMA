@@ -592,10 +592,15 @@ def generar_factura_para_venta(
         # Donde (neto + iva) = total * 0.23
         impuesto_interno = round(total * 0.77, 2)  # El 77% (impuesto interno)
         monto_facturable = round(total - impuesto_interno, 2)  # El 23% restante (neto + iva)
-        
+
         # Calcular neto e iva del monto facturable
         neto_ajustado = round(monto_facturable / (1 + TASA_IVA_21), 2)
         iva_ajustada = round(monto_facturable - neto_ajustado, 2)  # Restar para evitar redondeos acumulativos
+
+        # Ajuste fino por redondeo: forzar total = neto + iva + imp_trib
+        diferencia_total = round(total - (neto_ajustado + iva_ajustada + impuesto_interno), 2)
+        if abs(diferencia_total) > 0:
+            iva_ajustada = round(iva_ajustada + diferencia_total, 2)
         
         # Sobrescribir los valores calculados
         logica_factura["neto"] = neto_ajustado
