@@ -232,6 +232,17 @@ def _process_single_invoice_full_cycle(
     punto_venta = original_invoice_data.get('punto_venta')
     aplicar_desglose_77 = original_invoice_data.get('aplicar_desglose_77', False)
     
+    # Si no viene aplicar_desglose_77 en el payload, consultar la configuración de la empresa
+    if not aplicar_desglose_77 and emisor_cuit:
+        try:
+            clean_cuit = ''.join(filter(str.isdigit, str(emisor_cuit)))
+            config_empresa = db.exec(select(ConfiguracionEmpresa).where(ConfiguracionEmpresa.cuit == clean_cuit)).first()
+            if config_empresa and config_empresa.aplicar_desglose_77:
+                aplicar_desglose_77 = True
+                logger.info(f"[{invoice_id}] Usando aplicar_desglose_77=True de configuración empresa CUIT {clean_cuit}")
+        except Exception as e:
+            logger.warning(f"[{invoice_id}] No se pudo consultar configuración empresa: {e}")
+    
     # Check existing (idempotency)
     try:
         from sqlmodel import select as _select
