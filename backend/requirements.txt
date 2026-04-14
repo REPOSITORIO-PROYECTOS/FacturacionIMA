@@ -59,7 +59,7 @@ webencodings==0.5.1
 zopfli==0.2.3.post1
 tenacity==9.1.2
 thefuzz==0.22.1
-python-levenshtein==0.25.1
+Levenshtein==0.27.3
 qrcode[pil]==7.4.2
 reportlab==4.2.5
 pytest==8.3.3

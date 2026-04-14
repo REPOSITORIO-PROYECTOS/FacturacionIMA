@@ -80,6 +80,33 @@ if setup:
 # usuarios.router para gestión de usuarios
 app.include_router(usuarios.router)
 
+# Ruta que solo existía en Next (proxy); si nginx envía /api/* al backend, debe existir aquí.
+app.add_api_route(
+    "/api/facturar-batch",
+    facturador.create_batch_invoices,
+    methods=["POST"],
+    name="facturar_batch_next_proxy_compat",
+)
+
+# Si el proxy reenvía URLs públicas con prefijo /api pero API_PREFIX no está definido,
+# las rutas quedarían solo en /ventas, /facturador, etc. y /api/... devolvería 404.
+_PUBLIC_API = "/api"
+if not API_PREFIX:
+    logger.warning(
+        "API_PREFIX vacío: montando alias /api/* para ventas, facturador, sheets, "
+        "comprobantes, boletas, impresión y auth (mismo patrón que en raíz)."
+    )
+    if ventas_detalle:
+        app.include_router(ventas_detalle.router, prefix=_PUBLIC_API)
+    app.include_router(facturador.router, prefix=_PUBLIC_API)
+    if sheets_boletas:
+        app.include_router(sheets_boletas.router, prefix=_PUBLIC_API)
+    if comprobantes:
+        app.include_router(comprobantes.router, prefix=_PUBLIC_API)
+    app.include_router(boletas.router, prefix=_PUBLIC_API)
+    app.include_router(impresion.router, prefix=_PUBLIC_API)
+    app.include_router(auth_router.router, prefix=_PUBLIC_API)
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,

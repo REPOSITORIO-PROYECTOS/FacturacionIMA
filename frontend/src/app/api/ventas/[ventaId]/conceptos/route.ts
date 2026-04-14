@@ -13,24 +13,37 @@ export async function GET(
         return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
     }
 
-    const bases = [
-        process.env.BACKEND_INTERNAL_URL || 'http://127.0.0.1:8008',
-        process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8008',
-    ];
+    const internal = process.env.BACKEND_INTERNAL_URL?.trim();
+    const publicBase = process.env.NEXT_PUBLIC_BACKEND_URL?.trim();
+    const fallbackLocal = 'http://127.0.0.1:8008';
+    const bases = [internal, publicBase, fallbackLocal].filter(Boolean) as string[];
+    const uniqBases: string[] = [];
+    for (const b of bases) {
+        const clean = b.replace(/\/$/, '');
+        if (!uniqBases.includes(clean)) uniqBases.push(clean);
+    }
 
-    for (const base of bases) {
-        try {
-            const url = `${base.replace(/\/$/, '')}/ventas/${ventaId}/conceptos`;
-            const res = await fetch(url, {
-                headers: { Authorization: token },
-            });
+    for (const base of uniqBases) {
+        const candidates = [
+            `${base}/ventas/${ventaId}/conceptos`,
+            `${base}/api/ventas/${ventaId}/conceptos`,
+        ];
+        for (const url of candidates) {
+            try {
+                const res = await fetch(url, {
+                    headers: { Authorization: token },
+                });
 
-            if (res.ok) {
-                const data = await res.json();
-                return NextResponse.json(data);
+                if (res.ok) {
+                    const data = await res.json();
+                    return NextResponse.json(data);
+                }
+                if (res.status === 404 || res.status === 405) {
+                    continue;
+                }
+            } catch {
+                continue;
             }
-        } catch (e) {
-            continue;
         }
     }
 
