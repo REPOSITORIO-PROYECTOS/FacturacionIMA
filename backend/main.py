@@ -59,6 +59,15 @@ logger.warning(f"DEBUG: Mounting router '{facturador.router.tags}' at '{facturad
 app.include_router(facturador.router)
 if ventas_detalle:  # Condicional: solo montar si el módulo se importó
     _mount(ventas_detalle.router)
+    # Mismo patrón que facturador/comprobantes/sheets: si API_PREFIX=/api, el _mount
+    # solo registra /api/ventas/...; muchos nginx hacen proxy_pass .../ y reenvían
+    # /api/ventas/... como /ventas/... — sin este include, esas peticiones dan 404.
+    if API_PREFIX:
+        logger.warning(
+            f"DEBUG: Mounting router '{ventas_detalle.router.tags}' at "
+            f"'{ventas_detalle.router.prefix}' (Fallback root, p. ej. proxy que quita {API_PREFIX})"
+        )
+        app.include_router(ventas_detalle.router)
 if comprobantes:  # Condicional: solo montar si el módulo se importó
     _mount(comprobantes.router)
     # FIX: Fallback root mount for comprobantes
@@ -71,8 +80,12 @@ if sheets_boletas:  # Nuevo: endpoint para Google Sheets
     app.include_router(sheets_boletas.router)
 # tablas.router no existe, se comenta para evitar error
 # app.include_router(tablas.router)
-# afip.router already uses prefix '/api' internally; include it directly
+# AFIP: mismo patrón que facturador/ventas — público /api/afip/* y alias /afip/* si el proxy quita /api
 if afip:
+    app.include_router(afip.router, prefix="/api")
+    logger.warning(
+        "DEBUG: Mounting AFIP at '/api/afip/*' and fallback '/afip/*' (proxy sin prefijo /api)"
+    )
     app.include_router(afip.router)
 # setup.router for temporal user creation
 if setup:
@@ -80,12 +93,18 @@ if setup:
 # usuarios.router para gestión de usuarios
 app.include_router(usuarios.router)
 
-# Ruta que solo existía en Next (proxy); si nginx envía /api/* al backend, debe existir aquí.
+# Compatibilidad Next / nginx: URL pública con /api y, si el proxy quita el prefijo, en raíz.
 app.add_api_route(
     "/api/facturar-batch",
     facturador.create_batch_invoices,
     methods=["POST"],
     name="facturar_batch_next_proxy_compat",
+)
+app.add_api_route(
+    "/facturar-batch",
+    facturador.create_batch_invoices,
+    methods=["POST"],
+    name="facturar_batch_stripped_api_prefix",
 )
 
 # Si el proxy reenvía URLs públicas con prefijo /api pero API_PREFIX no está definido,

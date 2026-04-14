@@ -314,6 +314,8 @@ backend/boveda_afip_temporal/
 credencial_IA.json
 backend/credencial_IA.json
 frontend/credencial_IA.json
+facturacion-493302-7c55eb5d5073.json
+backend/facturacion-493302-7c55eb5d5073.json
 
 # Logs del sistema (PUEDEN CONTENER DATOS SENSIBLES)
 facturacion_automatica.log

@@ -186,13 +186,24 @@ def _sync_sheets_to_db(full_sync: bool = False, id_empresa: int = 1, google_shee
             # y procesar solo lo necesario.
             boletas = sheets_handler.cargar_ingresos() or []
         except Exception as e:
-            if "429" in str(e) or "Quota exceeded" in str(e):
-                logger.warning(f"⚠️ Google API Quota Exceeded (429). Saltando.")
+            es_cuota = (
+                "429" in str(e)
+                or "quota" in str(e).lower()
+                or "rate limit" in str(e).lower()
+                or "resource exhausted" in str(e).lower()
+            )
+            if es_cuota:
+                logger.warning(
+                    "⚠️ DB-Sync omitido: Google Sheets devolvió límite de lecturas (429/cuota). "
+                    "Se mantiene la copia en BD; reintentar en unos minutos o ampliar cuota en Google Cloud."
+                )
                 return
             raise e
 
         if not boletas:
-            logger.warning("⚠️ DB-Sync: Lista vacía desde Sheets. No se actualiza DB.")
+            logger.warning(
+                "⚠️ DB-Sync: INGRESOS devolvió 0 filas (hoja vacía o sin datos útiles). No se actualiza DB."
+            )
             return
 
         db = SessionLocal()

@@ -9,12 +9,35 @@ export interface ClienteDataPayload {
   condicion_iva: string; // Ej: CONSUMIDOR_FINAL, RESPONSABLE_INSCRIPTO, MONOTRIBUTO
 }
 
+export interface ConceptoPayload {
+  descripcion: string;
+  cantidad: number;
+  precio_unitario: number;
+  subtotal?: number | null;
+  tasa_iva?: number | null;
+}
+
+export interface TributoPayload {
+  id: number;
+  descripcion?: string | null;
+  base_imponible: number;
+  alicuota: number;
+  importe: number;
+}
+
+/** Alineado con backend/app/blueprints/facturador.py InvoiceItemPayload */
 export interface InvoiceItemPayload {
-  id?: string;                  // Identificador interno de la boleta / ingreso
-  total: number;                // Monto total > 0
-  cliente_data: ClienteDataPayload; // Datos del receptor
-  emisor_cuit?: string;         // Override opcional del CUIT emisor
-  tipo_forzado?: number;        // 1=A, 6=B, 11=C (override tipo comprobante)
+  id?: string;
+  total: number;
+  cliente_data: ClienteDataPayload;
+  conceptos?: ConceptoPayload[] | null;
+  tributos?: TributoPayload[] | null;
+  emisor_cuit?: string;
+  punto_venta?: number | null;
+  tipo_forzado?: number | null;
+  detalle_empresa?: string | null;
+  /** Si es true, fuerza desglose 77%+IVA en AFIP/PDF. Si false/omitido, el backend puede activarlo según admin empresa. */
+  aplicar_desglose_77?: boolean | null;
 }
 
 // Petición: lista de invoices

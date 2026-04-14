@@ -11,7 +11,9 @@ module.exports = {
                 PYTHONPATH: __dirname,
                 BACKEND_PORT: process.env.BACKEND_PORT || '8012',
                 STRICT_AFIP_CREDENTIALS: '0',  // Temporalmente deshabilitado para usar bóveda
-                INTERNAL_API_KEY: 'D5AW6D1W6A1D6W1D65A1W8D4A6D48WA8F4W86A'
+                INTERNAL_API_KEY: 'D5AW6D1W6A1D6W1D65A1W8D4A6D48WA8F4W86A',
+                // Cuenta de servicio Google Sheets (en backend/); prioridad sobre .env si load_dotenv no pisa variables ya definidas
+                GOOGLE_SERVICE_ACCOUNT_FILE: 'facturacion-493302-7c55eb5d5073.json'
             }
         },
         {

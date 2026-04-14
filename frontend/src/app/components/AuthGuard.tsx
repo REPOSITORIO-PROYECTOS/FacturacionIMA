@@ -9,6 +9,7 @@ interface UserInfo {
     empresa_nombre?: string;
     empresa_cuit?: string | number;
     empresa_id?: string | number;
+    aplicar_desglose_77?: boolean;
 }
 
 export default function AuthGuard({ children }: { children: React.ReactNode }) {
@@ -49,6 +50,7 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
                                 if (meData.empresa_nombre || meData.empresa) baseInfo.empresa_nombre = meData.empresa_nombre || meData.empresa;
                                 if (meData.empresa_cuit) baseInfo.empresa_cuit = meData.empresa_cuit;
                                 if (meData.empresa_id) baseInfo.empresa_id = meData.empresa_id;
+                                if (typeof meData.aplicar_desglose_77 === "boolean") baseInfo.aplicar_desglose_77 = meData.aplicar_desglose_77;
                                 localStorage.setItem('user_info', JSON.stringify(baseInfo));
                                 try { window.dispatchEvent(new Event('user_info_changed')); } catch { }
                             }

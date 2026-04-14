@@ -6,7 +6,7 @@ from pydantic import BaseModel
 import logging
 
 from backend.database import get_db
-from backend.modelos import Usuario, Rol, Empresa
+from backend.modelos import Usuario, Rol, Empresa, ConfiguracionEmpresa
 from backend import config
 from backend.security import (
     crear_access_token,
@@ -26,6 +26,7 @@ class UserMeResponse(BaseModel):
     empresa_cuit: str | None = None
     empresa_nombre: str | None = None
     activo: bool
+    aplicar_desglose_77: bool = False
 
 
 
@@ -111,6 +112,13 @@ def obtener_usuario_me(user: Usuario = Depends(obtener_usuario_actual), db: Sess
         empresa = db.exec(select(Empresa).where(Empresa.id == user.id_empresa)).first()
     # Cargar rol
     rol = db.exec(select(Rol).where(Rol.id == user.id_rol)).first() if user.id_rol else None
+    desglose_77 = False
+    if user.id_empresa:
+        cfg = db.exec(
+            select(ConfiguracionEmpresa).where(ConfiguracionEmpresa.id_empresa == user.id_empresa)
+        ).first()
+        if cfg:
+            desglose_77 = bool(cfg.aplicar_desglose_77)
     return UserMeResponse(
         id=user.id,
         username=user.nombre_usuario,
@@ -119,6 +127,7 @@ def obtener_usuario_me(user: Usuario = Depends(obtener_usuario_actual), db: Sess
         empresa_cuit=empresa.cuit if empresa else None,
         empresa_nombre=empresa.nombre_legal if empresa else None,
         activo=user.activo,
+        aplicar_desglose_77=desglose_77,
     )
 
 @router.post("/logout")

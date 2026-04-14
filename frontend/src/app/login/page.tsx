@@ -37,6 +37,7 @@ function LoginPageInner() {
     empresa_nombre?: string;
     empresa_cuit?: string | number;
     empresa_id?: string | number;
+    aplicar_desglose_77?: boolean;
   }
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
@@ -88,6 +89,7 @@ function LoginPageInner() {
               if (meData.empresa_nombre || meData.empresa || meData.company_name) baseInfo.empresa_nombre = meData.empresa_nombre || meData.empresa || meData.company_name;
               if (meData.empresa_cuit || meData.cuit_empresa) baseInfo.empresa_cuit = meData.empresa_cuit || meData.cuit_empresa;
               if (meData.empresa_id) baseInfo.empresa_id = meData.empresa_id;
+              if (typeof meData.aplicar_desglose_77 === "boolean") baseInfo.aplicar_desglose_77 = meData.aplicar_desglose_77;
               localStorage.setItem('user_info', JSON.stringify(baseInfo));
               try { window.dispatchEvent(new Event('user_info_changed')); } catch { }
             }

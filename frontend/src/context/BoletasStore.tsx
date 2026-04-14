@@ -272,9 +272,9 @@ export function BoletasProvider({ children }: { children: ReactNode }) {
         const hasData = boletasFacturadas.length > 0 || boletasNoFacturadas.length > 0;
 
         if (filters.fechaDesde || filters.fechaHasta) {
-            console.log(
-                `[BoletasStore] useEffect filters (CAMBIO DETECTADO): desde=${filters.fechaDesde}, hasta=${filters.fechaHasta}`
-            );
+            const d = filters.fechaDesde ?? '';
+            const h = filters.fechaHasta ?? '';
+            console.log(`[BoletasStore] useEffect filters (CAMBIO DETECTADO): desde=${d || '(vacío)'}, hasta=${h || '(vacío)'}`);
         }
 
         fetchAll(filters, hasData);

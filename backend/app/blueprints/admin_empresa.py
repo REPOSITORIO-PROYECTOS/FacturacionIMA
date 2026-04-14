@@ -112,14 +112,28 @@ def listar_empresas(
         response_data = []
         for empresa in empresas:
             config = db.exec(select(ConfiguracionEmpresa).where(ConfiguracionEmpresa.id_empresa == empresa.id)).first()
-            credencial = db.exec(select(AfipCredencial).where(AfipCredencial.cuit == empresa.cuit)).first()
-            
+            cuit_norm = "".join(c for c in str(empresa.cuit) if c.isdigit())[:11] or str(empresa.cuit).strip()
+            credencial = db.exec(select(AfipCredencial).where(AfipCredencial.cuit == cuit_norm)).first()
+            if not credencial:
+                credencial = db.exec(select(AfipCredencial).where(AfipCredencial.cuit == empresa.cuit)).first()
+            if not credencial:
+                credencial = db.exec(select(AfipCredencial).where(AfipCredencial.cuit == str(empresa.id))).first()
+            pem_tabla = bool(
+                credencial
+                and (credencial.certificado_pem or "").strip()
+                and (credencial.clave_privada_pem or "").strip()
+            )
+            pem_config = bool(
+                config
+                and (config.afip_certificado_encrypted or "").strip()
+                and (config.afip_clave_privada_encrypted or "").strip()
+            )
             info = EmpresaAdminInfo(
                 id=empresa.id,
                 nombre_legal=empresa.nombre_legal,
                 cuit=empresa.cuit,
                 activa=empresa.activa,
-                afip_configurada=bool(credencial and credencial.certificado_pem and credencial.clave_privada_pem),
+                afip_configurada=pem_tabla or pem_config,
                 condicion_iva=config.afip_condicion_iva if config else None,
                 punto_venta=config.afip_punto_venta_predeterminado if config else None
             )
@@ -241,16 +255,36 @@ def subir_certificado_afip(
     if not es_admin(usuario_actual) and empresa_id != usuario_actual.id_empresa:
         raise HTTPException(status_code=403, detail="No tienes permisos para subir certificados a esta empresa")
 
-    # Aquí deberías encriptar y guardar los archivos
     cert_pem = certificado.file.read().decode()
     key_pem = clave.file.read().decode()
-    cred = db.exec(select(AfipCredencial).where(AfipCredencial.cuit == str(empresa_id))).first()
+
+    empresa = db.get(Empresa, empresa_id)
+    if not empresa:
+        raise HTTPException(status_code=404, detail="Empresa no encontrada")
+    # CUIT normalizado (11 dígitos); nunca usar id numérico de empresa como "cuit" (bug histórico).
+    cuit_emisor = "".join(c for c in str(empresa.cuit) if c.isdigit())[:11] or str(empresa.cuit).strip()
+
+    cred = db.exec(select(AfipCredencial).where(AfipCredencial.cuit == cuit_emisor)).first()
+    # Registros viejos guardados con cuit = str(id_empresa)
     if not cred:
-        cred = AfipCredencial(cuit=str(empresa_id), certificado_pem=cert_pem, clave_privada_pem=key_pem)
+        legacy = db.exec(select(AfipCredencial).where(AfipCredencial.cuit == str(empresa_id))).first()
+        if legacy:
+            legacy.cuit = cuit_emisor
+            cred = legacy
+    if not cred:
+        cred = AfipCredencial(cuit=cuit_emisor, certificado_pem=cert_pem, clave_privada_pem=key_pem, activo=True)
         db.add(cred)
     else:
         cred.certificado_pem = cert_pem
         cred.clave_privada_pem = key_pem
+        cred.activo = True
+
+    conf = db.exec(select(ConfiguracionEmpresa).where(ConfiguracionEmpresa.id_empresa == empresa_id)).first()
+    if conf:
+        conf.afip_certificado_encrypted = cert_pem
+        conf.afip_clave_privada_encrypted = key_pem
+        conf.cuit = cuit_emisor
+
     db.commit()
     return {"ok": True}
 

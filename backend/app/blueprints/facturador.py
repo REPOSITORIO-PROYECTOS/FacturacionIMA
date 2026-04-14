@@ -7,6 +7,7 @@ from backend.utils.billige_manage import process_invoice_batch_for_endpoint
 from backend.database import SessionLocal, get_db
 from backend.modelos import FacturaElectronica, Usuario, Empresa
 from backend.security import obtener_usuario_actual
+from backend.utils.afipTools import _cuit_solo_digitos
 from sqlmodel import select
 from datetime import date
 import secrets
@@ -96,7 +97,8 @@ async def create_batch_invoices(
         # VALIDACIÓN DE SEGURIDAD (Solo si no es SuperAdmin API):
         if not es_super_admin_api:
             # Si intenta usar un CUIT emisor diferente al de su empresa, bloquear.
-            if invoice_item.emisor_cuit and str(invoice_item.emisor_cuit).strip() != empresa_cuit:
+            emisor_req = str(invoice_item.emisor_cuit).strip() if invoice_item.emisor_cuit else ""
+            if emisor_req and _cuit_solo_digitos(emisor_req)[:11] != _cuit_solo_digitos(empresa_cuit)[:11]:
                  logger.warning(f"Usuario {usuario_actual.nombre_usuario} intentó facturar con CUIT ajeno: {invoice_item.emisor_cuit} (Esperado: {empresa_cuit})")
                  raise HTTPException(
                      status_code=status.HTTP_403_FORBIDDEN,
@@ -138,6 +140,15 @@ async def create_batch_invoices(
 
         if invoice_item.aplicar_desglose_77:
              item_dict["aplicar_desglose_77"] = invoice_item.aplicar_desglose_77
+
+        logger.info(
+            "Batch ítem recibido: id=%r total=%s emisor_resuelto=%r aplicar_desglose_77_en_json=%s "
+            "(si es false y la empresa lo tiene en BD, el backend activará desglose 77 igual)",
+            invoice_item.id,
+            invoice_item.total,
+            cuit_a_usar,
+            invoice_item.aplicar_desglose_77,
+        )
 
         invoices_for_processing.append(item_dict)
 

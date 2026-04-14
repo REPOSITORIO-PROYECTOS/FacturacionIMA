@@ -21,8 +21,8 @@ try:
     from .tablasHandler import TablasHandler
     # --- NUEVO: Importaciones para la Base de Datos ---
     from backend.database import SessionLocal  # Asume que tienes un `database.py` que crea la sesión
-    from backend.modelos import FacturaElectronica, IngresoSheets, ConfiguracionEmpresa
-    from sqlmodel import select
+    from backend.modelos import FacturaElectronica, IngresoSheets, ConfiguracionEmpresa, Empresa
+    from sqlmodel import select, or_
 except ImportError as e:
     # Algunos módulos son opcionales en entornos de demo; registrar y seguir adelante
     logging.critical(f"No se pudieron importar algunos módulos opcionales: {e} — continuando en modo degradado.")
@@ -136,6 +136,36 @@ def generar_qr_afip(afip_data: Dict[str, Any]) -> tuple[str | None, str | None]:
         return None, None
 # ==============================================================================
 
+
+def _resolver_empresa_por_emisor_cuit(db, emisor_cuit: str | None):
+    """
+    Fila `Empresa` cuyo CUIT coincide con el emisor (guiones vs solo dígitos en BD).
+    Usado para `aplicar_desglose_77` y `link_google_sheets` vía `id_empresa`.
+    """
+    if db is None or not emisor_cuit:
+        return None
+    try:
+        from backend.utils.afipTools import _cuit_solo_digitos, _variantes_cuit_busqueda
+
+        variantes = _variantes_cuit_busqueda(emisor_cuit)
+        emp = None
+        if len(variantes) == 1:
+            emp = db.exec(select(Empresa).where(Empresa.cuit == variantes[0])).first()
+        elif variantes:
+            emp = db.exec(select(Empresa).where(or_(*[Empresa.cuit == v for v in variantes]))).first()
+        if emp:
+            return emp
+        needle = _cuit_solo_digitos(emisor_cuit)[:11]
+        if not needle:
+            return None
+        for e in db.exec(select(Empresa)).all():
+            if _cuit_solo_digitos(e.cuit)[:11] == needle:
+                return e
+    except Exception as ex:
+        logger.warning(f"_resolver_empresa_por_emisor_cuit: {ex}")
+    return None
+
+
 @retry(
     stop=stop_after_attempt(5),
     wait=wait_exponential(multiplier=1, min=2, max=20),
@@ -230,18 +260,24 @@ def _process_single_invoice_full_cycle(
     conceptos = original_invoice_data.get('conceptos')
     tributos = original_invoice_data.get('tributos')
     punto_venta = original_invoice_data.get('punto_venta')
-    aplicar_desglose_77 = original_invoice_data.get('aplicar_desglose_77', False)
-    
-    # Si no viene aplicar_desglose_77 en el payload, consultar la configuración de la empresa
+    aplicar_desglose_77 = bool(original_invoice_data.get("aplicar_desglose_77"))
+
+    # Si el cliente no manda el flag, tomar `aplicar_desglose_77` de configuracion_empresa (por id_empresa, no solo por string cuit)
     if not aplicar_desglose_77 and emisor_cuit:
         try:
-            clean_cuit = ''.join(filter(str.isdigit, str(emisor_cuit)))
-            config_empresa = db.exec(select(ConfiguracionEmpresa).where(ConfiguracionEmpresa.cuit == clean_cuit)).first()
-            if config_empresa and config_empresa.aplicar_desglose_77:
-                aplicar_desglose_77 = True
-                logger.info(f"[{invoice_id}] Usando aplicar_desglose_77=True de configuración empresa CUIT {clean_cuit}")
+            empresa_row = _resolver_empresa_por_emisor_cuit(db, str(emisor_cuit))
+            if empresa_row:
+                config_empresa = db.exec(
+                    select(ConfiguracionEmpresa).where(ConfiguracionEmpresa.id_empresa == empresa_row.id)
+                ).first()
+                if config_empresa and config_empresa.aplicar_desglose_77:
+                    aplicar_desglose_77 = True
+                    logger.info(
+                        f"[{invoice_id}] aplicar_desglose_77=True desde BD "
+                        f"(id_empresa={empresa_row.id}, cuit_tabla={empresa_row.cuit!r})"
+                    )
         except Exception as e:
-            logger.warning(f"[{invoice_id}] No se pudo consultar configuración empresa: {e}")
+            logger.warning(f"[{invoice_id}] No se pudo consultar configuración empresa (desglose 77): {e}")
     
     # Check existing (idempotency)
     try:
@@ -515,8 +551,14 @@ async def process_invoice_batch_for_endpoint(
                 logger.info(f"Buscando configuración de Sheets para emisor: {cuit_emisor}")
                 # Usar una sesión efímera para esta consulta
                 with SessionLocal() as db_session:
-                    stmt = select(ConfiguracionEmpresa).where(ConfiguracionEmpresa.cuit == str(cuit_emisor))
-                    config_empresa = db_session.exec(stmt).first()
+                    empresa_row = _resolver_empresa_por_emisor_cuit(db_session, str(cuit_emisor))
+                    config_empresa = None
+                    if empresa_row:
+                        config_empresa = db_session.exec(
+                            select(ConfiguracionEmpresa).where(
+                                ConfiguracionEmpresa.id_empresa == empresa_row.id
+                            )
+                        ).first()
                     if config_empresa and config_empresa.link_google_sheets:
                         target_sheet_id = config_empresa.link_google_sheets
                         logger.info(f"Configuración encontrada. Usando Sheet ID personalizado.")
@@ -530,30 +572,71 @@ async def process_invoice_batch_for_endpoint(
     except Exception as ex_config:
         logger.warning(f"Error al intentar resolver configuración de empresa: {ex_config}")
 
-    # VALIDACIÓN ESTRICTA: Si se detectó un emisor pero no hay Sheet ID, ABORTAR.
-    if cuit_emisor_detected and not target_sheet_id:
-        err_msg = f"ABORTANDO: No hay Google Sheet ID configurado para la empresa {cuit_emisor_detected}. No se puede procesar para evitar escribir en hoja incorrecta."
-        logger.critical(err_msg)
-        # Devolvemos un error estructurado para todo el lote si es posible, o lanzamos excepción.
-        # Al lanzar ValueError, el endpoint (FastAPI) retornará 500 Internal Server Error, lo cual es correcto aquí.
-        raise ValueError(err_msg)
-
+    # Mismo criterio que TablasHandler: si la empresa no tiene link, usar GOOGLE_SHEET_ID del .env.
+    # Antes se abortaba aquí con ValueError → 500 aunque existiera sheet global.
     try:
-        sheets_handler = TablasHandler(google_sheet_id=target_sheet_id)
-        
-        # VALIDACIÓN DE CONEXIÓN (Pedido explícito del usuario)
-        is_conn_ok, conn_msg = sheets_handler.check_connection()
-        if not is_conn_ok:
-            err_msg = f"ABORTANDO: Fallo de conexión/validación con Google Sheet {target_sheet_id}. Detalle: {conn_msg}"
-            logger.critical(err_msg)
-            # Si no se puede conectar al Sheet, NO PROCESAR FACTURAS para evitar inconsistencias.
-            raise ValueError(err_msg)
-            
-        logger.info(f"Handler de Google Sheets inicializado y validado (ID: {'Global' if not target_sheet_id else 'Personalizado ' + target_sheet_id[:5]}). Msg: {conn_msg}")
-    except Exception as e:
-        logger.error(f"Error init/validación Sheets: {e}")
-        # Si la validación falla (ValueError), se propaga para detener el proceso.
-        raise e
+        from backend import config as _imap_cfg
+        if not target_sheet_id and getattr(_imap_cfg, 'GOOGLE_SHEET_ID', None):
+            target_sheet_id = _imap_cfg.GOOGLE_SHEET_ID
+            logger.info("Sin link_google_sheets en empresa; usando GOOGLE_SHEET_ID del proyecto.")
+    except Exception as ex_gid:
+        logger.warning(f"No se pudo leer GOOGLE_SHEET_ID global: {ex_gid}")
+
+    def _sheets_error_es_cuota_o_temporal(msg: str) -> bool:
+        """429 / cuota Google: no debe tumbar toda la facturación (AFIP + DB siguen siendo válidos)."""
+        m = (msg or "").lower()
+        return (
+            "429" in m
+            or "quota" in m
+            or "rate limit" in m
+            or "exceeded" in m
+            or "resource exhausted" in m
+            or "503" in m
+            or "try again" in m
+        )
+
+    sheets_handler = None
+    if target_sheet_id:
+        try:
+            sheets_handler = TablasHandler(google_sheet_id=target_sheet_id)
+            is_conn_ok, conn_msg = sheets_handler.check_connection()
+            if not is_conn_ok:
+                if _sheets_error_es_cuota_o_temporal(conn_msg):
+                    logger.warning(
+                        "Google Sheets no accesible por cuota o error temporal (%s). "
+                        "Se factura y guarda en BD; INGRESOS no se actualizará en esta corrida.",
+                        (conn_msg or "")[:240],
+                    )
+                    sheets_handler = None
+                else:
+                    err_msg = (
+                        f"ABORTANDO: Fallo de conexión/validación con Google Sheet {target_sheet_id}. "
+                        f"Detalle: {conn_msg}"
+                    )
+                    logger.critical(err_msg)
+                    raise ValueError(err_msg)
+            else:
+                sid_preview = (target_sheet_id or "")[:8]
+                logger.info(
+                    f"Handler de Google Sheets inicializado y validado (sheet …{sid_preview}). Msg: {conn_msg}"
+                )
+        except ValueError:
+            raise
+        except Exception as e:
+            if _sheets_error_es_cuota_o_temporal(str(e)):
+                logger.warning(
+                    "Google Sheets (init/check) error temporal/cuota: %s. Continuando sin sync Sheets.",
+                    str(e)[:240],
+                )
+                sheets_handler = None
+            else:
+                logger.error(f"Error init/validación Sheets: {e}")
+                raise
+    elif cuit_emisor_detected:
+        logger.warning(
+            f"Emisor {cuit_emisor_detected} sin Sheet (ni link en BD ni GOOGLE_SHEET_ID). "
+            "Se facturará y persistirá en DB; no se actualizará Google Sheets."
+        )
 
     db = SessionLocal()
     results_for_response: List[Dict[str, Any]] = []

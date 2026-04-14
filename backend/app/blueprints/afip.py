@@ -1,7 +1,7 @@
 from fastapi import APIRouter, HTTPException, Response, Depends
 from pydantic import BaseModel
 from typing import Optional, List
-from sqlmodel import Session, select
+from sqlmodel import Session, select, or_
 from backend.database import get_db
 from backend.modelos import AfipCredencial, AfipEmisorEmpresa, Empresa
 from backend.utils.afip_tools_manager import (
@@ -11,7 +11,9 @@ from backend.utils.afip_tools_manager import (
     procesar_archivo_certificado_completo
 )
 
-router = APIRouter(prefix="/api/afip", tags=["AFIP"])
+# Prefijo interno /afip: en main se monta como /api/afip y también en raíz /afip
+# (nginx que quita /api debe seguir resolviendo las mismas rutas).
+router = APIRouter(prefix="/afip", tags=["AFIP"])
 
 class GenerarCSRRequest(BaseModel):
     cuit_empresa: str
@@ -160,11 +162,32 @@ async def configurar_emisor_endpoint(request: ConfiguracionEmisorRequest, db: Se
         # Obtener configuración mergeada (completa) para persistir en BD
         config_full = resultado.get('configuracion', {})
         
-        # Persistir / actualizar AfipEmisorEmpresa si existe Empresa con ese CUIT
+        # Persistir / actualizar AfipEmisorEmpresa si existe Empresa con ese CUIT (mismo CUIT en cualquier formato guardado)
         try:
-            empresa = db.exec(select(Empresa).where(Empresa.cuit == request.cuit_empresa)).first()
+            from backend.utils.afipTools import _variantes_cuit_busqueda, _cuit_solo_digitos
+
+            variantes = _variantes_cuit_busqueda(request.cuit_empresa)
+            empresa = None
+            if len(variantes) == 1:
+                empresa = db.exec(select(Empresa).where(Empresa.cuit == variantes[0])).first()
+            elif variantes:
+                empresa = db.exec(
+                    select(Empresa).where(or_(*[Empresa.cuit == v for v in variantes]))
+                ).first()
+            if not empresa:
+                needle = _cuit_solo_digitos(request.cuit_empresa)[:11]
+                if needle:
+                    for e in db.exec(select(Empresa)).all():
+                        if _cuit_solo_digitos(e.cuit)[:11] == needle:
+                            empresa = e
+                            break
+
+            cuit_afip_row = _cuit_solo_digitos(empresa.cuit)[:11] if empresa else _cuit_solo_digitos(request.cuit_empresa)[:11]
+
             if empresa:
-                emisor = db.exec(select(AfipEmisorEmpresa).where(AfipEmisorEmpresa.cuit == request.cuit_empresa, AfipEmisorEmpresa.id_empresa == empresa.id)).first()
+                emisor = db.exec(
+                    select(AfipEmisorEmpresa).where(AfipEmisorEmpresa.id_empresa == empresa.id)
+                ).first()
                 
                 # Valores a usar (prioridad: request > config mergeada > default)
                 # Pero como config_full ya tiene el merge, usamos config_full
@@ -182,7 +205,7 @@ async def configurar_emisor_endpoint(request: ConfiguracionEmisorRequest, db: Se
                     else:
                         emisor = AfipEmisorEmpresa(
                             id_empresa=empresa.id,
-                            cuit=request.cuit_empresa,
+                            cuit=cuit_afip_row or (_cuit_solo_digitos(request.cuit_empresa)[:11] or request.cuit_empresa.strip()[:11]),
                             razon_social=razon_social_val,
                             nombre_fantasia=config_full.get('nombre_fantasia'),
                             condicion_iva=config_full.get('condicion_iva'),

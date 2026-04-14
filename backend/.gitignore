@@ -55,6 +55,7 @@ logs/
 
 # Credentials, keys and certs
 credencial_IA.json
+facturacion-493302-7c55eb5d5073.json
 credencial*.json
 *.pem
 *.key

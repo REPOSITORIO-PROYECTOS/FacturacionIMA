@@ -60,6 +60,22 @@ try:
 except Exception:
     afip_tools_manager = None
 
+def _cuit_solo_digitos(s: str | None) -> str:
+    return "".join(ch for ch in str(s or "") if ch.isdigit())
+
+
+def _variantes_cuit_busqueda(emisor_cuit: str | None) -> list[str]:
+    """CUIT puede venir con guiones o solo dígitos; la BD a veces guarda un formato distinto."""
+    raw = str(emisor_cuit or "").strip()
+    digitos = _cuit_solo_digitos(raw)
+    d11 = digitos[:11] if len(digitos) >= 11 else digitos
+    out: list[str] = []
+    for v in (raw, digitos, d11):
+        if v and v not in out:
+            out.append(v)
+    return out
+
+
 def _resolve_afip_credentials(emisor_cuit: str | None = None):
     """Devuelve (cuit, certificado_pem, clave_privada_pem, fuente)
     Fuente: 'boveda', 'env', 'none'. Prioridad:
@@ -71,31 +87,77 @@ def _resolve_afip_credentials(emisor_cuit: str | None = None):
     """
     try:
         # 1) Base de datos (prioridad absoluta si hay credenciales activas)
-        from sqlmodel import select as _select
+        from sqlmodel import select as _select, or_
         from backend.database import SessionLocal as _SessionLocal
         from backend.modelos import AfipCredencial as _AfipCredencial
         from backend.modelos import ConfiguracionEmpresa as _ConfiguracionEmpresa
-        
+        from backend.modelos import Empresa as _Empresa
+
+        def _tiene_pem(cert: str | None, key: str | None) -> bool:
+            c, k = (cert or "").strip(), (key or "").strip()
+            return bool(c and k and "BEGIN" in c and "BEGIN" in k)
+
         with _SessionLocal() as _db:
             if emisor_cuit:
-                cuit_limpio = str(emisor_cuit).strip()
-                # 1.a) Buscar en AfipCredencial (tabla dedicada)
-                row = _db.exec(_select(_AfipCredencial).where(_AfipCredencial.cuit == cuit_limpio, _AfipCredencial.activo == True)).first()
-                if row and row.certificado_pem and row.clave_privada_pem:
-                    return row.cuit, row.certificado_pem, row.clave_privada_pem, 'db_afip_credencial'
-                
-                # 1.b) Buscar en ConfiguracionEmpresa (tabla de configuración por empresa)
-                # Nota: Los campos se llaman 'encrypted' pero en esta versión pueden contener el PEM directo si no se activó encriptación.
-                # Se asume que si empiezan con "-----BEGIN" son PEM planos.
-                conf = _db.exec(_select(_ConfiguracionEmpresa).where(_ConfiguracionEmpresa.cuit == cuit_limpio)).first()
-                if conf and conf.afip_certificado_encrypted and conf.afip_clave_privada_encrypted:
-                     return conf.cuit, conf.afip_certificado_encrypted, conf.afip_clave_privada_encrypted, 'db_config_empresa'
+                variantes = _variantes_cuit_busqueda(emisor_cuit)
+                # 1.a) AfipCredencial por cualquier variante de CUIT
+                row = None
+                for v in variantes:
+                    row = _db.exec(
+                        _select(_AfipCredencial).where(
+                            _AfipCredencial.cuit == v,
+                            _AfipCredencial.activo == True,
+                        )
+                    ).first()
+                    if row and _tiene_pem(row.certificado_pem, row.clave_privada_pem):
+                        return row.cuit, row.certificado_pem, row.clave_privada_pem, 'db_afip_credencial'
 
-                # Si está en modo estricto y no hay credenciales para el CUIT solicitado, NO hacer ningún fallback
-                if STRICT_AFIP_CREDENTIALS:
-                    print(f"[AFIP_CREDS][STRICT] CUIT solicitado {emisor_cuit} no tiene credenciales en DB y modo estricto activo -> NO fallback")
-                    return None, None, None, 'none'
-            
+                # 1.a2) Bug histórico: certificado guardado con AfipCredencial.cuit = str(id_empresa)
+                emp_por_cuit = None
+                for v in variantes:
+                    emp_por_cuit = _db.exec(_select(_Empresa).where(_Empresa.cuit == v)).first()
+                    if emp_por_cuit:
+                        break
+                if not emp_por_cuit and variantes:
+                    needle = _cuit_solo_digitos(emisor_cuit)[:11]
+                    if needle:
+                        for e in _db.exec(_select(_Empresa)).all():
+                            if _cuit_solo_digitos(e.cuit)[:11] == needle:
+                                emp_por_cuit = e
+                                break
+                if emp_por_cuit:
+                    legacy = _db.exec(
+                        _select(_AfipCredencial).where(_AfipCredencial.cuit == str(emp_por_cuit.id))
+                    ).first()
+                    if legacy and _tiene_pem(legacy.certificado_pem, legacy.clave_privada_pem):
+                        cuit_ok = _cuit_solo_digitos(emp_por_cuit.cuit)[:11] or emp_por_cuit.cuit.strip()
+                        print(
+                            f"[AFIP_CREDS] Usando credencial migrada: estaba bajo cuit='{legacy.cuit}' (id empresa); "
+                            f"emisor real {cuit_ok}"
+                        )
+                        return cuit_ok, legacy.certificado_pem, legacy.clave_privada_pem, 'db_afip_credencial_legacy_id'
+
+                # 1.b) ConfiguracionEmpresa por cuit (cualquier variante)
+                conf = None
+                if len(variantes) == 1:
+                    conf = _db.exec(
+                        _select(_ConfiguracionEmpresa).where(_ConfiguracionEmpresa.cuit == variantes[0])
+                    ).first()
+                elif variantes:
+                    conf = _db.exec(
+                        _select(_ConfiguracionEmpresa).where(
+                            or_(*[_ConfiguracionEmpresa.cuit == v for v in variantes])
+                        )
+                    ).first()
+                if conf and _tiene_pem(conf.afip_certificado_encrypted, conf.afip_clave_privada_encrypted):
+                    return conf.cuit, conf.afip_certificado_encrypted, conf.afip_clave_privada_encrypted, 'db_config_empresa'
+
+                # 1.c) Config por id_empresa si encontramos empresa por CUIT
+                if emp_por_cuit:
+                    conf2 = _db.get(_ConfiguracionEmpresa, emp_por_cuit.id)
+                    if conf2 and _tiene_pem(conf2.afip_certificado_encrypted, conf2.afip_clave_privada_encrypted):
+                        return conf2.cuit, conf2.afip_certificado_encrypted, conf2.afip_clave_privada_encrypted, 'db_config_empresa_by_id'
+
             # Si no se pidió CUIT o no está en modo estricto, tomar primera activa
             if not emisor_cuit or not STRICT_AFIP_CREDENTIALS:
                 # Intentar AfipCredencial primero
@@ -113,10 +175,25 @@ def _resolve_afip_credentials(emisor_cuit: str | None = None):
             print(f"[AFIP_CREDS][STRICT] emisor_cuit no especificado y modo estricto activo -> ABORT")
             return None, None, None, 'none'
 
-        # Si está en modo estricto y se solicitó un CUIT, nunca consultar bóveda ni entorno
-        if STRICT_AFIP_CREDENTIALS and emisor_cuit:
-            # Ya se devolvió None arriba si no hay credenciales en DB
-            return None, None, None, 'none'
+        # Modo estricto + CUIT concreto: sin PEM en BD, aún permitir bóveda **solo** si hay .crt/.key para ese CUIT.
+        if STRICT_AFIP_CREDENTIALS and emisor_cuit and afip_tools_manager:
+            emisor_d = "".join(ch for ch in str(emisor_cuit) if ch.isdigit())
+            c_p, k_p = afip_tools_manager.rutas_certificado_clave_cuit(emisor_d)
+            if c_p and k_p:
+                try:
+                    with open(c_p, "r", encoding="utf-8") as f:
+                        cert_pem = f.read()
+                    with open(k_p, "r", encoding="utf-8") as f:
+                        key_pem = f.read()
+                    print(f"[AFIP_CREDS] STRICT: usando bóveda para el CUIT solicitado {emisor_d}")
+                    return emisor_d, cert_pem, key_pem, "boveda_strict_same_cuit"
+                except Exception as ex:
+                    print(f"[AFIP_CREDS][STRICT] Falló leer bóveda para {emisor_d}: {ex}")
+            print(
+                f"[AFIP_CREDS][STRICT] Sin credenciales en BD ni par .crt/.key en bóveda para {emisor_cuit}. "
+                f"Búsqueda en: {afip_tools_manager._boveda_search_directories()}"
+            )
+            return None, None, None, "none"
 
         # 2) Bóveda específica: SOLO si NO está en modo estricto
         if afip_tools_manager and (not STRICT_AFIP_CREDENTIALS or not emisor_cuit):
@@ -132,19 +209,26 @@ def _resolve_afip_credentials(emisor_cuit: str | None = None):
                             cfg['cuit_empresa'] = ''.join(ch for ch in cfg['cuit_empresa'].strip() if ch.isdigit())
                     except Exception:
                         pass
-                    cert_path = _os.path.join(afip_tools_manager.BOVEDA_TEMPORAL_PATH, f"{emisor_cuit_digits}.crt")
-                    key_path = _os.path.join(afip_tools_manager.BOVEDA_TEMPORAL_PATH, f"{emisor_cuit_digits}.key")
-                    if _os.path.exists(cert_path) and _os.path.exists(key_path):
-                        try:
-                            with open(cert_path, 'r', encoding='utf-8') as f:
-                                cert_pem = f.read()
-                            with open(key_path, 'r', encoding='utf-8') as f:
-                                key_pem = f.read()
-                            print(f"[AFIP_CREDS] Usando credenciales solicitadas de bóveda para CUIT {emisor_cuit_digits}")
-                            return emisor_cuit_digits, cert_pem, key_pem, 'boveda'
-                        except Exception:
-                            print(f"[AFIP_CREDS][WARN] Falló lectura de archivos de bóveda para CUIT {emisor_cuit_digits}")
-                            pass
+                # PEM: buscar en todas las carpetas bóveda (no depender solo de BOVEDA_TEMPORAL_PATH ni del JSON).
+                cert_path, key_path = afip_tools_manager.rutas_certificado_clave_cuit(emisor_cuit_digits)
+                if cert_path and key_path:
+                    try:
+                        with open(cert_path, 'r', encoding='utf-8') as f:
+                            cert_pem = f.read()
+                        with open(key_path, 'r', encoding='utf-8') as f:
+                            key_pem = f.read()
+                        print(
+                            f"[AFIP_CREDS] Usando credenciales de bóveda para CUIT {emisor_cuit_digits} "
+                            f"(crt={cert_path})"
+                        )
+                        return emisor_cuit_digits, cert_pem, key_pem, 'boveda'
+                    except Exception:
+                        print(f"[AFIP_CREDS][WARN] Falló lectura de archivos de bóveda para CUIT {emisor_cuit_digits}")
+                elif not cfg.get('existe'):
+                    print(
+                        f"[AFIP_CREDS][WARN] Sin par .crt/.key para CUIT {emisor_cuit_digits} en bóvedas: "
+                        f"{afip_tools_manager._boveda_search_directories()}"
+                    )
                 # Si está en modo estricto y no hay credenciales para el CUIT solicitado, no hacer ningún fallback
                 # (ya se maneja arriba, así que aquí nunca entra en modo estricto)
                 pass
@@ -162,7 +246,11 @@ def _resolve_afip_credentials(emisor_cuit: str | None = None):
                         if isinstance(cuit, str):
                             cuit = cuit.strip()
                         cert_path = item.get('certificado_path')
-                        key_path = _os.path.join(afip_tools_manager.BOVEDA_TEMPORAL_PATH, f"{cuit}.key")
+                        key_path = (
+                            _os.path.join(_os.path.dirname(cert_path), f"{cuit}.key")
+                            if cert_path
+                            else _os.path.join(afip_tools_manager.BOVEDA_TEMPORAL_PATH, f"{cuit}.key")
+                        )
                         if not (_os.path.exists(cert_path) and _os.path.exists(key_path)):
                             continue
                         try:
@@ -449,10 +537,19 @@ def generar_factura_para_venta(
             try:
                 clean_cuit = ''.join(filter(str.isdigit, str(emisor_cuit)))
                 cfg_boveda = afip_tools_manager.obtener_configuracion_emisor(clean_cuit)
-                # El JSON puede tener 'punto_venta' como int o str
-                if cfg_boveda and cfg_boveda.get('punto_venta'):
-                    punto_venta = int(cfg_boveda['punto_venta'])
-                    print(f"[AFIP] Usando punto_venta {punto_venta} de Bóveda JSON para CUIT {clean_cuit}")
+                # Solo si hay archivo real (existe); el stub sin JSON no debe aportar punto_venta.
+                if cfg_boveda and cfg_boveda.get('existe') and cfg_boveda.get('punto_venta') is not None:
+                    try:
+                        punto_venta = int(cfg_boveda['punto_venta'])
+                    except (TypeError, ValueError):
+                        punto_venta = None
+                    if punto_venta is not None:
+                        print(f"[AFIP] Usando punto_venta {punto_venta} de Bóveda JSON para CUIT {clean_cuit}")
+                elif cfg_boveda and not cfg_boveda.get('existe'):
+                    print(
+                        f"[AFIP] No hay emisor_{clean_cuit}.json en las carpetas de bóveda; "
+                        f"se ignora PV de stub (seguir con BD o AFIP_PUNTO_VENTA)."
+                    )
             except Exception as e:
                 print(f"[AFIP] Advertencia: No se pudo resolver punto_venta desde Bóveda JSON: {e}")
 
@@ -606,16 +703,33 @@ def generar_factura_para_venta(
         logica_factura["neto"] = neto_ajustado
         logica_factura["iva"] = iva_ajustada
         
-        # Crear tributo automático para el impuesto interno
+        # Crear tributo automático para el impuesto interno (si el cliente no lo mandó ya)
+        def _ya_incluye_impuesto_interno_77(lst: list | None) -> bool:
+            if not lst:
+                return False
+            for t in lst:
+                try:
+                    if int(t.get("id", 0)) != 99:
+                        continue
+                    if abs(float(t.get("alicuota", 0)) - 77.0) > 0.01:
+                        continue
+                    imp = float(t.get("importe", 0))
+                    if abs(imp - impuesto_interno) <= 0.02:
+                        return True
+                except (TypeError, ValueError):
+                    continue
+            return False
+
         if not tributos:
             tributos = []
-        tributos.append({
-            "id": 99,
-            "descripcion": "Impuesto Interno",
-            "base_imponible": total,  # Base es el total (más simple)
-            "alicuota": 77.0,  # Alícuota es 77%
-            "importe": impuesto_interno
-        })
+        if not _ya_incluye_impuesto_interno_77(tributos):
+            tributos.append({
+                "id": 99,
+                "descripcion": "Impuesto Interno",
+                "base_imponible": total,
+                "alicuota": 77.0,
+                "importe": impuesto_interno,
+            })
         
         print(f"[DESGLOSE 77%] Total: ${total} | Impuesto Interno 77%: ${impuesto_interno} | Neto+IVA: ${monto_facturable}")
         print(f"[DESGLOSE 77%] Neto: ${neto_ajustado} | IVA: ${iva_ajustada} | Tributo: ${impuesto_interno}")

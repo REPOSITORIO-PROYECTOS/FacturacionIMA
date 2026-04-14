@@ -13,7 +13,7 @@ except Exception:
 from typing import List, Dict, Any, Optional, Tuple
 import uuid
 from datetime import datetime
-from backend.config import GOOGLE_SHEET_ID,GOOGLE_SERVICE_ACCOUNT_FILE
+from backend.config import GOOGLE_SHEET_ID, CREDENTIALS_FILE_PATH
 import csv
 import io
 
@@ -36,8 +36,8 @@ class TablasHandler:
                     _ = gspread  # acceso para detectar disponibilidad
                 except Exception as e:
                     raise RuntimeError("gspread no está disponible en el entorno")
-                back_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-                credential_path = os.path.join(back_dir, GOOGLE_SERVICE_ACCOUNT_FILE)
+                # Misma ruta absoluta que valida config.py (respeta GOOGLE_SERVICE_ACCOUNT_FILE en .env).
+                credential_path = str(CREDENTIALS_FILE_PATH)
                 gspread_client = gspread.service_account(filename=credential_path, scopes=SCOPES)
             except Exception as e:
                 print(f"Error al inicializar gspread: {e}")
@@ -144,8 +144,14 @@ class TablasHandler:
                 return records
             except gspread.exceptions.WorksheetNotFound:
                 print("❌ ERROR: La hoja de cálculo no tiene una pestaña llamada 'INGRESOS'.")
+                return []
             except Exception as e:
                 print(f"❌ Error detallado al cargar datos de INGRESOS: {type(e).__name__} - {e}")
+                # Cuota / rate limit: propagar para que DB-Sync no confunda con "hoja vacía" (cargar_ingresos() or []).
+                msg = str(e).lower()
+                if "429" in msg or "quota" in msg or "rate limit" in msg or "resource exhausted" in msg:
+                    raise
+                return []
         else:
             print("Cliente de Google Sheets no disponible. Intentando fallback CSV público...")
             try:

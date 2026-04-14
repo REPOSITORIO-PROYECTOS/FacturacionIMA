@@ -4,7 +4,13 @@ import React, { useEffect, useMemo, useState, useCallback } from "react";
 import { useBoletas } from "@/context/BoletasStore";
 import Link from "next/link";
 import type { Boleta } from "@/types/boleta";
-import { buildInvoiceItem, facturarItems } from "../lib/facturacion";
+import {
+  buildInvoiceItem,
+  facturarItems,
+  enriquecerItemDesglose77Empresa,
+  sincronizarUserInfoConBackend,
+  type InvoiceItemRequest,
+} from "../lib/facturacion";
 import { MediosPagoResumen } from "@/components/dashboard/MediosPagoResumen";
 import { BoletaDetalleModal } from "@/components/dashboard/BoletaDetalleModal";
 import { useToast } from "../components/ToastProvider";
@@ -22,7 +28,12 @@ export default function DashboardPage() {
     'Mercado Pago',
     'Otro'
   ]);
-  const [userInfo, setUserInfo] = useState<{ username: string; role: string; empresa_cuit?: string } | null>(null);
+  const [userInfo, setUserInfo] = useState<{
+    username: string;
+    role: string;
+    empresa_cuit?: string;
+    aplicar_desglose_77?: boolean;
+  } | null>(null);
   const [token, setToken] = useState<string | null>(null);
   // ...existing code...
 
@@ -42,8 +53,26 @@ export default function DashboardPage() {
       }
     };
     syncAuth();
+    const onUser = () => syncAuth();
     window.addEventListener("storage", syncAuth);
-    return () => window.removeEventListener("storage", syncAuth);
+    window.addEventListener("user_info_changed", onUser);
+    return () => {
+      window.removeEventListener("storage", syncAuth);
+      window.removeEventListener("user_info_changed", onUser);
+    };
+  }, []);
+
+  useEffect(() => {
+    const t = localStorage.getItem("token");
+    if (!t) return;
+    void sincronizarUserInfoConBackend(t).then(() => {
+      try {
+        const info = localStorage.getItem("user_info");
+        if (info) setUserInfo(JSON.parse(info));
+      } catch {
+        /* ignore */
+      }
+    });
   }, []);
 
   const parseMonto = (monto: string | number | boolean | undefined): number => {
@@ -116,9 +145,9 @@ export default function DashboardPage() {
       toast.error('Boleta no facturable (ID/Total inválido)');
       return;
     }
-    // Add emisor_cuit from user info
     built.emisor_cuit = userInfo?.empresa_cuit;
-    const result = await facturarItems([built], token);
+    const toSend = enriquecerItemDesglose77Empresa(built, Boolean(userInfo?.aplicar_desglose_77));
+    const result = await facturarItems([toSend], token);
     if (!result.ok) {
       toast.error(String(result.error || 'Error al facturar'));
       return;
@@ -857,17 +886,22 @@ export default function DashboardPage() {
                           const seleccion = grupo.boletas.filter(isFacturable);
                           if (seleccion.length === 0) return toast.warning("No hay boletas facturables en el grupo");
                           // Construir payload de facturación por cantidad
-                          const invoices = seleccion.map((b) => ({
-                            id: getId(b),
-                            total: parseMonto(b.total ?? b["INGRESOS"] ?? b["Total"] ?? b["TOTAL"] ?? 0),
-                            cliente_data: {
-                              cuit_o_dni: String(b.cuit || b.CUIT || b.dni || ""),
-                              nombre_razon_social: String(b.cliente || b.nombre || b["Razon Social"] || ""),
-                              domicilio: String(b["Domicilio"] || ""),
-                              condicion_iva: String(b.condicion_iva || b["condicion-iva"] || "CONSUMIDOR_FINAL"),
-                            },
-                            emisor_cuit: userInfo?.empresa_cuit,
-                          }));
+                          const invoices = seleccion.map((b) =>
+                            enriquecerItemDesglose77Empresa(
+                              {
+                                id: getId(b),
+                                total: parseMonto(b.total ?? b["INGRESOS"] ?? b["Total"] ?? b["TOTAL"] ?? 0),
+                                cliente_data: {
+                                  cuit_o_dni: String(b.cuit || b.CUIT || b.dni || ""),
+                                  nombre_razon_social: String(b.cliente || b.nombre || b["Razon Social"] || ""),
+                                  domicilio: String(b["Domicilio"] || ""),
+                                  condicion_iva: String(b.condicion_iva || b["condicion-iva"] || "CONSUMIDOR_FINAL"),
+                                },
+                                emisor_cuit: userInfo?.empresa_cuit,
+                              } as InvoiceItemRequest,
+                              Boolean(userInfo?.aplicar_desglose_77)
+                            )
+                          );
                           (async () => {
                             try {
                               if (!token) { toast.error('No autenticado'); return; }
@@ -964,17 +998,22 @@ export default function DashboardPage() {
                         if (seleccion.length === 0) return toast.warning("No hay boletas seleccionadas facturables");
                         try {
                           if (!token) { toast.error('No autenticado'); return; }
-                          const invoices = seleccion.map((b) => ({
-                            id: getId(b),
-                            total: parseMonto(b.total ?? b["INGRESOS"] ?? b["Total"] ?? b["TOTAL"] ?? 0),
-                            cliente_data: {
-                              cuit_o_dni: String((b as Record<string, unknown>)["cuit"] || (b as Record<string, unknown>)["CUIT"] || (b as Record<string, unknown>)["dni"] || ""),
-                              nombre_razon_social: String((b as Record<string, unknown>)["cliente"] || (b as Record<string, unknown>)["nombre"] || (b as Record<string, unknown>)["Razon Social"] || ""),
-                              domicilio: String((b as Record<string, unknown>)["Domicilio"] || ""),
-                              condicion_iva: String((b as Record<string, unknown>)["condicion_iva"] || (b as Record<string, unknown>)["condicion-iva"] || "CONSUMIDOR_FINAL"),
-                            },
-                            emisor_cuit: userInfo?.empresa_cuit,
-                          }));
+                          const invoices = seleccion.map((b) =>
+                            enriquecerItemDesglose77Empresa(
+                              {
+                                id: getId(b),
+                                total: parseMonto(b.total ?? b["INGRESOS"] ?? b["Total"] ?? b["TOTAL"] ?? 0),
+                                cliente_data: {
+                                  cuit_o_dni: String((b as Record<string, unknown>)["cuit"] || (b as Record<string, unknown>)["CUIT"] || (b as Record<string, unknown>)["dni"] || ""),
+                                  nombre_razon_social: String((b as Record<string, unknown>)["cliente"] || (b as Record<string, unknown>)["nombre"] || (b as Record<string, unknown>)["Razon Social"] || ""),
+                                  domicilio: String((b as Record<string, unknown>)["Domicilio"] || ""),
+                                  condicion_iva: String((b as Record<string, unknown>)["condicion_iva"] || (b as Record<string, unknown>)["condicion-iva"] || "CONSUMIDOR_FINAL"),
+                                },
+                                emisor_cuit: userInfo?.empresa_cuit,
+                              } as InvoiceItemRequest,
+                              Boolean(userInfo?.aplicar_desglose_77)
+                            )
+                          );
                           const res = await fetch(`/api/facturador/facturar-por-cantidad?max_parallel_workers=5`, {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },

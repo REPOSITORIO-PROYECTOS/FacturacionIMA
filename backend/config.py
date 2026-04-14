@@ -35,7 +35,11 @@ SECRET_KEY_SEC= os.getenv('SECRET_KEY_SEGURIDAD')
 
 # --- Variables de Conexión ---
 GOOGLE_SHEET_ID = os.getenv('GOOGLE_SHEET_ID')
-GOOGLE_SERVICE_ACCOUNT_FILE = os.getenv('GOOGLE_SERVICE_ACCOUNT_FILE', "credencial_IA.json") # Default simple
+# Archivo en la carpeta `backend/` (mismo directorio que este config.py).
+GOOGLE_SERVICE_ACCOUNT_FILE = os.getenv(
+    "GOOGLE_SERVICE_ACCOUNT_FILE",
+    "facturacion-493302-7c55eb5d5073.json",
+)
 
 # ===== AÑADE ESTA SECCIÓN AQUÍ =====
 DB_HOST = os.getenv("DB_HOST")

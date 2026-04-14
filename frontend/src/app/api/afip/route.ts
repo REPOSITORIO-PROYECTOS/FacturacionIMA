@@ -50,6 +50,15 @@ function finalizeUrl(base: string, endpoint: string): string {
   return sanitized + endpoint;
 }
 
+/** Si el backend solo expone /afip (proxy que quitó /api), reintentar tras 404 en /api/afip. */
+function endpointVariants(endpoint: string): string[] {
+  const out: string[] = [endpoint];
+  if (endpoint.startsWith('/api/afip')) {
+    out.push('/afip' + endpoint.slice('/api/afip'.length));
+  }
+  return out;
+}
+
 export async function POST(request: Request): Promise<Response> {
   const token = request.headers.get('authorization')?.split(' ')[1];
   if (!token) {
@@ -68,37 +77,43 @@ export async function POST(request: Request): Promise<Response> {
   try { body = await request.json(); } catch { }
   const incomingHost = (() => { try { return new URL(request.url).host; } catch { return ''; } })();
   const bases = buildBases(incomingHost);
-  for (const base of bases) {
-    const finalUrl = finalizeUrl(base, endpoint);
-    try {
-      const response = await fetch(finalUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}`, 'X-Forwarded-Afip': '1' },
-        body: JSON.stringify(body)
-      });
-      if (action === 'generar-csr' && response.ok) {
-        const content = await response.text();
-        return new Response(content, {
-          status: 200,
-          headers: {
-            'Content-Type': 'application/x-pem-file',
-            'Content-Disposition': response.headers.get('Content-Disposition') || 'attachment; filename=csr.pem'
-          }
+  basesLoop: for (const base of bases) {
+    for (const ep of endpointVariants(endpoint)) {
+      const finalUrl = finalizeUrl(base, ep);
+      try {
+        const response = await fetch(finalUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}`, 'X-Forwarded-Afip': '1' },
+          body: JSON.stringify(body)
         });
-      }
-      let parsed: unknown = {};
-      try { parsed = await response.json(); } catch { }
-      if (!response.ok) {
-        // Intentar siguiente base si 404 / 502; para otros códigos devolvemos ya
-        if ([404, 502, 503, 500].includes(response.status) && base !== bases[bases.length - 1]) {
-          console.warn(`[api/afip] POST fallback tras status ${response.status} en ${finalUrl}`);
+        if (action === 'generar-csr' && response.ok) {
+          const content = await response.text();
+          return new Response(content, {
+            status: 200,
+            headers: {
+              'Content-Type': 'application/x-pem-file',
+              'Content-Disposition': response.headers.get('Content-Disposition') || 'attachment; filename=csr.pem'
+            }
+          });
+        }
+        let parsed: unknown = {};
+        try { parsed = await response.json(); } catch { }
+        if (response.ok) {
+          return new Response(JSON.stringify(parsed), { status: 200, headers: { 'Content-Type': 'application/json' } });
+        }
+        if (response.status === 404 && ep.startsWith('/api/afip')) {
+          console.warn(`[api/afip] POST 404 en ${finalUrl}, probando ruta /afip…`);
           continue;
         }
+        if ([404, 502, 503, 500].includes(response.status) && base !== bases[bases.length - 1]) {
+          console.warn(`[api/afip] POST fallback tras status ${response.status} en ${finalUrl}`);
+          continue basesLoop;
+        }
+        return new Response(JSON.stringify(parsed), { status: response.status, headers: { 'Content-Type': 'application/json' } });
+      } catch (e) {
+        console.error('[api/afip] Error POST', finalUrl, e);
+        continue;
       }
-      return new Response(JSON.stringify(parsed), { status: response.status, headers: { 'Content-Type': 'application/json' } });
-    } catch (e) {
-      console.error('[api/afip] Error POST', finalUrl, e);
-      continue;
     }
   }
   return new Response(JSON.stringify({ detail: 'Error de conexión AFIP (todas las bases fallaron)', basesIntentadas: bases }), { status: 500, headers: { 'Content-Type': 'application/json' } });
@@ -118,25 +133,31 @@ export async function GET(request: Request): Promise<Response> {
   const endpoint = composeEndpoint(action, cuit, 'GET');
   const incomingHost = (() => { try { return new URL(request.url).host; } catch { return ''; } })();
   const bases = buildBases(incomingHost);
-  for (const base of bases) {
-    const finalUrl = finalizeUrl(base, endpoint);
-    try {
-      const response = await fetch(finalUrl, { headers: { Authorization: `Bearer ${token}`, 'X-Forwarded-Afip': '1' } });
-      const text = await response.text();
-      let parsed: unknown = {};
-      try { parsed = text ? JSON.parse(text) : {}; } catch { parsed = { parseError: true, rawSnippet: text.slice(0, 200) }; }
-      if (!response.ok) {
+  basesLoop: for (const base of bases) {
+    for (const ep of endpointVariants(endpoint)) {
+      const finalUrl = finalizeUrl(base, ep);
+      try {
+        const response = await fetch(finalUrl, { headers: { Authorization: `Bearer ${token}`, 'X-Forwarded-Afip': '1' } });
+        const text = await response.text();
+        let parsed: unknown = {};
+        try { parsed = text ? JSON.parse(text) : {}; } catch { parsed = { parseError: true, rawSnippet: text.slice(0, 200) }; }
+        if (response.ok) {
+          return new Response(JSON.stringify(parsed), { status: 200, headers: { 'Content-Type': 'application/json' } });
+        }
+        if (response.status === 404 && ep.startsWith('/api/afip')) {
+          console.warn(`[api/afip] GET 404 en ${finalUrl}, probando ruta /afip…`);
+          continue;
+        }
         if ([404, 502, 503, 500].includes(response.status) && base !== bases[bases.length - 1]) {
           console.warn(`[api/afip] GET fallback tras status ${response.status} en ${finalUrl}`);
-          continue;
+          continue basesLoop;
         }
         const errPayload = { status: response.status, endpoint: finalUrl, detalle: 'Backend AFIP devolvió error', bodyType: typeof parsed, keys: parsed && typeof parsed === 'object' ? Object.keys(parsed as Record<string, unknown>) : [], parsed };
         return new Response(JSON.stringify(errPayload), { status: response.status, headers: { 'Content-Type': 'application/json' } });
+      } catch (e) {
+        console.error('[api/afip] Error GET', finalUrl, e);
+        continue;
       }
-      return new Response(JSON.stringify(parsed), { status: 200, headers: { 'Content-Type': 'application/json' } });
-    } catch (e) {
-      console.error('[api/afip] Error GET', finalUrl, e);
-      continue;
     }
   }
   return new Response(JSON.stringify({ detail: 'Error de conexión AFIP (todas las bases fallaron)', basesIntentadas: bases }), { status: 500, headers: { 'Content-Type': 'application/json' } });

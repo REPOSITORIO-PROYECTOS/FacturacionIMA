@@ -102,7 +102,7 @@ FacturacionIMA es un sistema completo de facturación electrónica diseñado par
 
 3. **Configurar credenciales de Google Sheets**
 
-   - Colocar `credencial_IA.json` en la carpeta `backend/`
+   - Colocar el JSON de la cuenta de servicio (por defecto `facturacion-493302-7c55eb5d5073.json`) en la carpeta `backend/`, o definir `GOOGLE_SERVICE_ACCOUNT_FILE` en `.env`
    - Asegurar permisos de edición en las hojas de cálculo
 
 4. **Instalar dependencias del backend**
@@ -358,7 +358,7 @@ El backend expone ahora `GET /healthz` devolviendo JSON:
 ## Flujo recomendado de primeras pruebas
 
 1. Copiar `.env.example` a `.env` y ajustar.
-2. Colocar `credencial_IA.json` (service account) en `backend/` (o apuntar variable a su ruta).
+2. Colocar el JSON de service account en `backend/` (por defecto `facturacion-493302-7c55eb5d5073.json`) o configurar `GOOGLE_SERVICE_ACCOUNT_FILE` en `.env`.
 3. Levantar backend: `pm2 restart IMA-backend` o `uvicorn backend.main:app --reload --port 8008`.
 4. Verificar `curl http://localhost:8008/healthz`.
 5. Levantar frontend y probar login + facturación + impresión.

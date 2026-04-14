@@ -2,7 +2,16 @@
 import { useEffect, useMemo, useState, useRef } from 'react';
 import { useBoletas } from '@/context/BoletasStore';
 import { LoadingSpinner } from "../../components/LoadingSpinner";
-import { buildInvoiceItem, facturarItems, buildValidItems, getVentaConceptos, InvoiceItemRequest } from "../../lib/facturacion";
+import {
+    buildInvoiceItem,
+    facturarItems,
+    buildValidItems,
+    getVentaConceptos,
+    enriquecerItemDesglose77Empresa,
+    leerEmpresaAplicaDesglose77DesdeStorage,
+    sincronizarUserInfoConBackend,
+    type InvoiceItemRequest,
+} from "../../lib/facturacion";
 import { useToast } from "@/hooks/useToast";
 import { ToastContainer } from "@/components/Toast";
 
@@ -46,6 +55,12 @@ export default function BoletasNoFacturadasPage() {
             });
             urls.clear();
         };
+    }, []);
+
+    useEffect(() => {
+        const t = localStorage.getItem("token");
+        if (!t) return;
+        void sincronizarUserInfoConBackend(t);
     }, []);
 
     // Contador de boletas seleccionadas
@@ -131,7 +146,19 @@ export default function BoletasNoFacturadasPage() {
                 }
             }
 
-            const result = await facturarItems([built], token);
+            await sincronizarUserInfoConBackend(token);
+            let toSend = enriquecerItemDesglose77Empresa(
+                built,
+                leerEmpresaAplicaDesglose77DesdeStorage()
+            );
+            try {
+                const ui = JSON.parse(localStorage.getItem("user_info") || "{}") as { empresa_cuit?: string };
+                if (ui.empresa_cuit) toSend = { ...toSend, emisor_cuit: String(ui.empresa_cuit) };
+            } catch {
+                /* ignore */
+            }
+
+            const result = await facturarItems([toSend], token);
             if (!result.ok) {
                 if (result.error && result.error.toLowerCase().includes('no existen credenciales afip')) {
                     showError('No existen credenciales de AFIP para esta empresa. Solicite a un administrador que cargue las credenciales antes de facturar.');
@@ -340,7 +367,22 @@ export default function BoletasNoFacturadasPage() {
                 }
                 return item;
             }));
-            const result = await facturarItems(itemsConConceptos, token);
+            await sincronizarUserInfoConBackend(token);
+            const desglose = leerEmpresaAplicaDesglose77DesdeStorage();
+            let emisorUi = "";
+            try {
+                emisorUi = String(
+                    (JSON.parse(localStorage.getItem("user_info") || "{}") as { empresa_cuit?: string }).empresa_cuit || ""
+                );
+            } catch {
+                emisorUi = "";
+            }
+            const itemsFinal = (itemsConConceptos as InvoiceItemRequest[]).map((item) => {
+                let x = enriquecerItemDesglose77Empresa(item, desglose);
+                if (emisorUi && !x.emisor_cuit) x = { ...x, emisor_cuit: emisorUi };
+                return x;
+            });
+            const result = await facturarItems(itemsFinal, token);
             if (!result.ok) { showError(result.error || 'Error al facturar'); return; }
 
             // Descargar todos los comprobantes exitosos
