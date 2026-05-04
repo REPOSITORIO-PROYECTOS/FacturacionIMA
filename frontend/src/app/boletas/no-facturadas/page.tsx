@@ -141,8 +141,9 @@ export default function BoletasNoFacturadasPage() {
             const realVentaId = String((boleta as Record<string, unknown>)['ID Ingresos'] || boleta.id || '');
             if (realVentaId) {
                 const conceptos = await getVentaConceptos(realVentaId, token);
-                if (conceptos.length > 0) {
-                    built.conceptos = conceptos;
+                const conceptosSeguros = Array.isArray(conceptos) ? conceptos : [];
+                if (conceptosSeguros.length > 0) {
+                    built.conceptos = conceptosSeguros;
                 }
             }
 
@@ -363,7 +364,8 @@ export default function BoletasNoFacturadasPage() {
                 const ventaId = String(item.id || '');
                 if (ventaId) {
                     const conceptos = await getVentaConceptos(ventaId, token);
-                    if (conceptos.length > 0) item.conceptos = conceptos;
+                    const conceptosSeguros = Array.isArray(conceptos) ? conceptos : [];
+                    if (conceptosSeguros.length > 0) item.conceptos = conceptosSeguros;
                 }
                 return item;
             }));

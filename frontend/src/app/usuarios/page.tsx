@@ -42,7 +42,7 @@ export default function UsuariosPage() {
       const username = modalUsuario.nombre_usuario || modalUsuario.nombre;
       const body: UpdateUsuarioPayload = { rol_nombre: modalRol };
       if (modalPassword) body.password = modalPassword; // si desea resetear contraseña
-      fetch(`/api/usuarios/${username}`, {
+      fetch(`/internal-api/usuarios/${username}`, {
         method: "PUT",
         headers: {
           "Authorization": `Bearer ${token}`,
@@ -63,7 +63,7 @@ export default function UsuariosPage() {
       const password = (modalPassword || "").trim();
       if (!password) { alert("Debes ingresar una contraseña"); return; }
       if (!modalRol) { alert("Selecciona un rol"); return; }
-      fetch(`/api/usuarios`, {
+      fetch(`/internal-api/usuarios`, {
         method: "POST",
         headers: {
           "Authorization": `Bearer ${token}`,
@@ -84,7 +84,7 @@ export default function UsuariosPage() {
   function handleDeactivate(u: Usuario) {
     if (!window.confirm(`¿Desactivar usuario ${u.nombre_usuario || u.nombre}?`)) return;
     const token = localStorage.getItem("token");
-    fetch(`/api/usuarios/${u.nombre_usuario || u.nombre}/desactivar`, {
+    fetch(`/internal-api/usuarios/${u.nombre_usuario || u.nombre}/desactivar`, {
       method: "POST",
       headers: {
         "Authorization": `Bearer ${token}`,
@@ -101,7 +101,7 @@ export default function UsuariosPage() {
   function handleReactivate(u: Usuario) {
     if (!window.confirm(`¿Reactivar usuario ${u.nombre_usuario || u.nombre}?`)) return;
     const token = localStorage.getItem("token");
-    fetch(`/api/usuarios/${u.nombre_usuario || u.nombre}`, {
+    fetch(`/internal-api/usuarios/${u.nombre_usuario || u.nombre}`, {
       method: "PUT",
       headers: {
         "Authorization": `Bearer ${token}`,
@@ -145,7 +145,7 @@ export default function UsuariosPage() {
     }
     setIsAdmin(true);
     setLoading(true);
-    fetch("/api/usuarios", {
+    fetch("/internal-api/usuarios", {
       headers: { Authorization: `Bearer ${token}` }
     })
       .then(res => res.ok ? res.json() : Promise.reject(res))
@@ -222,9 +222,7 @@ export default function UsuariosPage() {
             <h3 className="text-xl font-bold mb-4">{modalMode === "edit" ? "Editar usuario" : "Crear usuario"}</h3>
             <div className="space-y-3">
               <div>
-                <label className="block text-gray-700 mb-1">Nombre de usuario</label>
                 <label className="block text-gray-700 mb-1">Nombre de usuario *</label>
-                <label className="block text-gray-700 mb-1">Contrase f1a {modalMode === 'edit' ? "(opcional)" : "*"}</label>
                 <input
                   type="text"
                   className="border px-3 py-2 rounded w-full"
@@ -235,7 +233,7 @@ export default function UsuariosPage() {
                 />
               </div>
               <div>
-                <label className="block text-gray-700 mb-1">Contraseña {modalMode === 'edit' ? "(opcional)" : ""}</label>
+                <label className="block text-gray-700 mb-1">Contraseña {modalMode === "edit" ? "(opcional)" : "*"}</label>
                 <input
                   type="password"
                   className="border px-3 py-2 rounded w-full"
@@ -245,7 +243,6 @@ export default function UsuariosPage() {
                 />
               </div>
               <div>
-                <label htmlFor="modalRolSelect" className="block text-gray-700 mb-1">Rol</label>
                 <label htmlFor="modalRolSelect" className="block text-gray-700 mb-1">Rol *</label>
                 <select
                   id="modalRolSelect"

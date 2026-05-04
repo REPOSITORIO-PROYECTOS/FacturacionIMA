@@ -3,7 +3,8 @@ import { NextResponse, NextRequest } from 'next/server';
 // Rutas públicas que no requieren autenticación
 const publicPaths: string[] = [
     '/login',
-    '/api/auth',
+    '/api',
+    '/internal-api',
     '/favicon.ico',
     '/inicio'
 ];

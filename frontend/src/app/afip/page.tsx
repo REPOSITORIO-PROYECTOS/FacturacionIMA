@@ -97,7 +97,7 @@ export default function AFIPPage() {
     const cargarCondicionesIVA = async () => {
         try {
             const token = localStorage.getItem("token");
-            const res = await fetch("/api/afip?action=condiciones-iva", {
+            const res = await fetch("/api/afip/condiciones-iva", {
                 headers: { Authorization: `Bearer ${token}` }
             });
             if (res.ok) {
@@ -112,7 +112,7 @@ export default function AFIPPage() {
     const cargarConfiguracionEmisor = async (cuitEmisor: string) => {
         try {
             const token = localStorage.getItem("token");
-            const res = await fetch(`/api/afip?action=configuracion-emisor&cuit=${cuitEmisor}`, {
+            const res = await fetch(`/api/afip/configuracion-emisor/${cuitEmisor}`, {
                 headers: { Authorization: `Bearer ${token}` }
             });
             if (res.ok) {
@@ -139,7 +139,7 @@ export default function AFIPPage() {
 
         try {
             const token = localStorage.getItem("token");
-            const res = await fetch("/api/afip?action=configurar-emisor", {
+            const res = await fetch("/api/afip/configurar-emisor", {
                 method: "POST",
                 headers: {
                     "Content-Type": "application/json",
@@ -172,7 +172,7 @@ export default function AFIPPage() {
 
         try {
             const token = localStorage.getItem("token");
-            const res = await fetch("/api/afip?action=generar-csr", {
+            const res = await fetch("/api/afip/generar-csr", {
                 method: "POST",
                 headers: {
                     "Content-Type": "application/json",
@@ -218,7 +218,7 @@ export default function AFIPPage() {
 
         try {
             const token = localStorage.getItem("token");
-            const res = await fetch("/api/afip?action=subir-certificado", {
+            const res = await fetch("/api/afip/subir-certificado", {
                 method: "POST",
                 headers: {
                     "Content-Type": "application/json",
@@ -257,7 +257,7 @@ export default function AFIPPage() {
             const contenido = await archivoCompleto.text();
             const token = localStorage.getItem("token");
 
-            const res = await fetch("/api/afip?action=procesar-archivo-completo", {
+            const res = await fetch("/api/afip/procesar-archivo-completo", {
                 method: "POST",
                 headers: {
                     "Content-Type": "application/json",
@@ -287,7 +287,7 @@ export default function AFIPPage() {
     const verificarEstado = async (cuitConsulta: string) => {
         try {
             const token = localStorage.getItem("token");
-            const res = await fetch(`/api/afip?cuit=${cuitConsulta}`, {
+            const res = await fetch(`/api/afip/estado/${cuitConsulta}`, {
                 headers: { Authorization: `Bearer ${token}` }
             });
             if (res.ok) {
@@ -589,7 +589,7 @@ export default function AFIPPage() {
                             setMensaje("");
                             try {
                                 const token = localStorage.getItem("token");
-                                const res = await fetch("/api/afip?action=configurar-emisor", {
+                                const res = await fetch("/api/afip/configurar-emisor", {
                                     method: "POST",
                                     headers: {
                                         "Content-Type": "application/json",

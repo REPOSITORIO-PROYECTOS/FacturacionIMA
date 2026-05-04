@@ -4,6 +4,7 @@ import { clsx } from "clsx"; // Utilidad para clases
 import { geistMono, geistSans } from "./lib/fonts"; // Centralizamos las fuentes
 import NavbarVisible from "./components/NavbarVisible";
 import MainContent from "./components/MainContent";
+import ClientCacheRecovery from "./components/ClientCacheRecovery";
 import React from 'react';
 import "./globals.css";
 import { ToastProvider } from "./components/ToastProvider";
@@ -29,6 +30,7 @@ export default function RootLayout({ children }: RootLayoutProps) {
         <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1" />
       </head>
       <body className={clsx(geistSans.variable, geistMono.variable, "antialiased")}>
+        <ClientCacheRecovery />
         <ToastProvider>
           <AuthGuard>
             <BoletasProvider>

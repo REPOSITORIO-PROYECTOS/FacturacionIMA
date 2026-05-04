@@ -35,6 +35,7 @@ def _get_or_create_rol(db: Session, nombre: str) -> Rol:
     return r
 
 
+@router.get("")
 @router.get("/")
 def listar_usuarios(db: Session = Depends(get_db), usuario_actual: Usuario = Depends(obtener_usuario_actual)):
     rows = db.exec(select(Usuario).where(Usuario.id_empresa == usuario_actual.id_empresa)).all()
@@ -51,6 +52,7 @@ def listar_usuarios(db: Session = Depends(get_db), usuario_actual: Usuario = Dep
     ]
 
 
+@router.post("", status_code=201)
 @router.post("/", status_code=201)
 def crear_usuario(data: UsuarioCreate, db: Session = Depends(get_db), usuario_actual: Usuario = Depends(obtener_usuario_actual)):
     username = data.username.strip()

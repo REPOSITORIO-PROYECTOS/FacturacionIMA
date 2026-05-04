@@ -5,6 +5,7 @@ from fastapi import APIRouter, HTTPException, Depends
 from typing import List, Dict, Any
 import pymysql
 import logging
+import os
 from backend.security import obtener_usuario_actual
 from backend.modelos import Usuario
 
@@ -12,12 +13,13 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/ventas", tags=["ventas"])
 
-# Configuración de conexión a la BD gestion_ima_db
+# Configuración de conexión a la BD vía entorno (misma fuente de verdad que backend)
 DB_CONFIG = {
-    'host': 'localhost',
-    'user': 'gestion_user',
-    'password': 'SistemaIMA123.',
-    'database': 'gestion_ima_db',
+    'host': os.getenv('DB_HOST', 'localhost'),
+    'port': int(os.getenv('DB_PORT', '3306')),
+    'user': os.getenv('DB_USER', 'root'),
+    'password': os.getenv('DB_PASSWORD', ''),
+    'database': os.getenv('DB_NAME', 'gestion_ima_db'),
     'charset': 'utf8mb4',
     'cursorclass': pymysql.cursors.DictCursor
 }
