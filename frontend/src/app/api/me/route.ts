@@ -2,9 +2,10 @@
    Devuelve 401 si no hay cookie o si el backend responde no OK.
 */
 
+// Mismo criterio que api/auth: primero URL interna (evita fetch relativo a "/api" en Node y puerto 8008 vacío).
+const internalBase = process.env.BACKEND_INTERNAL_URL;
 const primaryBase = process.env.NEXT_PUBLIC_BACKEND_URL;
-const fallbackBase = 'http://127.0.0.1:8008';
-const baseCandidates = primaryBase ? [primaryBase, fallbackBase] : [fallbackBase];
+const baseCandidates = [internalBase, primaryBase, 'http://127.0.0.1:8008'].filter(Boolean) as string[];
 
 function joinUrl(base: string, path: string) {
     return base.replace(/\/+$/, '') + '/' + path.replace(/^\/+/, '');

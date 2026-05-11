@@ -163,7 +163,7 @@ La terminación TLS no se configura dentro de este repo; debe realizarse en el s
 
 - `server_name facturador-ima.sistemataup.online;`
 - `listen 443 ssl http2;` con `ssl_certificate` y `ssl_certificate_key` correctos
-- Proxy hacia backend en `http://127.0.0.1:8008` y frontend en `http://127.0.0.1:3001`
+- Frontend Next en `http://127.0.0.1:3001`. El backend FastAPI debe coincidir con `BACKEND_PORT` del `.env` o de PM2 (p. ej. **8012** con `ecosystem.split.config.js`, u **8008** en otros arranques).
 - Encabezados estándar: `X-Forwarded-Proto https`, `X-Forwarded-For`, `Host`
 - Política de referentes por defecto del navegador: `strict-origin-when-cross-origin`
 
@@ -176,8 +176,9 @@ server {
     ssl_certificate /etc/letsencrypt/live/facturador-ima.sistemataup.online/fullchain.pem;
     ssl_certificate_key /etc/letsencrypt/live/facturador-ima.sistemataup.online/privkey.pem;
 
+    # Si Nginx envía /api/ a un puerto donde no hay uvicorn → 502. Ajustar al puerto real (8012 con PM2 split es lo habitual).
     location /api/ {
-        proxy_pass http://127.0.0.1:8008/;
+        proxy_pass http://127.0.0.1:8012/;
         proxy_set_header Host $host;
         proxy_set_header X-Forwarded-Proto https;
         proxy_set_header X-Forwarded-For $remote_addr;
@@ -191,6 +192,8 @@ server {
     }
 }
 ```
+
+Si usáis `NEXT_PUBLIC_BACKEND_URL=/api` y las API Routes de Next hacen de proxy al backend, podéis omitir el `location /api/` y dejar solo `location /` hacia `3001` (un solo upstream).
 
 Confirma que el certificado y la cadena intermedia estén vigentes.
 
