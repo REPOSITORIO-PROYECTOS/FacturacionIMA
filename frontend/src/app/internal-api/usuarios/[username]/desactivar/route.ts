@@ -1,7 +1,6 @@
-const primaryBaseUsrD = process.env.NEXT_PUBLIC_BACKEND_URL || "";
-const internalBaseUsrD = process.env.BACKEND_INTERNAL_URL || "";
-const fallbackBaseUsrD = internalBaseUsrD || "http://127.0.0.1:8008";
-const basesUsrD = primaryBaseUsrD ? [primaryBaseUsrD, fallbackBaseUsrD] : [fallbackBaseUsrD];
+import { getBackendServerBases } from "@/lib/backendUrl";
+
+const basesUsrD = getBackendServerBases();
 
 function buildTargets(username: string): string[] {
   const suffix = `usuarios/${username}/desactivar`;

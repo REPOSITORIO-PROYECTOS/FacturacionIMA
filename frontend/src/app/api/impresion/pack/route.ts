@@ -1,6 +1,7 @@
+import { getBackendInternalBase } from '@/lib/backendUrl';
+
 const envBasePack = process.env.NEXT_PUBLIC_BACKEND_URL || '';
-const internalPack = process.env.BACKEND_INTERNAL_URL || '';
-const fallbackPack = internalPack || 'http://127.0.0.1:8008';
+const fallbackPack = getBackendInternalBase();
 
 function nb(b: string) { return b.replace(/\/$/, ''); }
 
@@ -20,7 +21,7 @@ export async function POST(req: Request) {
         const base = bases[i];
         try {
             const host = new URL(base).host;
-            if (host === incomingHost && !internalPack) {
+            if (host === incomingHost && !process.env.BACKEND_INTERNAL_URL) {
                 console.warn('[api/impresion/pack] Omitiendo base recursiva', base);
                 continue;
             }

@@ -1,13 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
+import { joinBackendUrl, getBackendInternalBase } from "@/lib/backendUrl";
 
 export async function POST(req: NextRequest) {
     try {
-        // Obtener el token del header original
         const authHeader = req.headers.get("authorization");
-        
-        // Llamar al backend Python localmente (puerto 8008)
-        // Usamos el endpoint original /sheets/sincronizar que sabemos que existe en Python
-        const backendUrl = "http://127.0.0.1:8008/sheets/sincronizar";
+        const backendUrl = joinBackendUrl(getBackendInternalBase(), '/sheets/sincronizar');
         
         const res = await fetch(backendUrl, {
             method: "POST",

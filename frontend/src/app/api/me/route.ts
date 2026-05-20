@@ -2,14 +2,9 @@
    Devuelve 401 si no hay cookie o si el backend responde no OK.
 */
 
-// Mismo criterio que api/auth: primero URL interna (evita fetch relativo a "/api" en Node y puerto 8008 vacío).
-const internalBase = process.env.BACKEND_INTERNAL_URL;
-const primaryBase = process.env.NEXT_PUBLIC_BACKEND_URL;
-const baseCandidates = [internalBase, primaryBase, 'http://127.0.0.1:8008'].filter(Boolean) as string[];
+import { getBackendProxyBases, joinBackendUrl } from '@/lib/backendUrl';
 
-function joinUrl(base: string, path: string) {
-    return base.replace(/\/+$/, '') + '/' + path.replace(/^\/+/, '');
-}
+const baseCandidates = getBackendProxyBases();
 
 export async function GET(request: Request): Promise<Response> {
     const cookie = request.headers.get('cookie') || '';
@@ -20,7 +15,7 @@ export async function GET(request: Request): Promise<Response> {
     const token = decodeURIComponent(match[1]);
 
     for (const base of baseCandidates) {
-        const url = joinUrl(base, '/auth/me');
+        const url = joinBackendUrl(base, '/auth/me');
         try {
             const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` }, cache: 'no-store' });
             const text = await res.text().catch(() => '');

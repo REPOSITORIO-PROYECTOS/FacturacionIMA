@@ -163,11 +163,12 @@ La terminación TLS no se configura dentro de este repo; debe realizarse en el s
 
 - `server_name facturador-ima.sistemataup.online;`
 - `listen 443 ssl http2;` con `ssl_certificate` y `ssl_certificate_key` correctos
-- Frontend Next en `http://127.0.0.1:3001`. El backend FastAPI debe coincidir con `BACKEND_PORT` del `.env` o de PM2 (p. ej. **8012** con `ecosystem.split.config.js`, u **8008** en otros arranques).
-- Encabezados estándar: `X-Forwarded-Proto https`, `X-Forwarded-For`, `Host`
-- Política de referentes por defecto del navegador: `strict-origin-when-cross-origin`
+- **Un solo upstream en Nginx:** todo el tráfico (páginas y `/api/*`) a Next en `http://127.0.0.1:3001`.
+- FastAPI (uvicorn) solo en loopback, p. ej. **8012** con `ecosystem.split.config.js`; las API Routes de Next usan `BACKEND_INTERNAL_URL=http://127.0.0.1:8012`.
+- En el navegador: `NEXT_PUBLIC_BACKEND_URL=/api` (rutas relativas al mismo host).
+- Encabezados: `X-Forwarded-Proto`, `X-Forwarded-For`, `Host`.
 
-Ejemplo mínimo de Nginx (orientativo):
+Ejemplo de Nginx (ver también `~/nginx/sites-available/facturacionima.conf`):
 
 ```
 server {
@@ -176,24 +177,18 @@ server {
     ssl_certificate /etc/letsencrypt/live/facturador-ima.sistemataup.online/fullchain.pem;
     ssl_certificate_key /etc/letsencrypt/live/facturador-ima.sistemataup.online/privkey.pem;
 
-    # Si Nginx envía /api/ a un puerto donde no hay uvicorn → 502. Ajustar al puerto real (8012 con PM2 split es lo habitual).
-    location /api/ {
-        proxy_pass http://127.0.0.1:8012/;
-        proxy_set_header Host $host;
-        proxy_set_header X-Forwarded-Proto https;
-        proxy_set_header X-Forwarded-For $remote_addr;
-    }
-
     location / {
-        proxy_pass http://127.0.0.1:3001/;
+        proxy_pass http://127.0.0.1:3001;
+        proxy_http_version 1.1;
         proxy_set_header Host $host;
-        proxy_set_header X-Forwarded-Proto https;
-        proxy_set_header X-Forwarded-For $remote_addr;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
     }
 }
 ```
 
-Si usáis `NEXT_PUBLIC_BACKEND_URL=/api` y las API Routes de Next hacen de proxy al backend, podéis omitir el `location /api/` y dejar solo `location /` hacia `3001` (un solo upstream).
+**No** definir `location /api/` hacia uvicorn: rompe login (`/api/me`), sync (`/api/sync-sheets`) y el resto de proxies en `frontend/src/app/api/`.
 
 Confirma que el certificado y la cadena intermedia estén vigentes.
 

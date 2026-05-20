@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { getBackendServerBases } from '@/lib/backendUrl';
 
 export const dynamic = 'force-dynamic';
 
@@ -13,15 +14,7 @@ export async function GET(
         return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
     }
 
-    const internal = process.env.BACKEND_INTERNAL_URL?.trim();
-    const publicBase = process.env.NEXT_PUBLIC_BACKEND_URL?.trim();
-    const fallbackLocal = 'http://127.0.0.1:8008';
-    const bases = [internal, publicBase, fallbackLocal].filter(Boolean) as string[];
-    const uniqBases: string[] = [];
-    for (const b of bases) {
-        const clean = b.replace(/\/$/, '');
-        if (!uniqBases.includes(clean)) uniqBases.push(clean);
-    }
+    const uniqBases = getBackendServerBases();
 
     for (const base of uniqBases) {
         const candidates = [

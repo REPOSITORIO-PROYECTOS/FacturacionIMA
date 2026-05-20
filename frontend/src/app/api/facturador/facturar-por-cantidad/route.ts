@@ -1,3 +1,5 @@
+import { getBackendInternalBase, getBackendServerBases } from '@/lib/backendUrl';
+
 // Proxy robusto para /api/facturador/facturar-por-cantidad
 // Incluye:
 //  - Preferencia por BACKEND_INTERNAL_URL si existe
@@ -13,18 +15,7 @@ export async function POST(request: Request): Promise<Response> {
         try { return new URL(request.url).host; } catch { return null; }
     })();
 
-    // Bases en orden de preferencia
-    const internal = process.env.BACKEND_INTERNAL_URL?.trim();
-    const publicBase = process.env.NEXT_PUBLIC_BACKEND_URL?.trim();
-    const fallbackLocal = 'http://127.0.0.1:8008';
-
-    const bases = [internal, publicBase, fallbackLocal].filter(Boolean) as string[];
-    // Sanitizar barras finales
-    const uniqBases: string[] = [];
-    for (const b of bases) {
-        const clean = b!.replace(/\/$/, '');
-        if (!uniqBases.includes(clean)) uniqBases.push(clean);
-    }
+    const uniqBases = getBackendServerBases();
 
     // Para cada base probamos dos rutas: sin /api y con /api (para ambientes con API_PREFIX)
     const urlObj = new URL(request.url);
@@ -50,7 +41,7 @@ export async function POST(request: Request): Promise<Response> {
                 // Evitar recursión: si base apunta al mismo host del front y no es internal, saltar
                 try {
                     const h = new URL(rawTarget).host;
-                    if (clientHost && h === clientHost && base !== internal) {
+                    if (clientHost && h === clientHost && base !== getBackendInternalBase()) {
                         attempted.push({ target: rawTarget, error: 'same_host_skipped' });
                         continue;
                     }

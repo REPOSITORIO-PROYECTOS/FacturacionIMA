@@ -1,3 +1,5 @@
+import { getBackendInternalBase, joinBackendUrl } from '@/lib/backendUrl';
+
 export async function POST(req: Request) {
     // Extraer ingreso_id desde la URL: /api/boletas/imprimir/{ingreso_id}
     const url = new URL(req.url);
@@ -6,8 +8,10 @@ export async function POST(req: Request) {
     const token = req.headers?.get('authorization') ?? '';
     const body = await req.json().catch(() => ({} as Record<string, unknown>));
 
-    const backendUrl = process.env.BACKEND_URL || process.env.NEXT_PUBLIC_BACKEND_URL || 'http://127.0.0.1:8008';
-    const target = `${backendUrl}/boletas/${encodeURIComponent(ingreso_id)}/facturar-e-imprimir`;
+    const target = joinBackendUrl(
+        getBackendInternalBase(),
+        `/boletas/${encodeURIComponent(ingreso_id)}/facturar-e-imprimir`
+    );
 
     const r = await fetch(target, {
         method: 'POST',

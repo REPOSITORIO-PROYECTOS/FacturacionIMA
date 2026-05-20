@@ -4,9 +4,10 @@
 // o (3) Prefijo /api duplicado ausente/presente generando 404 y fallback devolviendo objeto vacío.
 // Estrategia: construir bases dinámicamente, evitar recursion y devolver 206 si la respuesta 200 no es array.
 
+import { getBackendInternalBase } from '@/lib/backendUrl';
+
 const envBase = process.env.NEXT_PUBLIC_BACKEND_URL || '';
-const internalOverride = process.env.BACKEND_INTERNAL_URL || '';
-const fallbackBoletas = internalOverride || 'http://127.0.0.1:8008';
+const fallbackBoletas = getBackendInternalBase();
 
 function sanitizeBase(u: string): string { return u.replace(/\/$/, ''); }
 

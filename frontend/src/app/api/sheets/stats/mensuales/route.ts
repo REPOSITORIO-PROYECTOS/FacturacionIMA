@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { getBackendServerBases, joinBackendUrl } from '@/lib/backendUrl';
 
 export const dynamic = 'force-dynamic';
 
@@ -9,17 +10,12 @@ export async function GET(request: NextRequest) {
         return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
     }
 
-    const basesRaw = [
-        process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8008',
-        process.env.BACKEND_INTERNAL_URL || 'http://127.0.0.1:8008',
-    ];
-
-    const bases = Array.from(new Set(basesRaw.map(b => b.replace(/\/$/, ''))));
+    const bases = getBackendServerBases();
 
     for (const base of bases) {
         try {
             // Intentamos la ruta base definida en el APIRouter del backend
-            const url = `${base}/sheets/stats/mensuales`;
+            const url = joinBackendUrl(base, '/sheets/stats/mensuales');
             console.log(`[Stats Mensuales] Intentando: ${url}`);
 
             const res = await fetch(url, {

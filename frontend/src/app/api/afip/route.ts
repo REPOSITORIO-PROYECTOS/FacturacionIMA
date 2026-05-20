@@ -1,8 +1,10 @@
 // Proxy AFIP reforzado: evita recursión cuando NEXT_PUBLIC_BACKEND_URL apunta al mismo host que el frontend
 // y agrega fallback interno (BACKEND_INTERNAL_URL o localhost). También estandariza diagnósticos.
+import { getBackendInternalBase } from '@/lib/backendUrl';
+
 const envBase = process.env.NEXT_PUBLIC_BACKEND_URL || '';
 const internalOverride = process.env.BACKEND_INTERNAL_URL || '';
-const fallbackBase = internalOverride || 'http://127.0.0.1:8008';
+const fallbackBase = getBackendInternalBase();
 
 function sanitize(u: string) { return u.replace(/\/$/, ''); }
 function buildBases(incomingHost: string): string[] {

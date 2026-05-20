@@ -1,10 +1,10 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-const internalBase = process.env.BACKEND_INTERNAL_URL;
-const publicBase = process.env.NEXT_PUBLIC_BACKEND_URL;
-const baseCandidates = [internalBase, publicBase, 'http://127.0.0.1:8008'].filter(Boolean) as string[];
+import { getBackendProxyBases, joinBackendUrl } from '@/lib/backendUrl';
+
+const baseCandidates = getBackendProxyBases();
 
 function joinUrl(base: string, path: string) {
-  return base.replace(/\/+$/, '') + '/' + path.replace(/^\/+/, '');
+  return joinBackendUrl(base, path);
 }
 
 export async function POST(request: Request): Promise<Response> {

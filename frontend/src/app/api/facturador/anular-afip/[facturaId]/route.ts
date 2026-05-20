@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { getBackendServerBases } from '@/lib/backendUrl'
 
 export async function POST(request: NextRequest, context: { params: Promise<{ facturaId: string }> }) {
   const auth = request.headers.get('authorization')
@@ -7,11 +8,7 @@ export async function POST(request: NextRequest, context: { params: Promise<{ fa
   const motivo = typeof body?.motivo === 'string' ? body.motivo : undefined
   const force = Boolean(body?.force)
   if (!auth) return NextResponse.json({ error: 'No autenticado' }, { status: 401 })
-  const basesRaw = [
-    process.env.BACKEND_INTERNAL_URL || 'http://127.0.0.1:8008',
-    process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8008',
-  ]
-  const bases = Array.from(new Set(basesRaw.map(b => b.replace(/\/$/, ''))))
+  const bases = getBackendServerBases()
   const host = (() => { try { return new URL(request.url).host } catch { return null } })()
   const policy = 'strict-origin-when-cross-origin'
   const urlObj = new URL(request.url)

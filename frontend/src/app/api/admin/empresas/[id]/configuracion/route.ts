@@ -1,12 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { getBackendInternalBase, joinBackendUrl } from '@/lib/backendUrl'
 
-const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://127.0.0.1:8008'
+const BACKEND_URL = getBackendInternalBase()
 
 export async function GET(request: NextRequest, context: any) {
   const { params } = context
   const authHeader = request.headers.get('authorization')
   if (!authHeader) return NextResponse.json({ detail: 'Token de autorización ausente' }, { status: 401 })
-  const url = `${BACKEND_URL}/admin/empresas/${params.id}`
+  const url = joinBackendUrl(BACKEND_URL, `/admin/empresas/${params.id}`)
   try {
     const res = await fetch(url, { headers: { Authorization: authHeader } })
     const data = await res.json()
@@ -20,7 +21,7 @@ export async function PUT(request: NextRequest, context: any) {
   const { params } = context
   const authHeader = request.headers.get('authorization')
   if (!authHeader) return NextResponse.json({ detail: 'Token de autorización ausente' }, { status: 401 })
-  const url = `${BACKEND_URL}/admin/empresas/${params.id}/configuracion`
+  const url = joinBackendUrl(BACKEND_URL, `/admin/empresas/${params.id}/configuracion`)
   try {
     const res = await fetch(url, {
       method: 'PUT',

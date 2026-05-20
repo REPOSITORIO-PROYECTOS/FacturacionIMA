@@ -1,8 +1,7 @@
 // Proxy dinámico para actualizar usuario (PUT) y desactivar (POST /desactivar).
-const primaryBaseUsr = process.env.NEXT_PUBLIC_BACKEND_URL || '';
-const internalBaseUsr = process.env.BACKEND_INTERNAL_URL || '';
-const fallbackBaseUsr = internalBaseUsr || 'http://127.0.0.1:8008';
-const basesUsr = primaryBaseUsr ? [primaryBaseUsr, fallbackBaseUsr] : [fallbackBaseUsr];
+import { getBackendServerBases } from '@/lib/backendUrl';
+
+const basesUsr = getBackendServerBases();
 
 function buildTargets(username: string, verb: 'PUT' | 'POST', isDeactivate: boolean): string[] {
     const suffix = isDeactivate ? `usuarios/${username}/desactivar` : `usuarios/${username}`;

@@ -1,12 +1,7 @@
-// Proxy para /api/boletas/repartidores -> backend /boletas/repartidores
-const primaryBoletas = process.env.NEXT_PUBLIC_BACKEND_URL;
-const fallbackBoletas = 'http://127.0.0.1:8008';
-const boletasBases = primaryBoletas ? [primaryBoletas, fallbackBoletas] : [fallbackBoletas];
-if (!primaryBoletas) {
-    console.warn('[api/boletas/repartidores] NEXT_PUBLIC_BACKEND_URL no configurada — usando fallback local.');
-} else {
-    console.log(`[api/boletas/repartidores] Usando backend primario ${primaryBoletas} con fallback ${fallbackBoletas}`);
-}
+import { getBackendServerBases } from '@/lib/backendUrl';
+
+const boletasBases = getBackendServerBases();
+console.log(`[api/boletas/repartidores] Bases: ${boletasBases.join(', ')}`);
 
 export async function GET(request: Request): Promise<Response> {
     const token = request.headers.get('authorization')?.split(' ')[1];

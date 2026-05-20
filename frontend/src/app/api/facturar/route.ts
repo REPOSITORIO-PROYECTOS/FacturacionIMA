@@ -3,10 +3,10 @@
 // Implementa estrategia multi-base + detección de HTML (misconfiguración) y evita recursión.
 
 import type { FacturarRequest, FacturarResponse, InvoiceItemPayload } from "@/types/facturar";
+import { getBackendInternalBase } from '@/lib/backendUrl';
 
 const envBase = process.env.NEXT_PUBLIC_BACKEND_URL || '';
-const internalOverride = process.env.BACKEND_INTERNAL_URL || '';
-const localFallback = internalOverride || 'http://127.0.0.1:8008';
+const localFallback = getBackendInternalBase();
 
 function sanitizeBase(u: string): string { return u.replace(/\/$/, ''); }
 
@@ -110,7 +110,7 @@ export async function POST(request: Request): Promise<Response> {
     let base = sanitizeBase(bases[i]);
     try {
       const h = new URL(base).host;
-      if (h === incomingHost && !internalOverride) {
+      if (h === incomingHost && !process.env.BACKEND_INTERNAL_URL) {
         console.warn(`[api/facturar] Saltando base ${base} (mismo host ${incomingHost}) para evitar recursión. Configure BACKEND_INTERNAL_URL.`);
         continue;
       }

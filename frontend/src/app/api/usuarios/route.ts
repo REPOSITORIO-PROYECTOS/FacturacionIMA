@@ -1,8 +1,6 @@
-// Lista de usuarios con fallback multi-base y detección de HTML erróneo
-const primaryBaseU = process.env.NEXT_PUBLIC_BACKEND_URL || '';
-const internalBaseU = process.env.BACKEND_INTERNAL_URL || '';
-const fallbackBaseU = internalBaseU || 'http://127.0.0.1:8008';
-const basesUsuarios = primaryBaseU ? [primaryBaseU, fallbackBaseU] : [fallbackBaseU];
+import { getBackendServerBases, joinBackendUrl } from '@/lib/backendUrl';
+
+const basesUsuarios = getBackendServerBases();
 
 function join(base: string, path: string) { return base.replace(/\/+$/, '') + '/' + path.replace(/^\/+/, ''); }
 

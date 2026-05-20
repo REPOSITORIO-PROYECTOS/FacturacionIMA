@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { getBackendServerBases } from '@/lib/backendUrl';
 
 export const dynamic = 'force-dynamic';
 
@@ -16,16 +17,7 @@ export async function GET(request: NextRequest) {
     // IMPORTANTE: evitar recursión.
     // NEXT_PUBLIC_BACKEND_URL suele ser "/api" en producción (proxy del propio frontend),
     // y usarlo aquí provocaría fetch circular al mismo route handler.
-    const internal = (process.env.BACKEND_INTERNAL_URL || '').trim();
-    const publicBase = (process.env.NEXT_PUBLIC_BACKEND_URL || '').trim();
-    const candidates = [internal, publicBase, 'http://127.0.0.1:8012', 'http://127.0.0.1:8008'];
-    const bases = Array.from(
-        new Set(
-            candidates
-                .map((b) => b.replace(/\/$/, ''))
-                .filter((b) => Boolean(b) && /^https?:\/\//i.test(b))
-        )
-    );
+    const bases = getBackendServerBases();
     const params = new URLSearchParams();
     // Copiar todos los parámetros de la petición original para no perder filtros
     for (const [key, value] of searchParams.entries()) {

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { getBackendInternalBase, joinBackendUrl } from '@/lib/backendUrl';
 
-const BACKEND_URL = process.env.BACKEND_URL || process.env.NEXT_PUBLIC_BACKEND_URL || 'http://127.0.0.1:8008';
+const BACKEND_URL = getBackendInternalBase();
 
 // Usamos 'any' para evitar el conflicto de tipos del build de Next.js
 export async function GET(request: NextRequest, context: any) {
@@ -11,7 +12,7 @@ export async function GET(request: NextRequest, context: any) {
         return NextResponse.json({ detail: 'Token de autorización ausente' }, { status: 401 });
     }
 
-    const url = `${BACKEND_URL}/admin/empresas/${params.id}`;
+    const url = joinBackendUrl(BACKEND_URL, `/admin/empresas/${params.id}`);
     console.log(`[API /admin/empresas/id] Intentando conectar a: ${url}`); // LOG AÑADIDO
 
     try {
@@ -42,7 +43,7 @@ export async function PUT(request: NextRequest, context: any) {
         return NextResponse.json({ detail: 'Token de autorización ausente' }, { status: 401 });
     }
 
-    const url = `${BACKEND_URL}/admin/empresas/${params.id}`;
+    const url = joinBackendUrl(BACKEND_URL, `/admin/empresas/${params.id}`);
 
     try {
         const response = await fetch(url, {

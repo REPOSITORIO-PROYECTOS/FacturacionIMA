@@ -1,12 +1,8 @@
 // Proxy GET /api/auth/me -> backend /auth/me (o /api/auth/me) con fallback
 // Similar a /api/auth login pero solo lectura y requiere Authorization.
-const internalBase = process.env.BACKEND_INTERNAL_URL;
-const primaryBase = process.env.NEXT_PUBLIC_BACKEND_URL;
-const baseCandidates = [internalBase, primaryBase, 'http://127.0.0.1:8008'].filter(Boolean) as string[];
+import { getBackendProxyBases, joinBackendUrl } from '@/lib/backendUrl';
 
-function joinUrl(base: string, path: string) {
-    return base.replace(/\/+$/, '') + '/' + path.replace(/^\/+/, '');
-}
+const baseCandidates = getBackendProxyBases();
 
 export async function GET(request: Request): Promise<Response> {
     const auth = request.headers.get('authorization');
@@ -15,8 +11,8 @@ export async function GET(request: Request): Promise<Response> {
     }
     const endpoints: string[] = [];
     for (const base of baseCandidates) {
-        endpoints.push(joinUrl(base, '/auth/me'));
-        endpoints.push(joinUrl(base, '/api/auth/me'));
+        endpoints.push(joinBackendUrl(base, '/auth/me'));
+        endpoints.push(joinBackendUrl(base, '/api/auth/me'));
     }
     for (const endpoint of endpoints) {
         try {

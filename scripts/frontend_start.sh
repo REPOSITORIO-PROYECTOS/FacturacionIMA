@@ -48,6 +48,22 @@ if [ -d .next ] && [ ! -f .next/server/middleware-manifest.json ]; then
   NEEDS_BUILD=1
 fi
 
+# 5. routes-manifest.json: dataRoutes debe ser array (evita TypeError en runtime)
+if [ -f .next/routes-manifest.json ]; then
+  if ! node -e "
+    const fs = require('fs');
+    const p = '.next/routes-manifest.json';
+    const m = JSON.parse(fs.readFileSync(p, 'utf8'));
+    if (!Array.isArray(m.dataRoutes)) process.exit(1);
+  " 2>/dev/null; then
+    echo "[FRONTEND] routes-manifest.json inválido (dataRoutes no es array) -> rebuild"
+    NEEDS_BUILD=1
+  fi
+elif [ -d .next ]; then
+  echo "[FRONTEND] Falta .next/routes-manifest.json -> rebuild"
+  NEEDS_BUILD=1
+fi
+
 if [ "$NEEDS_BUILD" -eq 1 ]; then
   echo "[FRONTEND] Ejecutando build limpio"
   rm -rf .next

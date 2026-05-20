@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { getBackendInternalBase, joinBackendUrl } from '@/lib/backendUrl';
 
-const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://127.0.0.1:8008';
+const BACKEND_URL = getBackendInternalBase();
 
 async function forwardRequest(request: NextRequest) {
     const authHeader = request.headers.get('authorization');
@@ -8,7 +9,7 @@ async function forwardRequest(request: NextRequest) {
         return NextResponse.json({ detail: 'Token de autorización ausente' }, { status: 401 });
     }
 
-    const url = `${BACKEND_URL}/admin/empresas/`;
+    const url = joinBackendUrl(BACKEND_URL, '/admin/empresas/');
     const method = request.method;
 
     try {

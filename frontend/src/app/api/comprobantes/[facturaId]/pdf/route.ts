@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { getBackendServerBases, joinBackendUrl } from '@/lib/backendUrl';
 
 export const dynamic = 'force-dynamic';
 
@@ -13,14 +14,11 @@ export async function GET(
         return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
     }
 
-    const bases = [
-        process.env.BACKEND_INTERNAL_URL || 'http://127.0.0.1:8008',
-        process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8008',
-    ];
+    const bases = getBackendServerBases();
 
     for (const base of bases) {
         try {
-            const url = `${base.replace(/\/$/, '')}/comprobantes/${facturaId}/pdf`;
+            const url = joinBackendUrl(base, `/comprobantes/${facturaId}/pdf`);
             const res = await fetch(url, {
                 headers: { Authorization: token },
             });

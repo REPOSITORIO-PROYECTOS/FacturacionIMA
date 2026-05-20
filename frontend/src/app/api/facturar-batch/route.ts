@@ -1,10 +1,9 @@
+import { getBackendServerBases } from '@/lib/backendUrl';
+
 // Endpoint alternativo para facturación batch que evita el patrón /api/facturador/* (algunos proxies lo bloquean)
 export async function POST(request: Request): Promise<Response> {
     const token = request.headers.get('authorization')?.split(' ')[1] || '';
-    const internal = process.env.BACKEND_INTERNAL_URL?.trim();
-    const publicBase = process.env.NEXT_PUBLIC_BACKEND_URL?.trim();
-    const fallbackLocal = 'http://127.0.0.1:8008';
-    const bases = [internal, publicBase, fallbackLocal].filter(Boolean) as string[];
+    const bases = getBackendServerBases();
     const body = await request.text();
     const attempts: any[] = [];
     for (const rawBase of bases) {

@@ -2,9 +2,10 @@
 // Problema original: 405 por recursión (NEXT_PUBLIC_BACKEND_URL apunta al frontend, se llamaba /impresion/... en el propio front donde no existe esa ruta).
 // Solución: fallback a BACKEND_INTERNAL_URL o localhost, detección de HTML y diagnóstico estructurado.
 
+import { getBackendInternalBase } from '@/lib/backendUrl';
+
 const envBaseImp = process.env.NEXT_PUBLIC_BACKEND_URL || '';
-const internalImp = process.env.BACKEND_INTERNAL_URL || '';
-const fallbackImp = internalImp || 'http://127.0.0.1:8008';
+const fallbackImp = getBackendInternalBase();
 
 function normBase(b: string) { return b.replace(/\/$/, ''); }
 
@@ -29,7 +30,7 @@ export async function POST(req: Request) {
         let base = bases[i];
         try {
             const host = new URL(base).host;
-            if (host === incomingHost && !internalImp) {
+            if (host === incomingHost && !process.env.BACKEND_INTERNAL_URL) {
                 console.warn(`[api/impresion/:id] Omitiendo base recursiva ${base}`);
                 continue;
             }
